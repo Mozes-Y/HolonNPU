@@ -1,0 +1,81 @@
+name: my_npu CI
+
+on:
+  push:
+    branches: ["master"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: my-npu-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMAKE_PRESET: debug
+  CC: gcc-14
+  CXX: g++-14
+  CTEST_OUTPUT_ON_FAILURE: "1"
+
+jobs:
+  build-test-lint:
+    name: Build, test, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            gcc-14 \
+            g++-14 \
+            python3 \
+            python3-pip \
+            verilator
+          python3 -m pip install --user --break-system-packages --upgrade "cmake>=4.0,<5"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          verilator --version
+          "${CC}" --version
+          "${CXX}" --version
+          python3 --version
+
+      - name: Configure
+        run: cmake --preset "${CMAKE_PRESET}"
+
+      - name: Build
+        run: cmake --build --preset "${CMAKE_PRESET}" --parallel
+
+      - name: Test
+        run: ctest --preset "${CMAKE_PRESET}" --output-on-failure
+
+      - name: RTL lint
+        run: cmake --build --preset "${CMAKE_PRESET}" --target v1_lint --parallel
+
+      - name: Regression build
+        run: cmake --build --preset regression --parallel
+
+      - name: Regression test
+        run: ctest --preset regression --output-on-failure
+
+      - name: Upload CTest logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs
+          if-no-files-found: ignore
+          path: |
+            build/debug/Testing/Temporary/LastTest.log
+            build/debug/CMakeFiles/CMakeConfigureLog.yaml

@@ -938,3 +938,50 @@ Next step:
 
 - Create the v1 release commit and local `v1` tag, then publish after a remote
   URL is configured.
+
+## CI Workflow And Getting Started Documentation
+
+Status: Complete.
+
+Completed work:
+
+- Added `.github/workflows/cmake-single-platform.yml` based on GitHub's CMake
+  single-platform workflow and customized it for the project v1 gate.
+- Configured CI to run on pushes and pull requests to `master`, `v*` tags, and
+  manual dispatch.
+- Configured the `ubuntu-latest` CI runner to install Verilator, GCC/G++ 14,
+  Python 3, and CMake 4.x before running the project presets.
+- Aligned CI commands with the local release gate:
+  - `cmake --preset debug`
+  - `cmake --build --preset debug --parallel`
+  - `ctest --preset debug --output-on-failure`
+  - `cmake --build --preset debug --target v1_lint --parallel`
+  - `cmake --build --preset regression --parallel`
+  - `ctest --preset regression --output-on-failure`
+- Added failure log artifact upload for CTest logs.
+- Expanded `docs/GETTING_STARTED.md` with a GitHub Actions CI section covering
+  trigger conditions, cloud toolchain, commands, failure triage, and local
+  reproduction.
+- Added a root `README.md` pointer to the getting-started guide.
+
+Verification commands:
+
+- `git diff --check`
+- `python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1], encoding="utf-8")); print("workflow yaml parsed")' .github/workflows/cmake-single-platform.yml`
+- `cmake --build --preset debug`
+- `ctest --preset debug --output-on-failure`
+- `cmake --build --preset debug --target v1_lint`
+
+Results:
+
+- Patch whitespace check passed.
+- Workflow YAML parsed successfully with PyYAML.
+- `cmake --build --preset debug` built all simulation and software targets
+  successfully.
+- `ctest --preset debug --output-on-failure` passed `21/21` tests.
+- `cmake --build --preset debug --target v1_lint` passed all aggregate RTL lint
+  targets with Verilator 5.046.
+
+Remaining issues:
+
+- None for the CI workflow and getting-started documentation update.

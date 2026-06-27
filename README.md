@@ -55,6 +55,10 @@ tests/      Host-side driver tests.
 tools/      Project verification utilities.
 ```
 
+Start with `docs/GETTING_STARTED.md` if you want a guided Chinese walkthrough
+of the architecture, code layout, local build flow, testbenches, and GitHub
+Actions CI.
+
 ## Architecture
 
 The v1 product top is `rtl/integration/npu_top.sv`.
