@@ -1,0 +1,10 @@
+build/
+CMakeUserPresets.json
+compile_commands.json
+*.vcd
+*.fst
+*.log
+*.o
+*.a
+*.so
+*.d
