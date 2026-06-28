@@ -1,4 +1,4 @@
-# my_npu Roadmap
+# HolonNPU Roadmap
 
 This document is the single source of truth for planned work. Code changes must
 follow the active phase described here. Interface changes must be documented
@@ -470,10 +470,10 @@ Allowed edit scope:
 
 Deliverables:
 
-- `my_npu_regs.h`.
-- `my_npu_desc.h`.
-- `my_npu_driver.c`.
-- `my_npu_driver.h`.
+- `holon_npu_regs.h`.
+- `holon_npu_desc.h`.
+- `holon_npu_driver.c`.
+- `holon_npu_driver.h`.
 - Host-side driver test.
 
 Acceptance criteria:

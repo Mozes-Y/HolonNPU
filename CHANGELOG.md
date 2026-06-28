@@ -2,6 +2,16 @@
 
 All notable project-level release changes are recorded here.
 
+## Unreleased
+
+### Changed
+
+- Renamed the project identity to HolonNPU.
+- Renamed the public C API, ABI headers, driver targets, tests, documentation,
+  and CI branding to use `holon_npu_*` / `HOLON_NPU_*` names.
+- Kept internal RTL `npu_*` names unchanged because they describe generic
+  hardware blocks rather than the project brand.
+
 ## v1 - 2026-06-27
 
 Initial roadmap-complete release.

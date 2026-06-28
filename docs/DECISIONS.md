@@ -561,7 +561,7 @@ Decision:
   descriptor layout.
 - The C driver lives under `sw/` and exposes init, capability, descriptor build,
   submit, poll, wait, error, clear, and performance APIs.
-- `my_npu_gemm_desc_t` uses the natural C layout plus compile-time size and
+- `holon_npu_gemm_desc_t` uses the natural C layout plus compile-time size and
   offset checks instead of a packed layout.
 - The driver validates descriptor flags, dimensions, tensor alignment, row
   strides, descriptor physical address alignment, and busy status before
@@ -770,6 +770,65 @@ Impact:
 - Future multi-outstanding DMA or multi-queue work must revisit owner release
   and terminal epoch tracking explicitly.
 
+## ADR-0017: Formal Project Rename To HolonNPU
+
+Status: Accepted.
+
+Date: 2026-06-28.
+
+Context:
+
+- The upstream repository and project identity were renamed from `my_npu` to
+  `HolonNPU`.
+- The v1 public C API used the old project prefix in header filenames, macros,
+  types, functions, CMake targets, tests, and ABI consistency tooling.
+- RTL module names, RTL filenames, and `NPU_*` SystemVerilog package constants
+  describe generic hardware blocks and ABI fields rather than the project brand.
+
+Decision:
+
+- Use `HolonNPU` as the formal project and documentation display name.
+- Rename the public C API and ABI headers from `my_npu_*` / `MY_NPU_*` to
+  `holon_npu_*` / `HOLON_NPU_*`.
+- Do not keep compatibility aliases for the former public C API names.
+- Keep internal RTL module names, RTL filenames, and SystemVerilog `NPU_*`
+  constants unchanged.
+- Update CMake project metadata, driver targets, CTest names, CI branding,
+  documentation, examples, and the ABI checker to the new public name.
+
+Rationale:
+
+- The public C API is still pre-stabilization beyond v1 source release scope, so
+  a clean breaking rename is simpler and less ambiguous than carrying duplicate
+  legacy names.
+- Avoiding aliases prevents firmware and tests from silently mixing old and new
+  API surfaces.
+- Keeping RTL `npu_*` names preserves stable hardware-internal terminology and
+  avoids noisy RTL churn that does not improve the external contract.
+- Preserving historical progress entries with their original command names keeps
+  the project log accurate instead of rewriting past verification records.
+
+Alternatives:
+
+- Keep the old public C API as compatibility aliases. Rejected because it would
+  expand the supported surface before the API has external compatibility
+  obligations.
+- Rename every RTL module and file to include `holon_npu`. Rejected because the
+  existing RTL names describe block function cleanly and are not old brand
+  leakage.
+- Rewrite historical progress records to remove all former names. Rejected
+  because the progress log is an audit trail of commands that actually ran.
+
+Impact:
+
+- Firmware and host code must include `holon_npu_regs.h`,
+  `holon_npu_desc.h`, and `holon_npu_driver.h`.
+- Firmware and host code must use `HOLON_NPU_*` macros and `holon_npu_*`
+  public types/functions.
+- `tools/check_abi_consistency.py` compares RTL `NPU_*` constants against C
+  `HOLON_NPU_*` constants.
+- The existing `v1` git tag remains unchanged and is not moved or recreated.
+
 ## Resolved Phase 2 Decisions
 
 - AXI-Lite register offsets, access modes, reset values, and side effects are
@@ -797,3 +856,5 @@ Impact:
   integration, and ABI consistency checking are recorded in ADR-0015.
 - AXI read-error drain and terminal epoch restart semantics are recorded in
   ADR-0016.
+- The formal HolonNPU project rename and public C API breaking rename are
+  recorded in ADR-0017.

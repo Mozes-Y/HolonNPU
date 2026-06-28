@@ -1,4 +1,4 @@
-# my_npu Architecture
+# HolonNPU Architecture
 
 This document describes the v1 architecture that later RTL phases must
 implement. Interfaces and ABI details are frozen in `docs/INTERFACE.md`.
@@ -260,17 +260,17 @@ Responsibilities:
 
 Phase 10 implementation:
 
-- `include/my_npu_regs.h` defines the v1 register offsets, status bits,
+- `include/holon_npu_regs.h` defines the v1 register offsets, status bits,
   interrupt bits, clear masks, reset constants, and hardware error codes.
-- `include/my_npu_desc.h` defines `my_npu_gemm_desc_t` and
-  `my_npu_gemm_config_t`, with compile-time descriptor size and offset checks.
-- `sw/my_npu_driver.h` exposes the driver API and result/status/performance
+- `include/holon_npu_desc.h` defines `holon_npu_gemm_desc_t` and
+  `holon_npu_gemm_config_t`, with compile-time descriptor size and offset checks.
+- `sw/holon_npu_driver.h` exposes the driver API and result/status/performance
   types.
-- `sw/my_npu_driver.c` implements init, capability reads, descriptor build,
+- `sw/holon_npu_driver.c` implements init, capability reads, descriptor build,
   submit, poll, wait, error read, clear, and performance read operations.
-- `my_npu_submit` checks descriptor physical address alignment and
+- `holon_npu_submit` checks descriptor physical address alignment and
   `STATUS.BUSY` before writing descriptor address registers or doorbell.
-- `my_npu_build_gemm_desc` validates descriptor flags, dimensions, tensor
+- `holon_npu_build_gemm_desc` validates descriptor flags, dimensions, tensor
   address alignment, row-stride alignment, and minimum row strides before
   filling the descriptor.
 

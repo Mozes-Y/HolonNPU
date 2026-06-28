@@ -1,7 +1,7 @@
 #include "Vnpu_command_processor_test_top.h"
 
-#include "my_npu_desc.h"
-#include "my_npu_regs.h"
+#include "holon_npu_desc.h"
+#include "holon_npu_regs.h"
 
 #include <array>
 #include <cstddef>
@@ -18,15 +18,15 @@ namespace {
 
 constexpr std::uint32_t kRespOkay = 0;
 constexpr std::uint32_t kRespSlvErr = 2;
-constexpr std::uint32_t kErrInvalidVersion = MY_NPU_ERR_INVALID_DESC_VERSION;
-constexpr std::uint32_t kErrInvalidOpcode = MY_NPU_ERR_INVALID_OPCODE;
-constexpr std::uint32_t kErrInvalidSize = MY_NPU_ERR_INVALID_DESC_SIZE;
-constexpr std::uint32_t kErrInvalidFlags = MY_NPU_ERR_INVALID_FLAGS;
-constexpr std::uint32_t kErrUnsupportedAlignment = MY_NPU_ERR_UNSUPPORTED_ALIGNMENT;
-constexpr std::uint32_t kErrAxiRead = MY_NPU_ERR_AXI_READ;
-constexpr std::uint32_t kErrReservedNonzero = MY_NPU_ERR_RESERVED_NONZERO;
-constexpr std::uint32_t kErrDimensionZero = MY_NPU_ERR_DIMENSION_ZERO;
-constexpr std::uint32_t kErrDimensionUnsupported = MY_NPU_ERR_DIMENSION_UNSUPPORTED;
+constexpr std::uint32_t kErrInvalidVersion = HOLON_NPU_ERR_INVALID_DESC_VERSION;
+constexpr std::uint32_t kErrInvalidOpcode = HOLON_NPU_ERR_INVALID_OPCODE;
+constexpr std::uint32_t kErrInvalidSize = HOLON_NPU_ERR_INVALID_DESC_SIZE;
+constexpr std::uint32_t kErrInvalidFlags = HOLON_NPU_ERR_INVALID_FLAGS;
+constexpr std::uint32_t kErrUnsupportedAlignment = HOLON_NPU_ERR_UNSUPPORTED_ALIGNMENT;
+constexpr std::uint32_t kErrAxiRead = HOLON_NPU_ERR_AXI_READ;
+constexpr std::uint32_t kErrReservedNonzero = HOLON_NPU_ERR_RESERVED_NONZERO;
+constexpr std::uint32_t kErrDimensionZero = HOLON_NPU_ERR_DIMENSION_ZERO;
+constexpr std::uint32_t kErrDimensionUnsupported = HOLON_NPU_ERR_DIMENSION_UNSUPPORTED;
 
 struct Burst {
     std::uint64_t addr = 0;
@@ -39,7 +39,7 @@ struct ObservedBurst {
     std::uint32_t beats = 0;
 };
 
-using Descriptor = std::array<std::uint8_t, MY_NPU_DESC_SIZE>;
+using Descriptor = std::array<std::uint8_t, HOLON_NPU_DESC_SIZE>;
 
 void eval(Vnpu_command_processor_test_top& dut) {
     dut.eval();
@@ -105,19 +105,19 @@ void put64(Descriptor& desc, std::size_t offset, std::uint64_t value) {
 
 Descriptor make_valid_descriptor() {
     Descriptor desc{};
-    put16(desc, offsetof(my_npu_gemm_desc_t, size_bytes), MY_NPU_DESC_SIZE);
-    desc.at(offsetof(my_npu_gemm_desc_t, version)) = MY_NPU_ABI_MAJOR;
-    desc.at(offsetof(my_npu_gemm_desc_t, opcode)) = MY_NPU_OPCODE_GEMM_I8I8I32;
-    put32(desc, offsetof(my_npu_gemm_desc_t, flags), MY_NPU_DESC_FLAG_VALID_MASK);
-    put32(desc, offsetof(my_npu_gemm_desc_t, m), 17);
-    put32(desc, offsetof(my_npu_gemm_desc_t, n), 19);
-    put32(desc, offsetof(my_npu_gemm_desc_t, k), 23);
-    put64(desc, offsetof(my_npu_gemm_desc_t, a_addr), 0x1000);
-    put64(desc, offsetof(my_npu_gemm_desc_t, b_addr), 0x2000);
-    put64(desc, offsetof(my_npu_gemm_desc_t, c_addr), 0x3000);
-    put32(desc, offsetof(my_npu_gemm_desc_t, a_row_stride_bytes), 32);
-    put32(desc, offsetof(my_npu_gemm_desc_t, b_row_stride_bytes), 32);
-    put32(desc, offsetof(my_npu_gemm_desc_t, c_row_stride_bytes), 80);
+    put16(desc, offsetof(holon_npu_gemm_desc_t, size_bytes), HOLON_NPU_DESC_SIZE);
+    desc.at(offsetof(holon_npu_gemm_desc_t, version)) = HOLON_NPU_ABI_MAJOR;
+    desc.at(offsetof(holon_npu_gemm_desc_t, opcode)) = HOLON_NPU_OPCODE_GEMM_I8I8I32;
+    put32(desc, offsetof(holon_npu_gemm_desc_t, flags), HOLON_NPU_DESC_FLAG_VALID_MASK);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, m), 17);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, n), 19);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, k), 23);
+    put64(desc, offsetof(holon_npu_gemm_desc_t, a_addr), 0x1000);
+    put64(desc, offsetof(holon_npu_gemm_desc_t, b_addr), 0x2000);
+    put64(desc, offsetof(holon_npu_gemm_desc_t, c_addr), 0x3000);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, a_row_stride_bytes), 32);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, b_row_stride_bytes), 32);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, c_row_stride_bytes), 80);
     return desc;
 }
 
@@ -284,35 +284,35 @@ bool test_invalid_descriptors(Vnpu_command_processor_test_top& dut) {
     bool ok = true;
 
     auto desc = make_valid_descriptor();
-    put16(desc, offsetof(my_npu_gemm_desc_t, size_bytes), 64);
+    put16(desc, offsetof(holon_npu_gemm_desc_t, size_bytes), 64);
     ok &= run_invalid_descriptor_case(dut, desc, kErrInvalidSize, "bad size");
 
     desc = make_valid_descriptor();
-    desc.at(offsetof(my_npu_gemm_desc_t, version)) = 2;
+    desc.at(offsetof(holon_npu_gemm_desc_t, version)) = 2;
     ok &= run_invalid_descriptor_case(dut, desc, kErrInvalidVersion, "bad version");
 
     desc = make_valid_descriptor();
-    desc.at(offsetof(my_npu_gemm_desc_t, opcode)) = 2;
+    desc.at(offsetof(holon_npu_gemm_desc_t, opcode)) = 2;
     ok &= run_invalid_descriptor_case(dut, desc, kErrInvalidOpcode, "bad opcode");
 
     desc = make_valid_descriptor();
-    put32(desc, offsetof(my_npu_gemm_desc_t, flags), 0x8);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, flags), 0x8);
     ok &= run_invalid_descriptor_case(dut, desc, kErrInvalidFlags, "bad flags");
 
     desc = make_valid_descriptor();
-    put32(desc, offsetof(my_npu_gemm_desc_t, m), 0);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, m), 0);
     ok &= run_invalid_descriptor_case(dut, desc, kErrDimensionZero, "zero dimension");
 
     desc = make_valid_descriptor();
-    put32(desc, offsetof(my_npu_gemm_desc_t, n), 65536);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, n), 65536);
     ok &= run_invalid_descriptor_case(dut, desc, kErrDimensionUnsupported, "unsupported dimension");
 
     desc = make_valid_descriptor();
-    put64(desc, offsetof(my_npu_gemm_desc_t, a_addr), 0x1003);
+    put64(desc, offsetof(holon_npu_gemm_desc_t, a_addr), 0x1003);
     ok &= run_invalid_descriptor_case(dut, desc, kErrUnsupportedAlignment, "bad tensor alignment");
 
     desc = make_valid_descriptor();
-    put32(desc, offsetof(my_npu_gemm_desc_t, reserved_14), 1);
+    put32(desc, offsetof(holon_npu_gemm_desc_t, reserved_14), 1);
     ok &= run_invalid_descriptor_case(dut, desc, kErrReservedNonzero, "reserved nonzero");
 
     return ok;
@@ -348,35 +348,35 @@ bool test_descriptor_fuzz(Vnpu_command_processor_test_top& dut) {
 
         switch (selector) {
             case 0:
-                put16(desc, offsetof(my_npu_gemm_desc_t, size_bytes), static_cast<std::uint16_t>(seed));
+                put16(desc, offsetof(holon_npu_gemm_desc_t, size_bytes), static_cast<std::uint16_t>(seed));
                 expected_error = kErrInvalidSize;
                 break;
             case 1:
-                desc.at(offsetof(my_npu_gemm_desc_t, version)) = static_cast<std::uint8_t>(2U + (seed & 3U));
+                desc.at(offsetof(holon_npu_gemm_desc_t, version)) = static_cast<std::uint8_t>(2U + (seed & 3U));
                 expected_error = kErrInvalidVersion;
                 break;
             case 2:
-                desc.at(offsetof(my_npu_gemm_desc_t, opcode)) = static_cast<std::uint8_t>(2U + (seed & 7U));
+                desc.at(offsetof(holon_npu_gemm_desc_t, opcode)) = static_cast<std::uint8_t>(2U + (seed & 7U));
                 expected_error = kErrInvalidOpcode;
                 break;
             case 3:
-                put32(desc, offsetof(my_npu_gemm_desc_t, flags), 0x8U | (seed << 4));
+                put32(desc, offsetof(holon_npu_gemm_desc_t, flags), 0x8U | (seed << 4));
                 expected_error = kErrInvalidFlags;
                 break;
             case 4:
-                put32(desc, offsetof(my_npu_gemm_desc_t, k), 0);
+                put32(desc, offsetof(holon_npu_gemm_desc_t, k), 0);
                 expected_error = kErrDimensionZero;
                 break;
             case 5:
-                put32(desc, offsetof(my_npu_gemm_desc_t, m), 65536U + seed);
+                put32(desc, offsetof(holon_npu_gemm_desc_t, m), 65536U + seed);
                 expected_error = kErrDimensionUnsupported;
                 break;
             case 6:
-                put64(desc, offsetof(my_npu_gemm_desc_t, c_addr), 0x3001U + (seed << 4));
+                put64(desc, offsetof(holon_npu_gemm_desc_t, c_addr), 0x3001U + (seed << 4));
                 expected_error = kErrUnsupportedAlignment;
                 break;
             default:
-                desc.at(offsetof(my_npu_gemm_desc_t, reserved_40) + (seed % 64U)) =
+                desc.at(offsetof(holon_npu_gemm_desc_t, reserved_40) + (seed % 64U)) =
                     static_cast<std::uint8_t>(seed + 1U);
                 expected_error = kErrReservedNonzero;
                 break;

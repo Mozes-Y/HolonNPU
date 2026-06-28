@@ -1,14 +1,14 @@
-# my_npu 新手入门教程
+# HolonNPU 新手入门教程
 
 本文是一份面向新手的项目导览。目标是从最基础的概念开始，带你一步一步理解
-`my_npu` 的设计、代码结构、运行方式、验证方法，以及以后如何安全地上手修改
+`HolonNPU` 的设计、代码结构、运行方式、验证方法，以及以后如何安全地上手修改
 这个项目。
 
 如果你现在已经不太记得项目各部分的设计情况，可以按本文的顺序重新进入项目。
 
 ## 1. 项目一句话介绍
 
-`my_npu` 是一个用 SystemVerilog 实现的 v1 INT8 GEMM NPU。
+`HolonNPU` 是一个用 SystemVerilog 实现的 v1 INT8 GEMM NPU。
 
 它的主要功能是加速矩阵乘法：
 
@@ -109,7 +109,7 @@ Descriptor 里包含：
 
 对应头文件：
 
-- `include/my_npu_desc.h`
+- `include/holon_npu_desc.h`
 
 对应 RTL 解析：
 
@@ -151,7 +151,7 @@ DOORBELL.START = 1
 这些寄存器定义在：
 
 - `docs/INTERFACE.md`
-- `include/my_npu_regs.h`
+- `include/holon_npu_regs.h`
 - `rtl/common/npu_pkg.sv`
 
 ### 3.3 Control plane 启动 command processor
@@ -396,8 +396,8 @@ npu_axi4_if.sv
 
 这些值必须和 C header 一致：
 
-- `include/my_npu_regs.h`
-- `include/my_npu_desc.h`
+- `include/holon_npu_regs.h`
+- `include/holon_npu_desc.h`
 
 一致性由这个工具检查：
 
@@ -445,7 +445,7 @@ rtl/control/npu_control_regs.sv
 学习时建议同时打开：
 
 - `docs/INTERFACE.md`
-- `include/my_npu_regs.h`
+- `include/holon_npu_regs.h`
 - `sim/control_tb.cpp`
 
 重点观察：
@@ -750,11 +750,11 @@ tests/
 文件：
 
 ```text
-include/my_npu_regs.h
-include/my_npu_desc.h
+include/holon_npu_regs.h
+include/holon_npu_desc.h
 ```
 
-### my_npu_regs.h
+### holon_npu_regs.h
 
 定义：
 
@@ -765,7 +765,7 @@ include/my_npu_desc.h
 - clear bit。
 - hardware error code。
 
-### my_npu_desc.h
+### holon_npu_desc.h
 
 定义：
 
@@ -775,28 +775,28 @@ include/my_npu_desc.h
 - descriptor flags。
 - static assert 检查字段 offset 和 size。
 
-`my_npu_gemm_desc_t` 必须正好 128 bytes。
+`holon_npu_gemm_desc_t` 必须正好 128 bytes。
 
 ## 7.2 C Driver
 
 文件：
 
 ```text
-sw/my_npu_driver.h
-sw/my_npu_driver.c
+sw/holon_npu_driver.h
+sw/holon_npu_driver.c
 ```
 
 driver 提供：
 
-- `my_npu_init`
-- `my_npu_get_caps`
-- `my_npu_build_gemm_desc`
-- `my_npu_submit`
-- `my_npu_poll`
-- `my_npu_wait`
-- `my_npu_error`
-- `my_npu_clear`
-- `my_npu_read_perf`
+- `holon_npu_init`
+- `holon_npu_get_caps`
+- `holon_npu_build_gemm_desc`
+- `holon_npu_submit`
+- `holon_npu_poll`
+- `holon_npu_wait`
+- `holon_npu_error`
+- `holon_npu_clear`
+- `holon_npu_read_perf`
 
 driver 做本地参数检查，例如：
 
@@ -820,16 +820,16 @@ driver 不做：
 示例：
 
 ```c
-my_npu_dev_t dev;
-my_npu_init(&dev, mmio_base);
+holon_npu_dev_t dev;
+holon_npu_init(&dev, mmio_base);
 
-my_npu_gemm_config_t cfg = {
+holon_npu_gemm_config_t cfg = {
     .m = M,
     .n = N,
     .k = K,
-    .flags = MY_NPU_DESC_FLAG_IRQ_ON_DONE |
-             MY_NPU_DESC_FLAG_IRQ_ON_ERROR |
-             MY_NPU_DESC_FLAG_CLEAR_PERF_ON_START,
+    .flags = HOLON_NPU_DESC_FLAG_IRQ_ON_DONE |
+             HOLON_NPU_DESC_FLAG_IRQ_ON_ERROR |
+             HOLON_NPU_DESC_FLAG_CLEAR_PERF_ON_START,
     .a_addr = a_pa,
     .b_addr = b_pa,
     .c_addr = c_pa,
@@ -838,18 +838,18 @@ my_npu_gemm_config_t cfg = {
     .c_row_stride_bytes = c_stride,
 };
 
-my_npu_gemm_desc_t desc;
-my_npu_build_gemm_desc(&desc, &cfg);
+holon_npu_gemm_desc_t desc;
+holon_npu_build_gemm_desc(&desc, &cfg);
 
 /* 平台代码负责把 desc 放到 DMA 可见内存并处理 cache */
-my_npu_submit(&dev, desc_pa);
+holon_npu_submit(&dev, desc_pa);
 
-my_npu_status_t status;
-my_npu_wait(&dev, timeout_polls, &status);
+holon_npu_status_t status;
+holon_npu_wait(&dev, timeout_polls, &status);
 
 if (status.error) {
     uint32_t error_code;
-    my_npu_error(&dev, &error_code);
+    holon_npu_error(&dev, &error_code);
 }
 ```
 
@@ -1043,7 +1043,7 @@ npu_write_dma_tb
 npu_command_tb
 npu_gemm_tb
 npu_top_tb
-my_npu_driver_test
+holon_npu_driver_test
 ```
 
 常用 lint target：
@@ -1072,8 +1072,8 @@ ctest --preset debug --output-on-failure
 ```text
 docs/INTERFACE.md
 rtl/common/npu_pkg.sv
-include/my_npu_regs.h
-include/my_npu_desc.h
+include/holon_npu_regs.h
+include/holon_npu_desc.h
 ```
 
 如果你改了 register offset、error code、descriptor flag、descriptor size 等，
@@ -1101,7 +1101,7 @@ abi_consistency
 docs/INTERFACE.md
 rtl/control/npu_control_regs.sv
 sim/control_tb.cpp
-include/my_npu_regs.h
+include/holon_npu_regs.h
 rtl/common/npu_pkg.sv
 ```
 
@@ -1110,7 +1110,7 @@ rtl/common/npu_pkg.sv
 1. 先改 `docs/INTERFACE.md`。
 2. 更新 `docs/DECISIONS.md`，如果是架构级变化。
 3. 改 `npu_pkg.sv`。
-4. 改 `my_npu_regs.h`。
+4. 改 `holon_npu_regs.h`。
 5. 改 `npu_control_regs.sv`。
 6. 改或新增 `sim/control_tb.cpp` 测试。
 7. 跑：
@@ -1128,7 +1128,7 @@ cmake --build --preset debug --target control_rtl_lint
 
 ```text
 docs/INTERFACE.md
-include/my_npu_desc.h
+include/holon_npu_desc.h
 rtl/common/npu_pkg.sv
 rtl/command/npu_command_processor.sv
 sim/command_tb.cpp
@@ -1145,8 +1145,8 @@ sim/command_tb.cpp
 
 ```sh
 python3 tools/check_abi_consistency.py
-cmake --build --preset debug --target npu_command_tb my_npu_driver_test
-ctest --preset debug -R 'npu_command|my_npu_driver|abi_consistency' --output-on-failure
+cmake --build --preset debug --target npu_command_tb holon_npu_driver_test
+ctest --preset debug -R 'npu_command|holon_npu_driver|abi_consistency' --output-on-failure
 ```
 
 ## 12.3 如果你想改 DMA
@@ -1232,18 +1232,18 @@ cmake --build --preset debug --target integration_rtl_lint
 先看：
 
 ```text
-include/my_npu_regs.h
-include/my_npu_desc.h
-sw/my_npu_driver.c
-sw/my_npu_driver.h
+include/holon_npu_regs.h
+include/holon_npu_desc.h
+sw/holon_npu_driver.c
+sw/holon_npu_driver.h
 tests/driver_test.cpp
 ```
 
 跑：
 
 ```sh
-cmake --build --preset debug --target my_npu_driver_test
-ctest --preset debug -R my_npu_driver --output-on-failure
+cmake --build --preset debug --target holon_npu_driver_test
+ctest --preset debug -R holon_npu_driver --output-on-failure
 ```
 
 ## 13. Debug 方法
@@ -1294,9 +1294,9 @@ sim/top_tb.cpp
 ```text
 rtl/control/npu_control_regs.sv
 rtl/command/npu_command_processor.sv
-include/my_npu_regs.h
-include/my_npu_desc.h
-sw/my_npu_driver.c
+include/holon_npu_regs.h
+include/holon_npu_desc.h
+sw/holon_npu_driver.c
 sim/control_tb.cpp
 sim/command_tb.cpp
 ```
@@ -1395,7 +1395,7 @@ cmake --build --preset debug --target v1_lint
 ```
 
 它基于 GitHub 官方的 CMake single-platform starter workflow，但已经按
-`my_npu` 的真实工具链和 release gate 做了项目化配置。
+`HolonNPU` 的真实工具链和 release gate 做了项目化配置。
 
 ### 17.1 CI 什么时候运行
 
@@ -1537,7 +1537,7 @@ ctest --preset debug -R 'npu_read_dma|npu_write_dma' --output-on-failure
 driver 测试：
 
 ```sh
-ctest --preset debug -R my_npu_driver --output-on-failure
+ctest --preset debug -R holon_npu_driver --output-on-failure
 ```
 
 ## 19. 读完本文后你应该能做到什么

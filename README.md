@@ -1,6 +1,6 @@
-# my_npu
+# HolonNPU
 
-`my_npu` is a roadmap-first SystemVerilog implementation of a v1 INT8 GEMM
+`HolonNPU` is a roadmap-first SystemVerilog implementation of a v1 INT8 GEMM
 accelerator intended for RISC-V SoC integration. The public hardware interface
 is an AXI-Lite control plane plus AXI4 master DMA. The matrix engine is a
 parameterized `16x16` systolic array with signed INT8 inputs and signed INT32
@@ -40,7 +40,7 @@ ctest --preset regression --output-on-failure
 - C11-capable compiler for the driver library.
 - Python 3 for ABI consistency checks.
 
-The current local verification environment used CMake 4.3.4, Verilator 5.046,
+The current local verification environment used CMake 4.3.4, Verilator 5.048,
 and GCC 15.3.0.
 
 ## Repository Layout
@@ -84,8 +84,8 @@ and ABI details.
 The v1 ABI is frozen in `docs/INTERFACE.md` and mirrored by:
 
 - `rtl/common/npu_pkg.sv`
-- `include/my_npu_regs.h`
-- `include/my_npu_desc.h`
+- `include/holon_npu_regs.h`
+- `include/holon_npu_desc.h`
 
 Key properties:
 

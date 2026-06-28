@@ -1,6 +1,6 @@
 #include "Vnpu_control_regs.h"
 
-#include "my_npu_regs.h"
+#include "holon_npu_regs.h"
 
 #include <cstdint>
 #include <iostream>
@@ -13,24 +13,24 @@ namespace {
 constexpr std::uint32_t kOkay = 0;
 constexpr std::uint32_t kSlvErr = 2;
 
-constexpr std::uint32_t kDeviceId = MY_NPU_REG_DEVICE_ID;
-constexpr std::uint32_t kAbiVersion = MY_NPU_REG_ABI_VERSION;
-constexpr std::uint32_t kCap0 = MY_NPU_REG_CAP0;
-constexpr std::uint32_t kCap1 = MY_NPU_REG_CAP1;
-constexpr std::uint32_t kControl = MY_NPU_REG_CONTROL;
-constexpr std::uint32_t kStatus = MY_NPU_REG_STATUS;
-constexpr std::uint32_t kErrorCode = MY_NPU_REG_ERROR_CODE;
-constexpr std::uint32_t kIrqEnable = MY_NPU_REG_IRQ_ENABLE;
-constexpr std::uint32_t kIrqStatus = MY_NPU_REG_IRQ_STATUS;
-constexpr std::uint32_t kDoorbell = MY_NPU_REG_DOORBELL;
-constexpr std::uint32_t kDescAddrLo = MY_NPU_REG_DESC_ADDR_LO;
-constexpr std::uint32_t kDescAddrHi = MY_NPU_REG_DESC_ADDR_HI;
-constexpr std::uint32_t kClear = MY_NPU_REG_CLEAR;
+constexpr std::uint32_t kDeviceId = HOLON_NPU_REG_DEVICE_ID;
+constexpr std::uint32_t kAbiVersion = HOLON_NPU_REG_ABI_VERSION;
+constexpr std::uint32_t kCap0 = HOLON_NPU_REG_CAP0;
+constexpr std::uint32_t kCap1 = HOLON_NPU_REG_CAP1;
+constexpr std::uint32_t kControl = HOLON_NPU_REG_CONTROL;
+constexpr std::uint32_t kStatus = HOLON_NPU_REG_STATUS;
+constexpr std::uint32_t kErrorCode = HOLON_NPU_REG_ERROR_CODE;
+constexpr std::uint32_t kIrqEnable = HOLON_NPU_REG_IRQ_ENABLE;
+constexpr std::uint32_t kIrqStatus = HOLON_NPU_REG_IRQ_STATUS;
+constexpr std::uint32_t kDoorbell = HOLON_NPU_REG_DOORBELL;
+constexpr std::uint32_t kDescAddrLo = HOLON_NPU_REG_DESC_ADDR_LO;
+constexpr std::uint32_t kDescAddrHi = HOLON_NPU_REG_DESC_ADDR_HI;
+constexpr std::uint32_t kClear = HOLON_NPU_REG_CLEAR;
 constexpr std::uint32_t kReserved034 = 0x034;
-constexpr std::uint32_t kPerfCyclesLo = MY_NPU_REG_PERF_CYCLES_LO;
-constexpr std::uint32_t kPerfBusyLo = MY_NPU_REG_PERF_BUSY_LO;
-constexpr std::uint32_t kPerfDescCount = MY_NPU_REG_PERF_DESC_COUNT;
-constexpr std::uint32_t kPerfErrorCount = MY_NPU_REG_PERF_ERROR_COUNT;
+constexpr std::uint32_t kPerfCyclesLo = HOLON_NPU_REG_PERF_CYCLES_LO;
+constexpr std::uint32_t kPerfBusyLo = HOLON_NPU_REG_PERF_BUSY_LO;
+constexpr std::uint32_t kPerfDescCount = HOLON_NPU_REG_PERF_DESC_COUNT;
+constexpr std::uint32_t kPerfErrorCount = HOLON_NPU_REG_PERF_ERROR_COUNT;
 
 void eval(Vnpu_control_regs& dut) {
     dut.eval();

@@ -1,7 +1,7 @@
 #include "Vnpu_top.h"
 
-#include "my_npu_desc.h"
-#include "my_npu_regs.h"
+#include "holon_npu_desc.h"
+#include "holon_npu_regs.h"
 
 #include <array>
 #include <cstdint>
@@ -118,7 +118,7 @@ public:
         return value;
     }
 
-    void store_descriptor(std::uint64_t addr, const my_npu_gemm_desc_t& desc) {
+    void store_descriptor(std::uint64_t addr, const holon_npu_gemm_desc_t& desc) {
         const auto* bytes = reinterpret_cast<const std::uint8_t*>(&desc);
         for (std::size_t offset = 0; offset < sizeof(desc); ++offset) {
             memory_.at(addr + offset) = bytes[offset];
@@ -376,7 +376,7 @@ std::uint32_t axil_write_w_then_aw(Vnpu_top& dut, std::uint32_t addr, std::uint3
     return resp;
 }
 
-my_npu_gemm_desc_t make_descriptor(
+holon_npu_gemm_desc_t make_descriptor(
     std::uint32_t m,
     std::uint32_t n,
     std::uint32_t k,
@@ -387,12 +387,12 @@ my_npu_gemm_desc_t make_descriptor(
     std::uint32_t b_stride,
     std::uint32_t c_stride
 ) {
-    my_npu_gemm_desc_t desc{};
-    desc.size_bytes = static_cast<std::uint16_t>(MY_NPU_DESC_SIZE);
-    desc.version = static_cast<std::uint8_t>(MY_NPU_ABI_MAJOR);
-    desc.opcode = static_cast<std::uint8_t>(MY_NPU_OPCODE_GEMM_I8I8I32);
-    desc.flags = MY_NPU_DESC_FLAG_IRQ_ON_DONE | MY_NPU_DESC_FLAG_IRQ_ON_ERROR |
-                 MY_NPU_DESC_FLAG_CLEAR_PERF_ON_START;
+    holon_npu_gemm_desc_t desc{};
+    desc.size_bytes = static_cast<std::uint16_t>(HOLON_NPU_DESC_SIZE);
+    desc.version = static_cast<std::uint8_t>(HOLON_NPU_ABI_MAJOR);
+    desc.opcode = static_cast<std::uint8_t>(HOLON_NPU_OPCODE_GEMM_I8I8I32);
+    desc.flags = HOLON_NPU_DESC_FLAG_IRQ_ON_DONE | HOLON_NPU_DESC_FLAG_IRQ_ON_ERROR |
+                 HOLON_NPU_DESC_FLAG_CLEAR_PERF_ON_START;
     desc.m = m;
     desc.n = n;
     desc.k = k;
@@ -464,16 +464,16 @@ PreparedGemm prepare_gemm_memory(
 bool start_descriptor(Vnpu_top& dut, std::uint64_t desc_addr, std::string_view name) {
     bool ok = true;
     ok &= expect_eq(std::string(name) + " enable IRQ",
-                    axil_write(dut, MY_NPU_REG_IRQ_ENABLE, MY_NPU_IRQ_DONE | MY_NPU_IRQ_ERROR),
+                    axil_write(dut, HOLON_NPU_REG_IRQ_ENABLE, HOLON_NPU_IRQ_DONE | HOLON_NPU_IRQ_ERROR),
                     kRespOkay);
     ok &= expect_eq(std::string(name) + " desc lo",
-                    axil_write(dut, MY_NPU_REG_DESC_ADDR_LO, static_cast<std::uint32_t>(desc_addr)),
+                    axil_write(dut, HOLON_NPU_REG_DESC_ADDR_LO, static_cast<std::uint32_t>(desc_addr)),
                     kRespOkay);
     ok &= expect_eq(std::string(name) + " desc hi",
-                    axil_write(dut, MY_NPU_REG_DESC_ADDR_HI, static_cast<std::uint32_t>(desc_addr >> 32)),
+                    axil_write(dut, HOLON_NPU_REG_DESC_ADDR_HI, static_cast<std::uint32_t>(desc_addr >> 32)),
                     kRespOkay);
     ok &= expect_eq(std::string(name) + " doorbell",
-                    axil_write(dut, MY_NPU_REG_DOORBELL, MY_NPU_DOORBELL_START),
+                    axil_write(dut, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START),
                     kRespOkay);
     return ok;
 }
@@ -568,22 +568,22 @@ bool run_top_gemm_case(Vnpu_top& dut, const GemmCase& test_case) {
     memory.store_descriptor(kDesc, desc);
 
     bool ok = true;
-    ok &= expect_eq(test_case.name + " DEVICE_ID", axil_read(dut, MY_NPU_REG_DEVICE_ID), MY_NPU_DEVICE_ID_RESET);
+    ok &= expect_eq(test_case.name + " DEVICE_ID", axil_read(dut, HOLON_NPU_REG_DEVICE_ID), HOLON_NPU_DEVICE_ID_RESET);
     ok &= start_descriptor(dut, kDesc, test_case.name);
 
     const bool completed = run_until_irq(dut, memory, 250000);
 
-    const auto status = axil_read(dut, MY_NPU_REG_STATUS);
+    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
     ok &= expect_eq(test_case.name + " completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq(test_case.name + " status done", status & MY_NPU_STATUS_DONE, MY_NPU_STATUS_DONE);
-    ok &= expect_eq(test_case.name + " status error", status & MY_NPU_STATUS_ERROR, 0U);
-    ok &= expect_eq(test_case.name + " IRQ status", axil_read(dut, MY_NPU_REG_IRQ_STATUS), MY_NPU_IRQ_DONE);
-    ok &= expect_eq(test_case.name + " desc count", axil_read(dut, MY_NPU_REG_PERF_DESC_COUNT), 1U);
-    ok &= expect_eq(test_case.name + " error count", axil_read(dut, MY_NPU_REG_PERF_ERROR_COUNT), 0U);
+    ok &= expect_eq(test_case.name + " status done", status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
+    ok &= expect_eq(test_case.name + " status error", status & HOLON_NPU_STATUS_ERROR, 0U);
+    ok &= expect_eq(test_case.name + " IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_DONE);
+    ok &= expect_eq(test_case.name + " desc count", axil_read(dut, HOLON_NPU_REG_PERF_DESC_COUNT), 1U);
+    ok &= expect_eq(test_case.name + " error count", axil_read(dut, HOLON_NPU_REG_PERF_ERROR_COUNT), 0U);
     ok &= expect_eq(test_case.name + " perf cycles nonzero",
-                    axil_read(dut, MY_NPU_REG_PERF_CYCLES_LO) != 0 ? 1U : 0U, 1U);
+                    axil_read(dut, HOLON_NPU_REG_PERF_CYCLES_LO) != 0 ? 1U : 0U, 1U);
     ok &= expect_eq(test_case.name + " perf busy nonzero",
-                    axil_read(dut, MY_NPU_REG_PERF_BUSY_LO) != 0 ? 1U : 0U, 1U);
+                    axil_read(dut, HOLON_NPU_REG_PERF_BUSY_LO) != 0 ? 1U : 0U, 1U);
 
     for (int row = 0; row < test_case.m; ++row) {
         for (int col = 0; col < test_case.n; ++col) {
@@ -610,10 +610,10 @@ bool test_invalid_descriptor_reaches_control(Vnpu_top& dut) {
     memory.store_descriptor(0x1000, desc);
 
     bool ok = true;
-    ok &= expect_eq("invalid enable IRQ", axil_write(dut, MY_NPU_REG_IRQ_ENABLE, MY_NPU_IRQ_ERROR), kRespOkay);
-    ok &= expect_eq("invalid desc lo", axil_write(dut, MY_NPU_REG_DESC_ADDR_LO, 0x1000), kRespOkay);
-    ok &= expect_eq("invalid desc hi", axil_write(dut, MY_NPU_REG_DESC_ADDR_HI, 0), kRespOkay);
-    ok &= expect_eq("invalid doorbell", axil_write(dut, MY_NPU_REG_DOORBELL, MY_NPU_DOORBELL_START), kRespOkay);
+    ok &= expect_eq("invalid enable IRQ", axil_write(dut, HOLON_NPU_REG_IRQ_ENABLE, HOLON_NPU_IRQ_ERROR), kRespOkay);
+    ok &= expect_eq("invalid desc lo", axil_write(dut, HOLON_NPU_REG_DESC_ADDR_LO, 0x1000), kRespOkay);
+    ok &= expect_eq("invalid desc hi", axil_write(dut, HOLON_NPU_REG_DESC_ADDR_HI, 0), kRespOkay);
+    ok &= expect_eq("invalid doorbell", axil_write(dut, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START), kRespOkay);
 
     bool completed = false;
     for (int cycle = 0; cycle < 2048; ++cycle) {
@@ -624,11 +624,11 @@ bool test_invalid_descriptor_reaches_control(Vnpu_top& dut) {
         memory.step(dut);
     }
 
-    const auto status = axil_read(dut, MY_NPU_REG_STATUS);
+    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
     ok &= expect_eq("invalid completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("invalid status error", status & MY_NPU_STATUS_ERROR, MY_NPU_STATUS_ERROR);
-    ok &= expect_eq("invalid error code", axil_read(dut, MY_NPU_REG_ERROR_CODE), MY_NPU_ERR_INVALID_OPCODE);
-    ok &= expect_eq("invalid IRQ status", axil_read(dut, MY_NPU_REG_IRQ_STATUS), MY_NPU_IRQ_ERROR);
+    ok &= expect_eq("invalid status error", status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
+    ok &= expect_eq("invalid error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_INVALID_OPCODE);
+    ok &= expect_eq("invalid IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
     return ok;
 }
 
@@ -636,10 +636,10 @@ bool test_top_axil_write_skew(Vnpu_top& dut) {
     reset(dut);
 
     bool ok = true;
-    ok &= expect_eq("skew AW-before-W", axil_write_aw_then_w(dut, MY_NPU_REG_DESC_ADDR_LO, 0x55667788U), kRespOkay);
-    ok &= expect_eq("skew W-before-AW", axil_write_w_then_aw(dut, MY_NPU_REG_DESC_ADDR_HI, 0x11223344U), kRespOkay);
-    ok &= expect_eq("skew desc lo readback", axil_read(dut, MY_NPU_REG_DESC_ADDR_LO), 0x55667788U);
-    ok &= expect_eq("skew desc hi readback", axil_read(dut, MY_NPU_REG_DESC_ADDR_HI), 0x11223344U);
+    ok &= expect_eq("skew AW-before-W", axil_write_aw_then_w(dut, HOLON_NPU_REG_DESC_ADDR_LO, 0x55667788U), kRespOkay);
+    ok &= expect_eq("skew W-before-AW", axil_write_w_then_aw(dut, HOLON_NPU_REG_DESC_ADDR_HI, 0x11223344U), kRespOkay);
+    ok &= expect_eq("skew desc lo readback", axil_read(dut, HOLON_NPU_REG_DESC_ADDR_LO), 0x55667788U);
+    ok &= expect_eq("skew desc hi readback", axil_read(dut, HOLON_NPU_REG_DESC_ADDR_HI), 0x11223344U);
     return ok;
 }
 
@@ -659,24 +659,24 @@ bool test_descriptor_read_error_drains_and_recovers(Vnpu_top& dut) {
     bool ok = true;
     ok &= start_descriptor(dut, kDesc, test_case.name);
     const bool errored = run_until_irq(dut, memory, 4096);
-    const auto error_status = axil_read(dut, MY_NPU_REG_STATUS);
+    const auto error_status = axil_read(dut, HOLON_NPU_REG_STATUS);
     ok &= expect_eq("descriptor read error completed", errored ? 1U : 0U, 1U);
     ok &= expect_eq("descriptor read error used", memory.read_error_used() ? 1U : 0U, 1U);
-    ok &= expect_eq("descriptor read status error", error_status & MY_NPU_STATUS_ERROR, MY_NPU_STATUS_ERROR);
-    ok &= expect_eq("descriptor read error code", axil_read(dut, MY_NPU_REG_ERROR_CODE), MY_NPU_ERR_AXI_READ);
-    ok &= expect_eq("descriptor read IRQ status", axil_read(dut, MY_NPU_REG_IRQ_STATUS), MY_NPU_IRQ_ERROR);
+    ok &= expect_eq("descriptor read status error", error_status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
+    ok &= expect_eq("descriptor read error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_AXI_READ);
+    ok &= expect_eq("descriptor read IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
 
-    ok &= expect_eq("descriptor read clear error", axil_write(dut, MY_NPU_REG_CLEAR, MY_NPU_CLEAR_ERROR), kRespOkay);
-    ok &= expect_eq("descriptor read status idle", axil_read(dut, MY_NPU_REG_STATUS), MY_NPU_STATUS_IDLE);
-    ok &= expect_eq("descriptor read IRQ cleared", axil_read(dut, MY_NPU_REG_IRQ_STATUS), 0U);
+    ok &= expect_eq("descriptor read clear error", axil_write(dut, HOLON_NPU_REG_CLEAR, HOLON_NPU_CLEAR_ERROR), kRespOkay);
+    ok &= expect_eq("descriptor read status idle", axil_read(dut, HOLON_NPU_REG_STATUS), HOLON_NPU_STATUS_IDLE);
+    ok &= expect_eq("descriptor read IRQ cleared", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), 0U);
 
     ok &= start_descriptor(dut, kDesc, "top-desc-read-retry");
     const bool completed = run_until_irq(dut, memory, 4096);
-    const auto done_status = axil_read(dut, MY_NPU_REG_STATUS);
+    const auto done_status = axil_read(dut, HOLON_NPU_REG_STATUS);
     ok &= expect_eq("descriptor read retry completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("descriptor read retry done", done_status & MY_NPU_STATUS_DONE, MY_NPU_STATUS_DONE);
-    ok &= expect_eq("descriptor read retry error", done_status & MY_NPU_STATUS_ERROR, 0U);
-    ok &= expect_eq("descriptor read retry error code", axil_read(dut, MY_NPU_REG_ERROR_CODE), MY_NPU_ERR_NONE);
+    ok &= expect_eq("descriptor read retry done", done_status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
+    ok &= expect_eq("descriptor read retry error", done_status & HOLON_NPU_STATUS_ERROR, 0U);
+    ok &= expect_eq("descriptor read retry error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_NONE);
     ok &= check_gemm_results(memory, prepared, test_case, kBaseC);
     return ok;
 }
@@ -697,12 +697,12 @@ bool test_gemm_read_error_reaches_control(Vnpu_top& dut) {
     bool ok = true;
     ok &= start_descriptor(dut, kDesc, test_case.name);
     const bool completed = run_until_irq(dut, memory, 4096);
-    const auto status = axil_read(dut, MY_NPU_REG_STATUS);
+    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
     ok &= expect_eq("GEMM read error completed", completed ? 1U : 0U, 1U);
     ok &= expect_eq("GEMM read error used", memory.read_error_used() ? 1U : 0U, 1U);
-    ok &= expect_eq("GEMM read status error", status & MY_NPU_STATUS_ERROR, MY_NPU_STATUS_ERROR);
-    ok &= expect_eq("GEMM read error code", axil_read(dut, MY_NPU_REG_ERROR_CODE), MY_NPU_ERR_AXI_READ);
-    ok &= expect_eq("GEMM read IRQ status", axil_read(dut, MY_NPU_REG_IRQ_STATUS), MY_NPU_IRQ_ERROR);
+    ok &= expect_eq("GEMM read status error", status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
+    ok &= expect_eq("GEMM read error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_AXI_READ);
+    ok &= expect_eq("GEMM read IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
     return ok;
 }
 
@@ -722,12 +722,12 @@ bool test_gemm_write_error_reaches_control(Vnpu_top& dut) {
     bool ok = true;
     ok &= start_descriptor(dut, kDesc, test_case.name);
     const bool completed = run_until_irq(dut, memory, 4096);
-    const auto status = axil_read(dut, MY_NPU_REG_STATUS);
+    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
     ok &= expect_eq("GEMM write error completed", completed ? 1U : 0U, 1U);
     ok &= expect_eq("GEMM write error used", memory.write_error_used() ? 1U : 0U, 1U);
-    ok &= expect_eq("GEMM write status error", status & MY_NPU_STATUS_ERROR, MY_NPU_STATUS_ERROR);
-    ok &= expect_eq("GEMM write error code", axil_read(dut, MY_NPU_REG_ERROR_CODE), MY_NPU_ERR_AXI_WRITE);
-    ok &= expect_eq("GEMM write IRQ status", axil_read(dut, MY_NPU_REG_IRQ_STATUS), MY_NPU_IRQ_ERROR);
+    ok &= expect_eq("GEMM write status error", status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
+    ok &= expect_eq("GEMM write error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_AXI_WRITE);
+    ok &= expect_eq("GEMM write IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
     return ok;
 }
 
@@ -752,18 +752,18 @@ bool test_top_soft_reset_in_flight(Vnpu_top& dut) {
     ok &= start_descriptor(dut, kDesc, in_flight_case.name);
     const bool reached_compute = run_until_stage(dut, memory, kStageCompute, 50000);
     ok &= expect_eq("soft reset reached compute", reached_compute ? 1U : 0U, 1U);
-    ok &= expect_eq("soft reset write", axil_write(dut, MY_NPU_REG_CONTROL, MY_NPU_CONTROL_SOFT_RESET), kRespOkay);
-    ok &= expect_eq("soft reset status idle", axil_read(dut, MY_NPU_REG_STATUS), MY_NPU_STATUS_IDLE);
-    ok &= expect_eq("soft reset error code clear", axil_read(dut, MY_NPU_REG_ERROR_CODE), MY_NPU_ERR_NONE);
+    ok &= expect_eq("soft reset write", axil_write(dut, HOLON_NPU_REG_CONTROL, HOLON_NPU_CONTROL_SOFT_RESET), kRespOkay);
+    ok &= expect_eq("soft reset status idle", axil_read(dut, HOLON_NPU_REG_STATUS), HOLON_NPU_STATUS_IDLE);
+    ok &= expect_eq("soft reset error code clear", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_NONE);
     ok &= expect_eq("soft reset IRQ clear", dut.irq_o, 0U);
 
     const auto prepared_retry = prepare_gemm_memory(memory, retry_case, kRetryDesc, kRetryA, kRetryB, kRetryC);
     ok &= start_descriptor(dut, kRetryDesc, retry_case.name);
     const bool completed = run_until_irq(dut, memory, 4096);
-    const auto retry_status = axil_read(dut, MY_NPU_REG_STATUS);
+    const auto retry_status = axil_read(dut, HOLON_NPU_REG_STATUS);
     ok &= expect_eq("soft reset retry completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("soft reset retry done", retry_status & MY_NPU_STATUS_DONE, MY_NPU_STATUS_DONE);
-    ok &= expect_eq("soft reset retry error", retry_status & MY_NPU_STATUS_ERROR, 0U);
+    ok &= expect_eq("soft reset retry done", retry_status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
+    ok &= expect_eq("soft reset retry error", retry_status & HOLON_NPU_STATUS_ERROR, 0U);
     ok &= check_gemm_results(memory, prepared_retry, retry_case, kRetryC);
     return ok;
 }

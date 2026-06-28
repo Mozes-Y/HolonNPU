@@ -1,4 +1,4 @@
-# my_npu Verification Plan
+# HolonNPU Verification Plan
 
 This document defines simulation strategy, required tests, coverage goals, and
 debug workflow. Phase 0 establishes structure. Each phase must add concrete
@@ -220,7 +220,7 @@ Phase 10 verification must confirm:
   error codes, descriptor constants, and descriptor flags exactly as documented.
 - The clear mask exposes only `CLEAR.DONE`, `CLEAR.ERROR`, and `CLEAR.PERF`;
   interrupt causes can also be cleared by writing `IRQ_STATUS` directly.
-- `my_npu_gemm_desc_t` is exactly 128 bytes and all documented descriptor field
+- `holon_npu_gemm_desc_t` is exactly 128 bytes and all documented descriptor field
   offsets are statically checked.
 - Descriptor construction fills all required fields and zeros all reserved
   fields.

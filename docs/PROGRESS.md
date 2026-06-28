@@ -1,14 +1,92 @@
-# my_npu Progress Log
+# HolonNPU Progress Log
 
 This file records actual project progress. It must be updated after every phase
 and whenever a verification result changes the engineering plan.
 
 ## Current Status
 
-- Active phase: None; v1 release remediation complete.
-- Last updated: 2026-06-27.
+- Active phase: None; HolonNPU rename complete.
+- Last updated: 2026-06-28.
 - Overall state: Phase 0 through Phase 11 complete; v1 source release gate
   passed with product-level top integration and release-facing documentation.
+  The formal project name is now HolonNPU, with the public C API renamed to
+  `holon_npu_*` / `HOLON_NPU_*`.
+
+## Project Rename: HolonNPU
+
+Status: Complete.
+
+Completed work:
+
+- Renamed the formal project display name, CMake project name, README,
+  changelog, architecture, interface, verification, roadmap, and getting started
+  documentation to HolonNPU.
+- Renamed public C ABI headers and driver sources to:
+  - `include/holon_npu_regs.h`
+  - `include/holon_npu_desc.h`
+  - `sw/holon_npu_driver.h`
+  - `sw/holon_npu_driver.c`
+- Renamed public C macros to `HOLON_NPU_*` and public C types/functions to
+  `holon_npu_*`, with no compatibility aliases for the former names.
+- Renamed the CMake driver library/test target and CTest entry to
+  `holon_npu_driver`, `holon_npu_driver_test`, and `holon_npu_driver`.
+- Updated C++ testbenches, host-side driver tests, and the ABI consistency
+  checker to consume the new public headers and symbol names.
+- Updated GitHub Actions branding to `HolonNPU CI` and the concurrency group to
+  `holonnpu-ci-${{ github.workflow }}-${{ github.ref }}`, without changing the
+  runner, toolchain, or parallelism behavior.
+- Added ADR-0017 documenting the rename, the intentional public C API breaking
+  change, the no-alias policy, and the decision to keep RTL `npu_*` names.
+- Preserved older progress-log entries with their original command names as
+  historical records.
+
+Verification commands:
+
+- `git diff --check`
+- `python3 tools/check_abi_consistency.py`
+- `rg -n "my_npu|MY_NPU|my-npu" . --glob '!build/**' --glob '!.git/**'`
+- `rg -n "holon_npu|HOLON_NPU|HolonNPU" CMakeLists.txt README.md CHANGELOG.md docs include sw sim tests tools .github/workflows/cmake-single-platform.yml --glob '!build/**'`
+- `cmake --version`
+- `verilator --version`
+- `c++ --version`
+- `cmake --preset debug`
+- `cmake --build --preset debug`
+- `ctest --preset debug --output-on-failure`
+- `cmake --build --preset debug --target v1_lint`
+- `cmake --build --preset regression`
+- `ctest --preset regression --output-on-failure`
+
+Results:
+
+- Whitespace check passed.
+- ABI consistency check passed across 50 RTL/C public constants.
+- Former project-name matches are limited to this progress log's historical
+  entries and ADR-0017's rename context.
+- New HolonNPU public API names are present in CMake, docs, public headers,
+  driver sources, simulation tests, host tests, tooling, and CI.
+- Toolchain observed during this verification:
+  - CMake 4.3.4.
+  - Verilator 5.048.
+  - GCC C++ 15.3.0.
+- `cmake --preset debug` configured successfully.
+- `cmake --build --preset debug` built all targets successfully.
+- `ctest --preset debug --output-on-failure` passed `21/21` tests when run after
+  the build completed.
+- `cmake --build --preset debug --target v1_lint` passed.
+- `cmake --build --preset regression` passed and ran the v1 regression target.
+- `ctest --preset regression --output-on-failure` passed `21/21` tests.
+- A transient agent-induced CTest run overlapped with a concurrent build and
+  briefly failed to find the just-renamed driver test executable; the planned
+  sequential verification command passed afterward.
+
+Remaining issues:
+
+- None for the HolonNPU rename.
+
+Next step:
+
+- Update the Git remote to the renamed upstream repository, commit, and push
+  `master` without moving the existing `v1` tag.
 
 ## Phase 0: Governance Bootstrap
 

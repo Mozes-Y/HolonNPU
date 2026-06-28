@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(my_npu LANGUAGES C CXX)
+project(HolonNPU LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -116,7 +116,7 @@ set(NPU_INTEGRATION_SOURCES
   ${NPU_TOP_SOURCES}
 )
 
-function(my_npu_target_options target_name)
+function(holon_npu_target_options target_name)
   target_compile_features(${target_name} PRIVATE cxx_std_26)
   target_compile_options(
     ${target_name}
@@ -125,17 +125,17 @@ function(my_npu_target_options target_name)
   )
 endfunction()
 
-add_library(my_npu_driver sw/my_npu_driver.c)
-target_compile_features(my_npu_driver PRIVATE c_std_11)
+add_library(holon_npu_driver sw/holon_npu_driver.c)
+target_compile_features(holon_npu_driver PRIVATE c_std_11)
 target_include_directories(
-  my_npu_driver
+  holon_npu_driver
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/sw
 )
 
 add_executable(npu_smoke_tb sim/smoke_tb.cpp)
-my_npu_target_options(npu_smoke_tb)
+holon_npu_target_options(npu_smoke_tb)
 
 verilate(
   npu_smoke_tb
@@ -159,7 +159,7 @@ add_custom_target(
 )
 
 add_executable(npu_common_tb sim/common_tb.cpp)
-my_npu_target_options(npu_common_tb)
+holon_npu_target_options(npu_common_tb)
 
 verilate(
   npu_common_tb
@@ -190,7 +190,7 @@ set_tests_properties(
 )
 
 add_executable(npu_pe_tb sim/pe_tb.cpp)
-my_npu_target_options(npu_pe_tb)
+holon_npu_target_options(npu_pe_tb)
 
 verilate(
   npu_pe_tb
@@ -202,7 +202,7 @@ verilate(
 add_test(NAME npu_pe COMMAND npu_pe_tb)
 
 add_executable(npu_array_tb sim/array_tb.cpp)
-my_npu_target_options(npu_array_tb)
+holon_npu_target_options(npu_array_tb)
 
 verilate(
   npu_array_tb
@@ -233,7 +233,7 @@ set_tests_properties(
 )
 
 add_executable(npu_tiling_tb sim/tiling_tb.cpp)
-my_npu_target_options(npu_tiling_tb)
+holon_npu_target_options(npu_tiling_tb)
 
 verilate(
   npu_tiling_tb
@@ -264,7 +264,7 @@ set_tests_properties(
 )
 
 add_executable(npu_control_tb sim/control_tb.cpp)
-my_npu_target_options(npu_control_tb)
+holon_npu_target_options(npu_control_tb)
 target_include_directories(npu_control_tb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 verilate(
@@ -296,7 +296,7 @@ set_tests_properties(
 )
 
 add_executable(npu_read_dma_tb sim/read_dma_tb.cpp)
-my_npu_target_options(npu_read_dma_tb)
+holon_npu_target_options(npu_read_dma_tb)
 
 verilate(
   npu_read_dma_tb
@@ -309,7 +309,7 @@ verilate(
 add_test(NAME npu_read_dma COMMAND npu_read_dma_tb)
 
 add_executable(npu_write_dma_tb sim/write_dma_tb.cpp)
-my_npu_target_options(npu_write_dma_tb)
+holon_npu_target_options(npu_write_dma_tb)
 
 verilate(
   npu_write_dma_tb
@@ -352,7 +352,7 @@ set_tests_properties(
 )
 
 add_executable(npu_command_tb sim/command_tb.cpp)
-my_npu_target_options(npu_command_tb)
+holon_npu_target_options(npu_command_tb)
 target_include_directories(npu_command_tb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 verilate(
@@ -384,7 +384,7 @@ set_tests_properties(
 )
 
 add_executable(npu_gemm_tb sim/gemm_tb.cpp)
-my_npu_target_options(npu_gemm_tb)
+holon_npu_target_options(npu_gemm_tb)
 
 verilate(
   npu_gemm_tb
@@ -397,7 +397,7 @@ verilate(
 add_test(NAME npu_gemm COMMAND npu_gemm_tb)
 
 add_executable(npu_top_tb sim/top_tb.cpp)
-my_npu_target_options(npu_top_tb)
+holon_npu_target_options(npu_top_tb)
 target_include_directories(npu_top_tb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 verilate(
@@ -428,11 +428,11 @@ set_tests_properties(
   PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-add_executable(my_npu_driver_test tests/driver_test.cpp)
-my_npu_target_options(my_npu_driver_test)
-target_link_libraries(my_npu_driver_test PRIVATE my_npu_driver)
+add_executable(holon_npu_driver_test tests/driver_test.cpp)
+holon_npu_target_options(holon_npu_driver_test)
+target_link_libraries(holon_npu_driver_test PRIVATE holon_npu_driver)
 
-add_test(NAME my_npu_driver COMMAND my_npu_driver_test)
+add_test(NAME holon_npu_driver COMMAND holon_npu_driver_test)
 
 add_custom_target(
   v1_lint
@@ -461,7 +461,7 @@ add_custom_target(
     npu_command_tb
     npu_gemm_tb
     npu_top_tb
-    my_npu_driver_test
+    holon_npu_driver_test
     abi_consistency_check
     v1_lint
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}

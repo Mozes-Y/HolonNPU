@@ -1,4 +1,4 @@
-name: my_npu CI
+name: HolonNPU CI
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: my-npu-ci-${{ github.workflow }}-${{ github.ref }}
+  group: holonnpu-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

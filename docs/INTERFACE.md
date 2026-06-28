@@ -1,4 +1,4 @@
-# my_npu Interface Specification
+# HolonNPU Interface Specification
 
 This document defines the frozen v1 external ABI. RTL, C++ tests, and software
 must match the values in this file. Any incompatible change requires a roadmap
@@ -25,16 +25,16 @@ update and a decision record before code changes.
 
 | Name | Value | Description |
 | ---- | ----- | ----------- |
-| `MY_NPU_ABI_MAJOR` | `1` | Major ABI version. |
-| `MY_NPU_ABI_MINOR` | `0` | Minor ABI version. |
-| `MY_NPU_DESC_SIZE` | `128` | GEMM descriptor size in bytes. |
-| `MY_NPU_DESC_ALIGN` | `16` | Descriptor base alignment in bytes. |
-| `MY_NPU_TENSOR_ALIGN` | `16` | Tensor base and row-stride alignment. |
-| `MY_NPU_OPCODE_GEMM_I8I8I32` | `1` | Signed INT8 GEMM with INT32 output. |
-| `MY_NPU_ARRAY_M` | `16` | v1 target systolic-array rows. |
-| `MY_NPU_ARRAY_N` | `16` | v1 target systolic-array columns. |
-| `MY_NPU_INPUT_BITS` | `8` | A and B operand width. |
-| `MY_NPU_ACC_BITS` | `32` | Accumulator and output width. |
+| `HOLON_NPU_ABI_MAJOR` | `1` | Major ABI version. |
+| `HOLON_NPU_ABI_MINOR` | `0` | Minor ABI version. |
+| `HOLON_NPU_DESC_SIZE` | `128` | GEMM descriptor size in bytes. |
+| `HOLON_NPU_DESC_ALIGN` | `16` | Descriptor base alignment in bytes. |
+| `HOLON_NPU_TENSOR_ALIGN` | `16` | Tensor base and row-stride alignment. |
+| `HOLON_NPU_OPCODE_GEMM_I8I8I32` | `1` | Signed INT8 GEMM with INT32 output. |
+| `HOLON_NPU_ARRAY_M` | `16` | v1 target systolic-array rows. |
+| `HOLON_NPU_ARRAY_N` | `16` | v1 target systolic-array columns. |
+| `HOLON_NPU_INPUT_BITS` | `8` | A and B operand width. |
+| `HOLON_NPU_ACC_BITS` | `32` | Accumulator and output width. |
 
 ## AXI-Lite Control Interface
 
@@ -150,7 +150,7 @@ update and a decision record before code changes.
 | ---- | ---- | ----------- |
 | `0` | `ERR_NONE` | No error. |
 | `1` | `ERR_INVALID_DESC_VERSION` | Descriptor `version` is not `1`. |
-| `2` | `ERR_INVALID_OPCODE` | Descriptor `opcode` is not `MY_NPU_OPCODE_GEMM_I8I8I32`. |
+| `2` | `ERR_INVALID_OPCODE` | Descriptor `opcode` is not `HOLON_NPU_OPCODE_GEMM_I8I8I32`. |
 | `3` | `ERR_INVALID_DESC_SIZE` | Descriptor `size_bytes` is not `128`. |
 | `4` | `ERR_INVALID_FLAGS` | Descriptor flags contain unsupported bits. |
 | `5` | `ERR_UNSUPPORTED_ALIGNMENT` | Descriptor, tensor base, or row stride alignment is unsupported. |
@@ -202,7 +202,7 @@ The v1 command processor fetches exactly one 128-byte descriptor from
 | ----------- | ----- | ----- | -------------- | ----------- |
 | `0x00` | `size_bytes` | 16 | `128` | Descriptor size in bytes. |
 | `0x02` | `version` | 8 | `1` | Descriptor ABI version. |
-| `0x03` | `opcode` | 8 | `1` | `MY_NPU_OPCODE_GEMM_I8I8I32`. |
+| `0x03` | `opcode` | 8 | `1` | `HOLON_NPU_OPCODE_GEMM_I8I8I32`. |
 | `0x04` | `flags` | 32 | See flag table | Per-command options. |
 | `0x08` | `m` | 32 | `1..65535` | Rows of A and C. |
 | `0x0C` | `n` | 32 | `1..65535` | Columns of B and C. |
@@ -267,15 +267,15 @@ Phase 10 must implement a C API with these operations and semantics:
 
 | Function | Purpose |
 | -------- | ------- |
-| `my_npu_init(base)` | Bind a driver instance to an MMIO base pointer. |
-| `my_npu_get_caps(dev, caps)` | Read `DEVICE_ID`, `ABI_VERSION`, `CAP0`, and `CAP1`. |
-| `my_npu_build_gemm_desc(desc, cfg)` | Fill a 128-byte v1 GEMM descriptor and zero reserved fields. |
-| `my_npu_submit(dev, desc_pa)` | Write descriptor address and doorbell. |
-| `my_npu_poll(dev)` | Read `STATUS` once and return decoded state. |
-| `my_npu_wait(dev, timeout)` | Poll until done, error, or timeout. |
-| `my_npu_error(dev)` | Read `ERROR_CODE`. |
-| `my_npu_clear(dev, mask)` | Clear done, error, or performance counters. `CLEAR.DONE` and `CLEAR.ERROR` also clear their matching IRQ causes. |
-| `my_npu_read_perf(dev, perf)` | Read performance counters coherently enough for v1 software diagnostics. |
+| `holon_npu_init(base)` | Bind a driver instance to an MMIO base pointer. |
+| `holon_npu_get_caps(dev, caps)` | Read `DEVICE_ID`, `ABI_VERSION`, `CAP0`, and `CAP1`. |
+| `holon_npu_build_gemm_desc(desc, cfg)` | Fill a 128-byte v1 GEMM descriptor and zero reserved fields. |
+| `holon_npu_submit(dev, desc_pa)` | Write descriptor address and doorbell. |
+| `holon_npu_poll(dev)` | Read `STATUS` once and return decoded state. |
+| `holon_npu_wait(dev, timeout)` | Poll until done, error, or timeout. |
+| `holon_npu_error(dev)` | Read `ERROR_CODE`. |
+| `holon_npu_clear(dev, mask)` | Clear done, error, or performance counters. `CLEAR.DONE` and `CLEAR.ERROR` also clear their matching IRQ causes. |
+| `holon_npu_read_perf(dev, perf)` | Read performance counters coherently enough for v1 software diagnostics. |
 
 The driver must not submit a descriptor while `STATUS.BUSY=1`. The driver must
 align descriptor and tensor addresses according to this ABI or return an
