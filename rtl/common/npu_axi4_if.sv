@@ -1,3 +1,4 @@
+/* verilator lint_off UNUSEDSIGNAL */
 interface npu_axi4_if #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128,
@@ -74,6 +75,45 @@ interface npu_axi4_if #(
         output rready
     );
 
+    modport read_master (
+        input  aclk_i,
+        input  aresetn_i,
+        output arid,
+        output araddr,
+        output arlen,
+        output arsize,
+        output arburst,
+        output arvalid,
+        input  arready,
+        input  rid,
+        input  rdata,
+        input  rresp,
+        input  rlast,
+        input  rvalid,
+        output rready
+    );
+
+    modport write_master (
+        input  aclk_i,
+        input  aresetn_i,
+        output awid,
+        output awaddr,
+        output awlen,
+        output awsize,
+        output awburst,
+        output awvalid,
+        input  awready,
+        output wdata,
+        output wstrb,
+        output wlast,
+        output wvalid,
+        input  wready,
+        input  bid,
+        input  bresp,
+        input  bvalid,
+        output bready
+    );
+
     modport slave (
         input  aclk_i,
         input  aresetn_i,
@@ -108,4 +148,44 @@ interface npu_axi4_if #(
         input  rready
     );
 
+    modport read_slave (
+        input  aclk_i,
+        input  aresetn_i,
+        input  arid,
+        input  araddr,
+        input  arlen,
+        input  arsize,
+        input  arburst,
+        input  arvalid,
+        output arready,
+        output rid,
+        output rdata,
+        output rresp,
+        output rlast,
+        output rvalid,
+        input  rready
+    );
+
+    modport write_slave (
+        input  aclk_i,
+        input  aresetn_i,
+        input  awid,
+        input  awaddr,
+        input  awlen,
+        input  awsize,
+        input  awburst,
+        input  awvalid,
+        output awready,
+        input  wdata,
+        input  wstrb,
+        input  wlast,
+        input  wvalid,
+        output wready,
+        output bid,
+        output bresp,
+        output bvalid,
+        input  bready
+    );
+
 endinterface
+/* verilator lint_on UNUSEDSIGNAL */

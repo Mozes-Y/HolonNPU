@@ -1,4 +1,5 @@
-module npu_axi4_write_dma #(
+/* verilator lint_off DECLFILENAME */
+module npu_axi4_write_dma_core #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128,
     parameter int unsigned LEN_W = 32,
@@ -17,24 +18,8 @@ module npu_axi4_write_dma #(
     output logic                    error_o,
     output logic [31:0]             error_code_o,
 
-    output logic [ADDR_W-1:0]       m_axi_awaddr_o,
-    output logic [7:0]              m_axi_awlen_o,
-    output logic [2:0]              m_axi_awsize_o,
-    output logic [1:0]              m_axi_awburst_o,
-    output logic                    m_axi_awvalid_o,
-    input  logic                    m_axi_awready_i,
-    output logic [DATA_W-1:0]       m_axi_wdata_o,
-    output logic [STRB_W-1:0]       m_axi_wstrb_o,
-    output logic                    m_axi_wlast_o,
-    output logic                    m_axi_wvalid_o,
-    input  logic                    m_axi_wready_i,
-    input  logic [1:0]              m_axi_bresp_i,
-    input  logic                    m_axi_bvalid_i,
-    output logic                    m_axi_bready_o,
-
-    input  logic                    in_valid_i,
-    output logic                    in_ready_o,
-    input  logic [DATA_W-1:0]       in_data_i
+    npu_axi4_if.write_master        m_axi,
+    npu_vr_if.sink                  in_i
 );
 
     import npu_pkg::*;
@@ -78,9 +63,9 @@ module npu_axi4_write_dma #(
         ? 5'd16
         : 5'(beats_remaining_q);
 
-    assign w_fire = m_axi_wvalid_o && m_axi_wready_i;
-    assign b_resp_ok = (m_axi_bresp_i == AXI_RESP_OKAY) ||
-                       (m_axi_bresp_i == AXI_RESP_EXOKAY);
+    assign w_fire = m_axi.wvalid && m_axi.wready;
+    assign b_resp_ok = (m_axi.bresp == AXI_RESP_OKAY) ||
+                       (m_axi.bresp == AXI_RESP_EXOKAY);
     assign final_w_beat = (burst_beats_sent_q == (burst_beats_q - 5'd1));
 
     assign busy_o = (state_q == STATE_AW) || (state_q == STATE_W) || (state_q == STATE_B);
@@ -88,30 +73,31 @@ module npu_axi4_write_dma #(
     assign error_o = (state_q == STATE_ERR) && !start_i;
     assign error_code_o = error_code_q;
 
-    assign m_axi_awaddr_o = addr_q;
-    assign m_axi_awlen_o = 8'(next_burst_beats - 5'd1);
-    assign m_axi_awsize_o = 3'(BEAT_SHIFT);
-    assign m_axi_awburst_o = AXI_BURST_INCR;
-    assign m_axi_awvalid_o = (state_q == STATE_AW);
-    assign m_axi_wdata_o = in_data_i;
-    assign m_axi_wstrb_o = {STRB_W{1'b1}};
-    assign m_axi_wlast_o = final_w_beat;
-    assign m_axi_wvalid_o = (state_q == STATE_W) && in_valid_i;
-    assign m_axi_bready_o = (state_q == STATE_B);
-    assign in_ready_o = (state_q == STATE_W) && m_axi_wready_i;
+    assign m_axi.awid = '0;
+    assign m_axi.awaddr = addr_q;
+    assign m_axi.awlen = 8'(next_burst_beats - 5'd1);
+    assign m_axi.awsize = 3'(BEAT_SHIFT);
+    assign m_axi.awburst = AXI_BURST_INCR;
+    assign m_axi.awvalid = (state_q == STATE_AW);
+    assign m_axi.wdata = in_i.data;
+    assign m_axi.wstrb = {STRB_W{1'b1}};
+    assign m_axi.wlast = final_w_beat;
+    assign m_axi.wvalid = (state_q == STATE_W) && in_i.valid;
+    assign m_axi.bready = (state_q == STATE_B);
+    assign in_i.ready = (state_q == STATE_W) && m_axi.wready;
 
     initial begin
-        if (NPU_ABI_MAJOR != 1) $fatal("Unexpected NPU_ABI_MAJOR");
+        if (NPU_ABI_MAJOR != 2) $fatal("Unexpected NPU_ABI_MAJOR");
         if (NPU_ABI_MINOR != 0) $fatal("Unexpected NPU_ABI_MINOR");
         if (NPU_DESC_SIZE_BYTES != 128) $fatal("Unexpected NPU_DESC_SIZE_BYTES");
         if (NPU_DESC_ALIGN_BYTES != 16) $fatal("Unexpected NPU_DESC_ALIGN_BYTES");
         if (NPU_TENSOR_ALIGN_BYTES != 16) $fatal("Unexpected NPU_TENSOR_ALIGN_BYTES");
-        if (NPU_ARRAY_M != 16) $fatal("Unexpected NPU_ARRAY_M");
+        if (NPU_ARRAY_K != 16) $fatal("Unexpected NPU_ARRAY_K");
         if (NPU_ARRAY_N != 16) $fatal("Unexpected NPU_ARRAY_N");
         if (NPU_INPUT_BITS != 8) $fatal("Unexpected NPU_INPUT_BITS");
         if (NPU_ACC_BITS != 32) $fatal("Unexpected NPU_ACC_BITS");
         if (NPU_DEVICE_ID_RESET != 32'h4E50_5501) $fatal("Unexpected NPU_DEVICE_ID_RESET");
-        if (NPU_ABI_VERSION_RESET != 32'h0001_0000) $fatal("Unexpected NPU_ABI_VERSION_RESET");
+        if (NPU_ABI_VERSION_RESET != 32'h0002_0000) $fatal("Unexpected NPU_ABI_VERSION_RESET");
         if (NPU_CAP0_RESET != 32'h0000_003F) $fatal("Unexpected NPU_CAP0_RESET");
         if (NPU_CAP1_RESET != 32'h0820_1010) $fatal("Unexpected NPU_CAP1_RESET");
     end
@@ -141,7 +127,7 @@ module npu_axi4_write_dma #(
                 end
 
                 STATE_AW: begin
-                    if (m_axi_awready_i) begin
+                    if (m_axi.awready) begin
                         burst_beats_q <= next_burst_beats;
                         burst_beats_sent_q <= '0;
                         state_q <= STATE_W;
@@ -159,7 +145,7 @@ module npu_axi4_write_dma #(
                 end
 
                 STATE_B: begin
-                    if (m_axi_bvalid_i) begin
+                    if (m_axi.bvalid) begin
                         if (!b_resp_ok) begin
                             state_q <= STATE_ERR;
                             error_code_q <= 32'(NPU_ERR_AXI_WRITE);
@@ -211,3 +197,4 @@ module npu_axi4_write_dma #(
     end
 
 endmodule
+/* verilator lint_on DECLFILENAME */

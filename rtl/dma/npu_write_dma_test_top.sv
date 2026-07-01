@@ -39,7 +39,7 @@ module npu_write_dma_test_top (
     assign m_axi_wdata_lo_o = wdata[63:0];
     assign m_axi_wdata_hi_o = wdata[127:64];
 
-    npu_axi4_write_dma u_write_dma (
+    npu_axi4_write_dma_test_wrapper u_write_dma (
         .clk_i(clk_i),
         .rst_ni(rst_ni),
         .start_i(start_i),

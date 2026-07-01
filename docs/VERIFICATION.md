@@ -66,12 +66,12 @@ Phase 1 must establish these commands:
 
 ```sh
 cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
+cmake --build --preset debug --parallel 2
+ctest --preset debug -j 2
 ```
 
-Later phases may add lint, coverage, and regression presets, but the debug
-preset must remain a quick local smoke path.
+The `debug` test preset is a quick local path. Lint and full regression are
+separate CTest presets so build and test scheduling remain distinct.
 
 ## Phase 2 ABI Review Checklist
 
@@ -87,8 +87,8 @@ Phase 2 is a documentation and ABI freeze gate. The review must confirm:
 - Interrupt set, clear, enable, and line assertion behavior are defined.
 - AXI4 address width, data width, burst limits, outstanding limits, alignment,
   and response mapping are defined.
-- `docs/DECISIONS.md` records descriptor queue semantics, output-stationary
-  dataflow, and INT8/INT32 arithmetic.
+- `docs/DECISIONS.md` records descriptor queue semantics, B-weight-stationary
+  dataflow, ABI 2.0, and INT8/INT32 arithmetic.
 
 ## Phase 3 Common RTL Checklist
 
@@ -96,6 +96,10 @@ Phase 3 verification must confirm:
 
 - Verilator lint passes for common package, interfaces, FIFO, skid buffer,
   register slice, and common smoke top.
+- `tools/check_rtl_interface_usage.py` confirms that `npu_vr_if`,
+  `npu_axi_lite_if`, and `npu_axi4_if` are used by product RTL cores, that core
+  modules do not expose flattened AXI/valid-ready bus groups, and that
+  `*_test_wrapper.sv` files stay out of product source sets.
 - C++ tests instantiate the common smoke top through Verilator.
 - Package constants match the frozen ABI values from `docs/INTERFACE.md`.
 - FIFO tests cover reset, push, full backpressure, rejected push, ordered pop,
@@ -110,9 +114,11 @@ Phase 3 verification must confirm:
 Phase 4 verification must confirm:
 
 - Verilator lint passes for the PE, parameterized array, and array test wrapper.
-- PE tests cover reset, masked valid input, positive operands, negative operands,
-  zero multiplication, and INT32 wraparound boundary behavior.
-- Array tests compare every active output against a C++ golden model.
+- PE tests cover reset, B weight loading, masked compute, psum pass-through,
+  positive operands, negative operands, zero multiplication, and INT32
+  wraparound boundary behavior.
+- Array tests collect streamed C partial outputs and compare every active output
+  against a C++ golden model.
 - Array tests cover `1x1x1`, `16x16x16`, and `17x19x23` GEMM shapes.
 - Array tests confirm inactive masked rows and columns remain invalid and zero.
 
@@ -120,15 +126,22 @@ Phase 4 verification must confirm:
 
 Phase 5 verification must confirm:
 
-- Verilator lint passes for scratchpad, A/B tile buffer, C buffer, tile mask,
-  ping-pong controller, and tiling test top.
+- Verilator lint passes for reusable scratchpad infrastructure, A/B tile buffer,
+  C buffer, tile mask, ping-pong controller, product A-wavefront scratchpad,
+  and tiling test top.
 - Tile masks cover zero remaining elements, full `16x16x16` tiles, dimensions
   larger than one tile, and the `17x19x23` tail case of `1x3x7`.
-- Valid A/B/C buffer accesses read back expected data without range errors.
+- Valid reusable A/B/C buffer accesses read back expected data without range
+  errors.
 - Illegal bank and address accesses raise error flags and do not report ready.
 - Load, compute, store, done, and bank toggle schedule states are observable.
 - A masked tail compute path checks the `1x3x7` edge tile against a C++ golden
-  model using the Phase 4 array and Phase 5 masks.
+  model using product v1.1 B-stationary PE weights, streamed psum outputs, and
+  Phase 5 masks.
+- Documentation must distinguish reusable Phase 5 modules from the product
+  active v1.1 path: `npu_gemm_tile_scratchpad.sv` supplies A wavefront/masks and
+  psum timing, B rows load into PE weight registers, and C partial sums
+  accumulate in the GEMM scheduler.
 
 ## Phase 6 AXI-Lite Control Checklist
 
@@ -189,6 +202,9 @@ Phase 9 verification must confirm:
 - The C++ memory model drives the accelerator AXI4 read and write channels.
 - `npu_top_tb` verifies the public AXI-Lite doorbell to descriptor fetch to GEMM
   writeback path through `npu_top.sv`.
+- Product-internal connections use `npu_axi_lite_if`, `npu_axi4_if`, and
+  `npu_vr_if`; flattened wrappers are limited to C++/Verilator test harnesses
+  and the external `npu_top.sv` product pin boundary.
 - Top-level tests cover AXI4 read arbitration between descriptor fetch and GEMM
   tensor reads.
 - Top-level tests cover AXI-Lite AW-before-W and W-before-AW write timing at the
@@ -245,11 +261,13 @@ Phase 11 verification must confirm:
   clear-and-resubmit execution epoch.
 - Descriptor fuzzing covers multiple deterministic invalid descriptor seeds and
   expected validation failures.
-- A single lint target runs all RTL lint targets required for v1.
+- A single `lint` build target aggregates all RTL lint targets.
 - Regression build and test presets run the full v1 verification suite.
 - Known limitations are documented in `docs/PROGRESS.md`.
 - ABI consistency checking compares RTL package constants against public C
   headers during CTest.
+- RTL interface-usage checking runs during CTest and regression to keep the
+  core interface-native and wrappers test-only.
 
 ## v1 Release Checklist
 
@@ -258,12 +276,15 @@ The v1 release gate passes only when:
 - `docs/ROADMAP.md` and `docs/PROGRESS.md` agree that Phase 0 through Phase 11
   are complete.
 - `cmake --preset debug` configures successfully.
-- `cmake --build --preset debug` builds all simulation and software targets.
-- `ctest --preset debug` passes.
-- `cmake --build --preset debug --target v1_lint` passes with no critical
-  warnings.
-- `cmake --build --preset regression` passes.
-- `ctest --preset regression` passes.
+- `cmake --build --preset debug --parallel 2` builds all simulation and
+  software targets.
+- `ctest --preset debug -j 2` passes the fast local subset.
+- `rtl_interface_usage` passes as part of `ctest --preset debug`.
+- `ctest --preset lint -j 2` passes with no critical warnings.
+- `cmake --preset regression` configures a RelWithDebInfo regression tree.
+- `cmake --build --preset regression --parallel 2` builds optimized regression
+  targets without running tests as part of the build step.
+- `ctest --preset regression -j 2` passes the full test matrix.
 - The source/document marker scan finds no unfinished placeholder entries in
   checked source and documentation paths.
 - Root release documentation includes `README.md`, `CHANGELOG.md`, and an

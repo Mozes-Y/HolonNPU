@@ -6,11 +6,20 @@ All notable project-level release changes are recorded here.
 
 ### Changed
 
+- Upgraded the matrix engine to v1.1 B-weight-stationary dataflow.
+- Raised the ABI contract to 2.0 and descriptor `version=2`.
+- Renamed public array capability constants from M/N rows to `ARRAY_K` and
+  `ARRAY_N`.
 - Renamed the project identity to HolonNPU.
 - Renamed the public C API, ABI headers, driver targets, tests, documentation,
   and CI branding to use `holon_npu_*` / `HOLON_NPU_*` names.
 - Kept internal RTL `npu_*` names unchanged because they describe generic
   hardware blocks rather than the project brand.
+- Refactored product RTL cores to use SystemVerilog interfaces internally and
+  limited flattened wrappers to C++/Verilator test harnesses.
+- Added an RTL interface-usage checker to CTest and regression.
+- Split build and test presets, pinned Ninja, renamed the aggregate lint target
+  to `lint`, and moved full regression to a RelWithDebInfo build tree.
 
 ## v1 - 2026-06-27
 
@@ -27,7 +36,7 @@ Initial roadmap-complete release.
 - Public C ABI headers and minimal C driver.
 - Verilator/C++26 testbenches and CTest integration.
 - ABI consistency checker across RTL package constants and public C headers.
-- Aggregate `v1_lint` and regression targets.
+- Aggregate lint and regression targets.
 
 ### Fixed During Release Hardening
 

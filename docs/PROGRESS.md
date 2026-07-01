@@ -5,12 +5,372 @@ and whenever a verification result changes the engineering plan.
 
 ## Current Status
 
-- Active phase: None; HolonNPU rename complete.
-- Last updated: 2026-06-28.
-- Overall state: Phase 0 through Phase 11 complete; v1 source release gate
-  passed with product-level top integration and release-facing documentation.
-  The formal project name is now HolonNPU, with the public C API renamed to
-  `holon_npu_*` / `HOLON_NPU_*`.
+- Active phase: None; minimal Ninja build/test presets complete.
+- Last updated: 2026-07-01.
+- Overall state: Phase 0 through Phase 14 complete; v1.1 source gate passed
+  with ABI 2.0, B-weight-stationary matrix dataflow, interface-native product
+  RTL cores, test-only flattened wrappers, product-level top integration,
+  release-facing documentation, post-review consistency remediation, and
+  minimal Ninja build/test presets.
+
+## Phase 14: Build/Test Preset Separation
+
+Status: Complete.
+
+Completed work:
+
+- Verified the four reported build-system issues were real:
+  - `debug` and `regression` test presets were equivalent full-suite Debug
+    runs.
+  - `v1_regression` coupled build and test by invoking CTest from a build
+    target.
+  - regression reused the Debug build tree instead of an optimized simulator
+    build.
+  - CTest presets did not provide a default parallel execution mechanism.
+- Added a minimal CTest label scheme:
+  - `fast` for local quick-feedback tests.
+  - `lint` for Verilator lint tests.
+  - `slow` for heavy GEMM/top simulations.
+  - `static` for static consistency checks that are also part of `fast`.
+- Reworked `CMakePresets.json`:
+  - `debug` remains a Debug Ninja configure/build tree.
+  - `regression` is a separate `RelWithDebInfo` Ninja configure/build tree under
+    `build/regression`.
+  - `ctest --preset debug` is now a fast local subset.
+  - `ctest --preset lint` owns RTL lint verification.
+  - `ctest --preset regression` runs the full 22-test matrix.
+  - no subsystem-specific presets are exposed.
+  - hidden presets, descriptions, and preset-level parallel environment
+    variables were removed.
+- Removed the `v1_regression` build target so build presets compile only.
+- Renamed the aggregate lint build target from the architecture-versioned old
+  name to `lint`.
+- Refactored repetitive CMake target/test/lint registration into local helper
+  functions without adding a separate CMake module.
+- Removed the previously added custom verbose helper and routine passing test
+  logs; focused observation now uses standard `ctest -R ... --verbose`.
+- Updated CI to install Ninja and run explicit configure/build/test/lint/
+  regression stages instead of invoking tests from build targets.
+- Added ADR-0020 and updated README, roadmap, verification, getting-started,
+  changelog, and this progress log.
+
+Notes:
+
+- Test parallelism is intentionally explicit at call sites, for example
+  `ctest --preset debug -j 2 --output-on-failure`.
+- Focused local builds intentionally use CMake's native target mechanism, for
+  example `cmake --build --preset debug --target npu_top_tb`, instead of one
+  preset per test target.
+
+Verification commands:
+
+- `python3 -m json.tool CMakePresets.json`
+- `cmake --list-presets`
+- `cmake --list-presets=build`
+- `cmake --list-presets=test`
+- `cmake --preset debug`
+- `cmake --preset regression`
+- `ctest --preset debug -N`
+- `ctest --preset lint -N`
+- `ctest --preset regression -N`
+- `cmake --preset debug --fresh`
+- `cmake --preset regression --fresh`
+- `cmake --build --preset debug --parallel 2`
+- `cmake --build --preset debug --target lint --parallel 2`
+- `cmake --build --preset debug --target npu_top_tb`
+- `cmake --build --preset debug --target npu_read_dma_tb npu_write_dma_tb`
+- `cmake --build --preset regression --parallel 2`
+- `git diff --check`
+- `python3 tools/check_abi_consistency.py`
+- `python3 tools/check_rtl_interface_usage.py`
+- `ctest --preset debug -j 2 --output-on-failure`
+- `ctest --preset lint -j 2 --output-on-failure`
+- `ctest --preset regression -j 2 --output-on-failure`
+- `ctest --preset regression -R npu_top --verbose`
+- `ctest --preset debug -R 'npu_read_dma|npu_write_dma' --verbose`
+
+Results:
+
+- Preset JSON parsed successfully.
+- Configure presets listed `debug` and `regression`.
+- Build presets listed only `debug` and `regression`.
+- Test presets listed only `debug`, `lint`, and `regression`.
+- `cmake --preset debug` configured `build/debug` successfully with Ninja.
+- `cmake --preset regression` configured `build/regression` successfully with
+  Ninja and `RelWithDebInfo`.
+- The local build directories previously contained Unix Makefiles cache state,
+  so `cmake --preset debug --fresh` and `cmake --preset regression --fresh`
+  were run once to regenerate them as Ninja trees; normal preset configure
+  commands then passed.
+- `ctest --preset debug -N` listed 12 fast tests and excluded lint/slow tests.
+- `ctest --preset lint -N` listed 8 lint tests.
+- `ctest --preset regression -N` listed the full 22-test matrix after the
+  regression build completed.
+- `cmake --build --preset debug --parallel 2` built all Debug simulation and
+  software targets.
+- `cmake --build --preset debug --target lint --parallel 2` built the aggregate
+  lint target.
+- `cmake --build --preset debug --target npu_top_tb` built only the selected top
+  test target and its dependencies.
+- `cmake --build --preset debug --target npu_read_dma_tb npu_write_dma_tb` built
+  the selected DMA test targets and their dependencies.
+- `cmake --build --preset regression --parallel 2` built optimized regression
+  targets and did not run CTest during the build step.
+- Whitespace check passed.
+- ABI consistency check passed across 66 constants.
+- RTL interface usage check passed.
+- `ctest --preset debug -j 2 --output-on-failure` passed `12/12` tests.
+- `ctest --preset lint -j 2 --output-on-failure` passed `8/8` tests.
+- `ctest --preset regression -j 2 --output-on-failure` passed `22/22` tests.
+- `ctest --preset regression -R npu_top --verbose` passed the selected top test
+  and showed standard CTest command/result output.
+- `ctest --preset debug -R 'npu_read_dma|npu_write_dma' --verbose` passed the
+  selected DMA tests and showed standard CTest command/result output.
+
+Known limitations:
+
+- None for the minimal Ninja build/test preset work.
+
+Remaining issues:
+
+- None for the build/test preset separation work.
+
+Next step:
+
+- Commit the Phase 14 build/test preset separation when ready.
+
+## Phase 13: Interface-Native Core Boundary
+
+Status: Complete.
+
+Completed work:
+
+- Converted common valid-ready primitives to `npu_vr_if.source/sink` ports:
+  `npu_fifo`, `npu_skid_buffer`, and `npu_register_slice`.
+- Converted AXI-facing product cores to SystemVerilog interfaces:
+  - `npu_axi4_read_dma_core` uses `npu_axi4_if.read_master` and
+    `npu_vr_if.source`.
+  - `npu_axi4_write_dma_core` uses `npu_axi4_if.write_master` and
+    `npu_vr_if.sink`.
+  - `npu_control_regs_core` uses `npu_axi_lite_if.slave`.
+  - `npu_command_processor`, `npu_gemm_accelerator_core`, and `npu_top_core`
+    connect command and AXI paths through interfaces.
+- Split flattened C++/Verilator harness adapters into explicit
+  `*_test_wrapper.sv` files and excluded them from product source sets.
+- Kept `npu_top.sv` as the product SoC pin boundary; it converts external pins
+  to interfaces once and instantiates `npu_top_core`.
+- Added `tools/check_rtl_interface_usage.py` and wired it into CTest and the
+  regression target.
+- Added ADR-0019 and updated architecture, verification, roadmap,
+  getting-started, and changelog documentation.
+
+Verification commands:
+
+- `git diff --check`
+- `python3 tools/check_abi_consistency.py`
+- `python3 tools/check_rtl_interface_usage.py`
+- `rg -n "_test_wrapper" rtl CMakeLists.txt docs/ARCHITECTURE.md docs/DECISIONS.md docs/VERIFICATION.md docs/GETTING_STARTED.md docs/ROADMAP.md CHANGELOG.md`
+- `cmake --preset debug`
+- `cmake --build --preset debug`
+- `ctest --preset debug --output-on-failure`
+- `cmake --build --preset debug --target v1_lint`
+- `cmake --build --preset regression`
+- `ctest --preset regression --output-on-failure`
+
+Results:
+
+- Patch whitespace check passed.
+- ABI consistency check passed across 66 constants.
+- RTL interface usage check passed.
+- Wrapper scan found wrapper references only in documentation, CMake test/lint
+  source sets, wrapper definitions, and DMA test tops.
+- `cmake --preset debug` configured successfully.
+- `cmake --build --preset debug` built all simulation and software targets.
+- `ctest --preset debug --output-on-failure` passed `22/22` tests, including
+  `rtl_interface_usage`.
+- `cmake --build --preset debug --target v1_lint` passed all aggregate RTL lint
+  targets with Verilator 5.048.
+- `cmake --build --preset regression` passed and ran the full CTest suite.
+- `ctest --preset regression --output-on-failure` passed `22/22` tests.
+
+Known limitations:
+
+- Flattened access remains intentionally available only at C++/Verilator test
+  wrappers and the public product `npu_top.sv` pin boundary.
+- v1.1 still has one descriptor in flight and one outstanding AXI4 burst per
+  DMA engine.
+
+Remaining issues:
+
+- None for the interface-native core boundary work.
+
+Next step:
+
+- Commit the v1.1 architecture, ABI, and interface-native core work when ready.
+
+## v1.1 ABI And Implementation Consistency Review
+
+Status: Complete.
+
+Completed work:
+
+- Launched a read-only `gpt-5.5` / `xhigh` explorer subagent to review the
+  current uncommitted v1.1 changes for ABI design quality, RTL/C/docs/test
+  consistency, implementation completeness, and unused or half-connected
+  modules.
+- Reviewed the subagent findings in the main thread and confirmed the valid
+  issues before editing.
+- Marked ADR-0012 and ADR-0015 as superseded in part by ADR-0018 for the
+  matrix datapath details, and rewrote the affected bullets so future work uses
+  the active v1.1 B-weight-stationary contract.
+- Clarified architecture, getting-started, and verification docs so reusable
+  Phase 5 scratchpad modules are not confused with the product-active v1.1
+  datapath.
+- Added public descriptor offset macros in `include/holon_npu_desc.h` and
+  extended `tools/check_abi_consistency.py` to compare all RTL
+  `NPU_DESC_OFF_*` constants against public C `HOLON_NPU_DESC_OFF_*` constants.
+- Updated host driver tests to assert descriptor offsets through the public
+  offset macros.
+- Resolved the C row-padding ABI ambiguity by aligning `docs/INTERFACE.md` with
+  the already documented architecture and implemented RTL behavior: inactive
+  INT32 lanes inside the final written 16-byte C beat are written as zero.
+- Added top-level C padding coverage that initializes C rows with sentinels,
+  runs an edge-N GEMM, checks logical output values, and checks zero-written
+  final-beat padding bytes.
+
+Verification commands:
+
+- `git diff --check`
+- `python3 tools/check_abi_consistency.py`
+- ``rg -n '0x00010000|version 是否为 1|Descriptor `version` is not `1`|HOLON_NPU_ARRAY_M|NPU_ARRAY_M|NPU_ABI_MAJOR\s*=\s*1|HOLON_NPU_ABI_MAJOR\s+UINT32_C\(1\)' README.md CHANGELOG.md docs include rtl sim tests tools sw CMakeLists.txt .github/workflows/cmake-single-platform.yml``
+- ``rg -n 'output-stationary|ARRAY_M|HOLON_NPU_ARRAY_M|NPU_ARRAY_M|A-left/B-top|local `16x16` A/B' README.md CHANGELOG.md docs include rtl sim tests tools sw CMakeLists.txt .github/workflows/cmake-single-platform.yml``
+- `cmake --preset debug`
+- `cmake --build --preset debug`
+- `ctest --preset debug --output-on-failure`
+- `cmake --build --preset debug --target v1_lint`
+- `cmake --build --preset regression`
+- `ctest --preset regression --output-on-failure`
+
+Results:
+
+- Subagent review found one must-fix documentation drift, two nice-to-fix
+  consistency gaps, and one ABI row-padding ambiguity. No direct RTL functional
+  mismatch was found beyond the documentation/test gaps.
+- The row-padding ambiguity was resolved without a user decision because
+  `docs/ARCHITECTURE.md` and RTL already agreed that final written C beat
+  padding lanes are zeroed; the missing piece was the public ABI document and
+  top-level coverage.
+- Whitespace check passed.
+- ABI consistency check passed across 66 RTL/C public constants after adding
+  descriptor offset checks.
+- Stale ABI 1.0 and old public array-name scans found only historical
+  `docs/PROGRESS.md` records and explicitly superseded/rejected ADR context.
+- `cmake --preset debug` configured successfully.
+- `cmake --build --preset debug` built all simulation and software targets
+  successfully.
+- `ctest --preset debug --output-on-failure` passed `21/21` tests.
+- `cmake --build --preset debug --target v1_lint` passed all aggregate RTL lint
+  targets with Verilator 5.048.
+- `cmake --build --preset regression` passed and ran the v1 regression target.
+- `ctest --preset regression --output-on-failure` passed `21/21` tests.
+
+Remaining issues:
+
+- None from the v1.1 ABI and implementation consistency review.
+
+Next step:
+
+- Review and commit the v1.1 architecture upgrade plus review remediation when
+  ready.
+
+## Phase 12: B-Weight-Stationary Matrix Engine
+
+Status: Complete.
+
+Completed work:
+
+- Updated the roadmap, architecture, interface, verification, getting-started,
+  changelog, and README documentation for the v1.1 B-weight-stationary
+  architecture.
+- Added ADR-0018 documenting the replacement of the former PE-local C
+  accumulation design, the ABI 2.0 break, descriptor `version=2`,
+  `ARRAY_K`/`ARRAY_N` capability naming, and the decision not to keep a
+  compatibility dataflow.
+- Raised RTL and C ABI constants to ABI 2.0:
+  - `NPU_ABI_MAJOR` / `HOLON_NPU_ABI_MAJOR` are `2`.
+  - `NPU_ABI_VERSION_RESET` / `HOLON_NPU_ABI_VERSION_RESET` are `0x00020000`.
+  - Public array capability naming is `NPU_ARRAY_K` /
+    `HOLON_NPU_ARRAY_K` plus `ARRAY_N`.
+- Refactored `npu_pe_i8` so each PE stores a signed INT8 B weight register and
+  computes `psum_out = psum_in + A * B_weight` with signed INT32 wraparound.
+- Refactored `npu_systolic_array` into an `ARRAY_K x ARRAY_N`
+  B-weight-stationary array with explicit B weight load, A wavefront injection,
+  top-to-bottom psum propagation, and streamed C partial outputs.
+- Updated the scratchpad and tiling datapath so A values stream by K lane, B
+  rows load into stationary PE weights, and C partial sums are collected in a
+  C tile accumulator.
+- Updated the integrated GEMM accelerator scheduler to clear the C accumulator
+  per output tile, load A/B per K tile, accumulate streamed partial sums across
+  K tiles, and write C only after all K tiles complete.
+- Updated PE, array, tiling, command, control, integrated GEMM, top-level, and
+  host-driver tests for descriptor version 2, ABI reset value `0x00020000`,
+  `ARRAY_K` capability semantics, and streamed psum timing.
+- Updated the ABI consistency checker to compare RTL `NPU_*` constants against
+  public `HOLON_NPU_*` ABI 2.0 constants.
+
+Verification commands:
+
+- `git diff --check`
+- `python3 tools/check_abi_consistency.py`
+- `rg -n 'output-stationary|ARRAY_M|HOLON_NPU_ARRAY_M|NPU_ARRAY_M' README.md CHANGELOG.md docs include rtl sim tests tools sw CMakeLists.txt .github/workflows/cmake-single-platform.yml`
+- `rg -n 'weight-stationary|ARRAY_K|HOLON_NPU_ARRAY_K|NPU_ARRAY_K' README.md CHANGELOG.md docs include rtl sim tests tools sw CMakeLists.txt .github/workflows/cmake-single-platform.yml`
+- `cmake --preset debug`
+- `cmake --build --preset debug`
+- `ctest --preset debug --output-on-failure`
+- `cmake --build --preset debug --target v1_lint`
+- `cmake --build --preset regression`
+- `ctest --preset regression --output-on-failure`
+
+Results:
+
+- Whitespace check passed.
+- ABI consistency check passed across 50 RTL/C public constants.
+- Former dataflow/API-name scan found only historical progress-log entries and
+  ADR-0018's rejected old public `ARRAY_M` naming context.
+- New B-weight-stationary and `ARRAY_K` names are present in documentation,
+  public C headers, RTL, simulation tests, driver tests, and tooling.
+- `cmake --preset debug` configured successfully.
+- `cmake --build --preset debug` built all simulation and software targets
+  successfully.
+- First full debug CTest run found one valid stale test expectation:
+  `sim/control_tb.cpp` still expected ABI reset value `0x00010000`.
+- The control test was corrected to use `HOLON_NPU_ABI_VERSION_RESET` and other
+  public reset constants instead of duplicated literals.
+- `ctest --preset debug --output-on-failure` then passed `21/21` tests.
+- `cmake --build --preset debug --target v1_lint` passed all aggregate RTL lint
+  targets with Verilator 5.048.
+- `cmake --build --preset regression` passed and ran the v1 regression target.
+- `ctest --preset regression --output-on-failure` passed `21/21` tests.
+
+Known limitations:
+
+- v1.1 keeps the existing single descriptor queue, one outstanding AXI4 read
+  burst, and one outstanding AXI4 write burst constraints.
+- Descriptor, tensor base, and row-stride values still require 16-byte
+  alignment.
+- v1.1 implements signed INT8 GEMM with signed INT32 output only; vector
+  post-processing, BF16, FP8, graph scheduling, convolution, full softmax,
+  LayerNorm, and GELU remain outside scope.
+- RTL module filenames and module names still use `npu_*` by design; they are
+  generic hardware ownership names, not public product branding.
+
+Remaining issues:
+
+- None for the v1.1 B-weight-stationary architecture upgrade.
+
+Next step:
+
+- Review and commit the v1.1 architecture upgrade when ready.
 
 ## Project Rename: HolonNPU
 

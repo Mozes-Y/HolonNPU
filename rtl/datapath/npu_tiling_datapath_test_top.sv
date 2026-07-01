@@ -72,6 +72,8 @@ module npu_tiling_datapath_test_top #(
     output logic                         c_rd_error_o,
 
     input  logic                         compute_clear_i,
+    input  logic                         compute_weight_load_i,
+    input  logic [3:0]                   compute_weight_k_i,
     input  logic                         compute_step_valid_i,
     input  logic [5:0]                   compute_k_index_i,
     input  logic [1:0]                   compute_pattern_i,
@@ -81,12 +83,17 @@ module npu_tiling_datapath_test_top #(
     output logic signed [31:0]           compute_read_data_o
 );
 
-    logic signed [7:0]      compute_a_vec [TILE_M];
-    logic signed [7:0]      compute_b_vec [TILE_N];
-    logic [TILE_M-1:0]      compute_a_valid;
-    logic [TILE_N-1:0]      compute_b_valid;
+    logic signed [7:0]      compute_a_vec [TILE_K];
+    logic signed [7:0]      compute_weight_vec [TILE_N];
+    logic signed [31:0]     compute_psum_zero [TILE_N];
+    logic [TILE_K-1:0]      compute_a_valid;
+    logic [TILE_N-1:0]      compute_psum_valid;
+    logic [TILE_N-1:0]      compute_stream_valid;
+    logic signed [31:0]     compute_stream_data [TILE_N];
     logic [TILE_N-1:0]      compute_c_valid [TILE_M];
     logic signed [31:0]     compute_c [TILE_M][TILE_N];
+    logic [5:0]             compute_stream_cycle_q;
+    logic                   compute_stream_cycle_valid_q;
     logic                   compute_k_active;
 
     function automatic logic signed [7:0] make_a(
@@ -212,33 +219,32 @@ module npu_tiling_datapath_test_top #(
     );
 
     always_comb begin
-        for (int unsigned row = 0; row < TILE_M; row++) begin
-            int signed skew_k;
+        for (int unsigned k_row = 0; k_row < TILE_K; k_row++) begin
+            int signed active_m;
 
-            skew_k = int'(compute_k_index_i) - int'(row);
-            compute_a_valid[row] = row_mask_o[row] && (skew_k >= 0) &&
-                                   (DIM_W'(skew_k) < k_remaining_i);
-            compute_a_vec[row] = compute_a_valid[row]
-                ? make_a(row, skew_k, compute_pattern_i)
+            active_m = int'(compute_k_index_i) - int'(k_row);
+            compute_a_valid[k_row] = k_mask_o[k_row] && (active_m >= 0) &&
+                                     (active_m < TILE_M) && row_mask_o[active_m];
+            compute_a_vec[k_row] = compute_a_valid[k_row]
+                ? make_a(active_m, k_row, compute_pattern_i)
                 : '0;
         end
 
         for (int unsigned col = 0; col < TILE_N; col++) begin
-            int signed skew_k;
+            int signed active_m;
 
-            skew_k = int'(compute_k_index_i) - int'(col);
-            compute_b_valid[col] = col_mask_o[col] && (skew_k >= 0) &&
-                                   (DIM_W'(skew_k) < k_remaining_i);
-            compute_b_vec[col] = compute_b_valid[col]
-                ? make_b(col, skew_k, compute_pattern_i)
-                : '0;
+            compute_weight_vec[col] = make_b(col, int'(compute_weight_k_i), compute_pattern_i);
+            active_m = int'(compute_k_index_i) - int'(col);
+            compute_psum_valid[col] = col_mask_o[col] && (active_m >= 0) &&
+                                      (active_m < TILE_M) && row_mask_o[active_m];
+            compute_psum_zero[col] = '0;
         end
     end
 
     assign compute_k_active = compute_step_valid_i;
 
     npu_systolic_array #(
-        .ARRAY_M(TILE_M),
+        .ARRAY_K(TILE_K),
         .ARRAY_N(TILE_N),
         .INPUT_W(8),
         .ACC_W(32)
@@ -246,16 +252,58 @@ module npu_tiling_datapath_test_top #(
         .clk_i(clk_i),
         .rst_ni(rst_ni),
         .clear_i(compute_clear_i),
+        .weight_valid_i(compute_weight_load_i),
+        .weight_k_i(compute_weight_k_i),
+        .weight_col_mask_i(col_mask_o),
+        .weight_i(compute_weight_vec),
         .step_valid_i(compute_k_active),
-        .row_mask_i(row_mask_o),
+        .k_mask_i(k_mask_o),
         .col_mask_i(col_mask_o),
         .a_valid_i(compute_a_valid),
-        .b_valid_i(compute_b_valid),
         .a_i(compute_a_vec),
-        .b_i(compute_b_vec),
-        .c_valid_o(compute_c_valid),
-        .c_o(compute_c)
+        .psum_valid_i(compute_psum_valid),
+        .psum_i(compute_psum_zero),
+        .psum_valid_o(compute_stream_valid),
+        .psum_o(compute_stream_data)
     );
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            compute_stream_cycle_q <= '0;
+            compute_stream_cycle_valid_q <= 1'b0;
+            for (int unsigned row = 0; row < TILE_M; row++) begin
+                compute_c_valid[row] <= '0;
+                for (int unsigned col = 0; col < TILE_N; col++) begin
+                    compute_c[row][col] <= '0;
+                end
+            end
+        end else if (compute_clear_i) begin
+            compute_stream_cycle_q <= '0;
+            compute_stream_cycle_valid_q <= 1'b0;
+            for (int unsigned row = 0; row < TILE_M; row++) begin
+                compute_c_valid[row] <= '0;
+                for (int unsigned col = 0; col < TILE_N; col++) begin
+                    compute_c[row][col] <= '0;
+                end
+            end
+        end else begin
+            if (compute_stream_cycle_valid_q) begin
+                for (int unsigned col = 0; col < TILE_N; col++) begin
+                    int signed out_row;
+
+                    out_row = int'(compute_stream_cycle_q) - int'(TILE_K - 1) - int'(col);
+                    if (compute_stream_valid[col] && (out_row >= 0) &&
+                        (out_row < TILE_M) && row_mask_o[out_row]) begin
+                        compute_c[out_row][col] <= compute_stream_data[col];
+                        compute_c_valid[out_row][col] <= 1'b1;
+                    end
+                end
+            end
+
+            compute_stream_cycle_q <= compute_k_index_i;
+            compute_stream_cycle_valid_q <= compute_step_valid_i;
+        end
+    end
 
     always_comb begin
         compute_read_valid_o = compute_c_valid[compute_read_row_i][compute_read_col_i];

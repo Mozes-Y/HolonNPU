@@ -1,13 +1,13 @@
 package npu_pkg;
 
-    localparam int unsigned NPU_ABI_MAJOR = 1;
+    localparam int unsigned NPU_ABI_MAJOR = 2;
     localparam int unsigned NPU_ABI_MINOR = 0;
 
     localparam int unsigned NPU_DESC_SIZE_BYTES = 128;
     localparam int unsigned NPU_DESC_ALIGN_BYTES = 16;
     localparam int unsigned NPU_TENSOR_ALIGN_BYTES = 16;
 
-    localparam int unsigned NPU_ARRAY_M = 16;
+    localparam int unsigned NPU_ARRAY_K = 16;
     localparam int unsigned NPU_ARRAY_N = 16;
     localparam int unsigned NPU_INPUT_BITS = 8;
     localparam int unsigned NPU_ACC_BITS = 32;
@@ -16,7 +16,7 @@ package npu_pkg;
     localparam int unsigned NPU_OPCODE_GEMM_I8I8I32 = 1;
 
     localparam logic [31:0] NPU_DEVICE_ID_RESET = 32'h4E50_5501;
-    localparam logic [31:0] NPU_ABI_VERSION_RESET = 32'h0001_0000;
+    localparam logic [31:0] NPU_ABI_VERSION_RESET = 32'h0002_0000;
     localparam logic [31:0] NPU_CAP0_RESET = 32'h0000_003F;
     localparam logic [31:0] NPU_CAP1_RESET = 32'h0820_1010;
 
@@ -63,6 +63,20 @@ package npu_pkg;
     localparam logic [31:0] NPU_DESC_FLAG_IRQ_ON_ERROR = 32'h0000_0002;
     localparam logic [31:0] NPU_DESC_FLAG_CLEAR_PERF_ON_START = 32'h0000_0004;
     localparam logic [31:0] NPU_DESC_FLAG_VALID_MASK = 32'h0000_0007;
+
+    localparam int unsigned NPU_GEMM_CMD_IRQ_ON_DONE_BIT = 0;
+    localparam int unsigned NPU_GEMM_CMD_IRQ_ON_ERROR_BIT = 1;
+    localparam int unsigned NPU_GEMM_CMD_CLEAR_PERF_BIT = 2;
+    localparam int unsigned NPU_GEMM_CMD_M_LSB = 3;
+    localparam int unsigned NPU_GEMM_CMD_N_LSB = 35;
+    localparam int unsigned NPU_GEMM_CMD_K_LSB = 67;
+    localparam int unsigned NPU_GEMM_CMD_A_ADDR_LSB = 99;
+    localparam int unsigned NPU_GEMM_CMD_B_ADDR_LSB = 163;
+    localparam int unsigned NPU_GEMM_CMD_C_ADDR_LSB = 227;
+    localparam int unsigned NPU_GEMM_CMD_A_STRIDE_LSB = 291;
+    localparam int unsigned NPU_GEMM_CMD_B_STRIDE_LSB = 323;
+    localparam int unsigned NPU_GEMM_CMD_C_STRIDE_LSB = 355;
+    localparam int unsigned NPU_GEMM_CMD_W = 387;
     /* verilator lint_on UNUSEDPARAM */
 
     typedef enum logic [3:0] {

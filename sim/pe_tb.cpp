@@ -25,17 +25,21 @@ void reset(Vnpu_pe_i8& dut) {
     dut.clk_i = 0;
     dut.rst_ni = 0;
     dut.clear_i = 0;
+    dut.weight_valid_i = 0;
+    dut.weight_mask_i = 0;
+    dut.weight_i = 0;
     dut.valid_i = 0;
     dut.mask_i = 0;
     dut.a_i = 0;
-    dut.b_i = 0;
+    dut.psum_i = 0;
     tick(dut);
     dut.rst_ni = 1;
     eval(dut);
 }
 
-void clear_acc(Vnpu_pe_i8& dut) {
+void clear_pe(Vnpu_pe_i8& dut) {
     dut.clear_i = 1;
+    dut.weight_valid_i = 0;
     dut.valid_i = 0;
     dut.mask_i = 0;
     tick(dut);
@@ -43,16 +47,30 @@ void clear_acc(Vnpu_pe_i8& dut) {
     eval(dut);
 }
 
-std::uint32_t acc_bits(const Vnpu_pe_i8& dut) {
-    return static_cast<std::uint32_t>(dut.acc_o);
+void load_weight(Vnpu_pe_i8& dut, std::int8_t weight, bool mask = true) {
+    dut.weight_valid_i = 1;
+    dut.weight_mask_i = mask ? 1 : 0;
+    dut.weight_i = static_cast<std::uint8_t>(weight);
+    dut.valid_i = 0;
+    tick(dut);
+    dut.weight_valid_i = 0;
+    dut.weight_mask_i = 0;
+    eval(dut);
 }
 
-void drive_product(Vnpu_pe_i8& dut, std::int8_t a, std::int8_t b, bool mask) {
+void drive_product(Vnpu_pe_i8& dut, std::int8_t a, std::uint32_t psum, bool mask) {
     dut.valid_i = 1;
     dut.mask_i = mask ? 1 : 0;
     dut.a_i = static_cast<std::uint8_t>(a);
-    dut.b_i = static_cast<std::uint8_t>(b);
+    dut.psum_i = psum;
     tick(dut);
+    dut.valid_i = 0;
+    dut.mask_i = 0;
+    eval(dut);
+}
+
+std::uint32_t psum_bits(const Vnpu_pe_i8& dut) {
+    return static_cast<std::uint32_t>(dut.psum_o);
 }
 
 bool expect_eq(std::string_view name, std::uint32_t actual, std::uint32_t expected) {
@@ -65,59 +83,64 @@ bool expect_eq(std::string_view name, std::uint32_t actual, std::uint32_t expect
     return false;
 }
 
-bool test_reset_and_mask(Vnpu_pe_i8& dut) {
+bool test_reset_clear_and_masked_weight(Vnpu_pe_i8& dut) {
     reset(dut);
 
     bool ok = true;
     ok &= expect_eq("pe valid after reset", dut.valid_o, 0U);
-    ok &= expect_eq("pe acc after reset", acc_bits(dut), 0U);
+    ok &= expect_eq("pe psum after reset", psum_bits(dut), 0U);
 
-    drive_product(dut, 7, 9, false);
-    ok &= expect_eq("pe valid after masked step", dut.valid_o, 0U);
-    ok &= expect_eq("pe acc after masked step", acc_bits(dut), 0U);
+    load_weight(dut, 7, false);
+    drive_product(dut, 9, 5, true);
+    ok &= expect_eq("pe masked weight valid", dut.valid_o, 1U);
+    ok &= expect_eq("pe masked weight keeps zero", psum_bits(dut), 5U);
+
+    load_weight(dut, 7);
+    drive_product(dut, 9, 5, true);
+    ok &= expect_eq("pe loaded weight product", psum_bits(dut), 68U);
+
+    clear_pe(dut);
+    drive_product(dut, 9, 5, true);
+    ok &= expect_eq("pe clear resets weight", psum_bits(dut), 5U);
 
     return ok;
 }
 
-bool test_positive_negative_zero(Vnpu_pe_i8& dut) {
+bool test_positive_negative_zero_and_pass_through(Vnpu_pe_i8& dut) {
     reset(dut);
 
     bool ok = true;
 
-    drive_product(dut, 3, 4, true);
+    load_weight(dut, 4);
+    drive_product(dut, 3, 10, true);
     ok &= expect_eq("pe positive valid", dut.valid_o, 1U);
-    ok &= expect_eq("pe positive product", acc_bits(dut), 12U);
+    ok &= expect_eq("pe positive psum", psum_bits(dut), 22U);
 
-    clear_acc(dut);
-    drive_product(dut, -7, 6, true);
-    ok &= expect_eq("pe negative valid", dut.valid_o, 1U);
-    ok &= expect_eq("pe negative product", acc_bits(dut), 0xFFFF'FFD6U);
+    load_weight(dut, 6);
+    drive_product(dut, -7, 10, true);
+    ok &= expect_eq("pe negative psum", psum_bits(dut), 0xFFFF'FFE0U);
 
-    clear_acc(dut);
-    drive_product(dut, -128, 0, true);
-    ok &= expect_eq("pe zero valid", dut.valid_o, 1U);
-    ok &= expect_eq("pe zero product", acc_bits(dut), 0U);
+    load_weight(dut, 0);
+    drive_product(dut, -128, 10, true);
+    ok &= expect_eq("pe zero weight psum", psum_bits(dut), 10U);
+
+    load_weight(dut, 11);
+    drive_product(dut, 5, 0x1234'5678U, false);
+    ok &= expect_eq("pe masked compute pass through", psum_bits(dut), 0x1234'5678U);
 
     return ok;
 }
 
 bool test_int32_wrap_boundary(Vnpu_pe_i8& dut) {
     reset(dut);
-
-    dut.valid_i = 1;
-    dut.mask_i = 1;
-    dut.a_i = static_cast<std::uint8_t>(std::int8_t{-128});
-    dut.b_i = static_cast<std::uint8_t>(std::int8_t{-128});
-
-    for (int i = 0; i < 131072; ++i) {
-        tick(dut);
-    }
+    load_weight(dut, -128);
 
     bool ok = true;
-    ok &= expect_eq("pe int32 wrap boundary", acc_bits(dut), 0x8000'0000U);
+    drive_product(dut, -128, 0x7FFF'C000U, true);
+    ok &= expect_eq("pe int32 wrap boundary", psum_bits(dut), 0x8000'0000U);
 
-    tick(dut);
-    ok &= expect_eq("pe int32 wrap after boundary", acc_bits(dut), 0x8000'4000U);
+    drive_product(dut, -128, 0x7FFF'FFFFU, true);
+    ok &= expect_eq("pe int32 wrap after boundary", psum_bits(dut), 0x8000'3FFFU);
 
     return ok;
 }
@@ -130,8 +153,8 @@ int main(int argc, char** argv) {
     Vnpu_pe_i8 dut;
     bool ok = true;
 
-    ok &= test_reset_and_mask(dut);
-    ok &= test_positive_negative_zero(dut);
+    ok &= test_reset_clear_and_masked_weight(dut);
+    ok &= test_positive_negative_zero_and_pass_through(dut);
     ok &= test_int32_wrap_boundary(dut);
 
     dut.final();

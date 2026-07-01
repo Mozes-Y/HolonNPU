@@ -5,7 +5,7 @@ implement. Interfaces and ABI details are frozen in `docs/INTERFACE.md`.
 
 ## Scope
 
-v1 is a descriptor-driven INT8 GEMM accelerator controlled by a RISC-V CPU. The
+v1.1 is a descriptor-driven INT8 GEMM accelerator controlled by a RISC-V CPU. The
 CPU programs the device through AXI-Lite registers. The NPU fetches one GEMM
 descriptor and matrix data over AXI4, computes with a systolic matrix engine,
 and writes INT32 results back to system memory.
@@ -132,11 +132,12 @@ Phase 7 implementation:
 
 Phase 9 integration:
 
-- `npu_gemm_accelerator.sv` uses one shared read DMA for A and B tile row loads.
-- `npu_top.sv` arbitrates the single external AXI4 read channel between
-  descriptor fetch and GEMM tensor reads. Because v1 has one outstanding read,
-  the arbiter records the owner of each accepted AR request and routes R beats
-  back to the matching client until `RLAST`.
+- `npu_gemm_accelerator.sv` uses one shared read DMA for A tile row loads and B
+  stationary-weight row loads.
+- `npu_top_core` arbitrates the single external AXI4 read channel between
+  descriptor fetch and GEMM tensor reads through `npu_axi4_if`. Because v1 has
+  one outstanding read, the arbiter records the owner of each accepted AR
+  request and routes R beats back to the matching client until `RLAST`.
 - The integration scheduler issues one aligned 16-byte DMA read for each active
   A row and each active B K-row in the current tile.
 - One write DMA writes C in 16-byte chunks, four INT32 outputs per beat.
@@ -152,10 +153,9 @@ Phase ownership:
 
 Responsibilities:
 
-- Store A and B input tiles.
-- Store C accumulation/output tile data.
-- Feed the matrix engine at the cadence required by the systolic array.
-- Support ping-pong buffering where required by the scheduler.
+- Store and time local tile data needed by the matrix engine.
+- Feed the matrix engine at the cadence required by the B-weight-stationary
+  systolic array.
 - Generate masks for partial M, N, and K edge tiles.
 
 v1 data layout:
@@ -164,7 +164,7 @@ v1 data layout:
 - B is row-major signed INT8 with byte stride `b_row_stride_bytes`.
 - C is row-major signed INT32 with byte stride `c_row_stride_bytes`.
 
-Phase 5 implementation:
+Phase 5 reusable infrastructure:
 
 - `npu_banked_scratchpad.sv` provides a parameterized banked storage primitive
   with explicit write/read range error flags.
@@ -175,6 +175,17 @@ Phase 5 implementation:
 - `npu_tile_mask.sv` generates row, column, and K masks for partial edge tiles.
 - `npu_ping_pong_ctrl.sv` exposes an observable load, compute, store, done
   schedule and toggles between two banks after each stored tile.
+
+Product-active v1.1 datapath:
+
+- `npu_gemm_tile_scratchpad.sv` stores A tile rows and generates K-lane A
+  wavefront values, column masks, K masks, and zero psum injection timing.
+- B tile rows are not stored in `npu_gemm_tile_scratchpad.sv`; the GEMM
+  scheduler loads them directly into stationary PE weight registers.
+- C tile partial sums are accumulated inside `npu_gemm_accelerator.sv` before
+  writeback. The standalone C accumulator buffer remains reusable Phase 5
+  infrastructure covered by the tiling tests, not the product top's active C
+  storage.
 
 Phase 5 test geometry:
 
@@ -190,13 +201,14 @@ signaling, and mask semantics must remain compatible with the Phase 5 tests.
 Phase 9 integration:
 
 - `npu_gemm_accelerator.sv` instantiates `npu_gemm_tile_scratchpad.sv` for
-  explicit `16x16` A and B tile storage in the integrated scheduler.
+  explicit `16x16` A tile storage and wavefront generation.
 - A tile row is loaded from `A[m_base + row][k_base + 0..15]`.
-- B tile rows are loaded from `B[k_base + k][n_base + 0..15]`.
-- The scratchpad produces skewed A-row and B-column boundary vectors plus
-  boundary valid bits for the systolic array wavefront.
-- The scheduler clears C accumulators once per M/N output tile, then accumulates
-  across all K tiles before writeback.
+- B tile rows are loaded from `B[k_base + k][n_base + 0..15]` and written into
+  stationary PE weight registers before compute starts.
+- The scratchpad produces the A wavefront, K masks, column masks, and top psum
+  valid bits for the systolic array.
+- The scheduler clears the C tile accumulator once per M/N output tile, then
+  accumulates streamed partial sums across all K tiles before writeback.
 - M, N, and K edge behavior is handled by row, column, and K masks plus padded
   16-byte row strides.
 
@@ -209,20 +221,27 @@ Phase ownership:
 Responsibilities:
 
 - Signed INT8 multiply.
-- Signed INT32 accumulation.
-- Parameterized `ARRAY_M x ARRAY_N` systolic array.
+- Signed INT32 partial-sum propagation and accumulation.
+- Parameterized `ARRAY_K x ARRAY_N` B-weight-stationary systolic array.
 - Target v1 configuration of `16x16`.
 - Valid and mask propagation.
 
 Dataflow:
 
-- v1 uses output-stationary dataflow.
-- Each PE keeps an INT32 partial sum for the active C tile.
-- A operands enter at the left boundary and propagate right; B operands enter at
-  the top boundary and propagate down.
-- The GEMM scheduler runs a 47-cycle wavefront for each `16x16x16` K tile so
-  the far corner receives the final product.
-- Edge masks suppress invalid rows, columns, and K positions.
+- v1.1 uses B-weight-stationary dataflow.
+- Each PE keeps one signed INT8 B weight for the active K/N tile position.
+- A operands enter the left boundary by K lane. `A[m,k]` is injected on cycle
+  `m + k` and propagates right across N columns.
+- Zero partial sums enter the top boundary by N column. A psum for `C[m,n]`
+  enters on cycle `m + n` and propagates down K lanes.
+- Each PE emits `psum_out = psum_in + A * B_weight` when its A and psum inputs
+  are valid and masks are active; otherwise it passes the psum through.
+- `C_partial[m,n]` leaves the bottom of the array on cycle
+  `m + ARRAY_K - 1 + n` and is accumulated in the C tile buffer.
+- The GEMM scheduler runs a 47-cycle wavefront for each physical `16x16x16`
+  tile, including inactive tail lanes, so streamed outputs clear the array.
+- Edge masks suppress invalid columns and K lanes while inactive rows simply do
+  not inject A/psum work.
 - C writeback emits signed INT32 values; no saturation, scaling, activation, or
   accumulation with existing memory is performed in v1.
 
@@ -236,11 +255,15 @@ Phase 9 implementation:
 - `npu_gemm_accelerator.sv` consumes the Phase 8 decoded command valid/ready
   interface rather than re-decoding descriptors.
 - The scheduler iterates M/N/K in `16x16x16` tiles.
-- The Phase 4 systolic array is cleared for each output tile and reused across
-  K tiles to implement output-stationary accumulation.
-- The public product top `npu_top.sv` connects AXI-Lite control, descriptor
-  command processing, GEMM execution, completion/error status, IRQ generation,
-  soft reset, performance-counter clear, and AXI4 read/write channels.
+- The systolic array is cleared for each output tile, B weights are reloaded for
+  each K tile, and streamed partial sums are accumulated in the C tile buffer.
+- The product core `npu_top_core` connects AXI-Lite control, descriptor command
+  processing, GEMM execution, completion/error status, IRQ generation, soft
+  reset, performance-counter clear, and AXI4 read/write channels with
+  SystemVerilog interfaces.
+- The public product top `npu_top.sv` is the SoC pin boundary. It only converts
+  external flattened pins into `npu_axi_lite_if` and `npu_axi4_if`, then
+  instantiates `npu_top_core`.
 - `stage_o` exposes idle, load A, load B, compute, store, done, and error stages
   so wave dumps and tests can locate each major operation.
 
@@ -297,7 +320,7 @@ Phase ownership:
 6. Command processor validates descriptor fields.
 7. DMA loads A and B tiles into scratchpad/tile buffers.
 8. Matrix engine computes signed INT8 x signed INT8 into signed INT32 using
-   output-stationary accumulation.
+   B-weight-stationary PE weights and streamed psum accumulation.
 9. DMA writes C output tiles to system memory.
 10. Control plane updates done/error, interrupt status, and performance
     counters.
@@ -321,13 +344,27 @@ v1 convention:
 Phase 3 provides reusable infrastructure only:
 
 - `npu_pkg.sv`: ABI constants and common error enum values.
-- `npu_vr_if.sv`: valid-ready stream interface.
-- `npu_axi_lite_if.sv`: AXI-Lite interface shell matching the v1 control-plane
-  width assumptions.
-- `npu_axi4_if.sv`: AXI4 interface shell matching the v1 DMA width assumptions.
-- `npu_fifo.sv`: parameterized valid-ready FIFO.
+- `npu_vr_if.sv`: canonical valid-ready stream interface used by FIFO, skid
+  buffer, register slice, DMA stream ports, command issue, GEMM, and top-level
+  internal command plumbing.
+- `npu_axi_lite_if.sv`: canonical AXI-Lite interface used by
+  `npu_control_regs_core` and `npu_top_core`.
+- `npu_axi4_if.sv`: canonical AXI4 interface used by read/write DMA cores,
+  command descriptor fetch, GEMM tensor DMA, and `npu_top_core` arbitration.
+- `npu_fifo.sv`: parameterized valid-ready FIFO using `npu_vr_if`.
 - `npu_skid_buffer.sv`: single-entry skid buffer for backpressure cuts.
 - `npu_register_slice.sv`: one-entry registered valid-ready slice.
+
+Core boundary convention:
+
+- Product/internal RTL connects bus-like protocols through SystemVerilog
+  interfaces and modports, not ad hoc flattened signal bundles.
+- `npu_top.sv` is the only product pin-boundary adapter. It is not used as an
+  internal connection scheme.
+- Flattened `*_test_wrapper.sv` modules exist only for Verilator/C++ testbench
+  access and are not part of the product RTL architecture.
+- `tools/check_rtl_interface_usage.py` enforces interface usage and prevents
+  test wrappers from entering product source sets.
 
 Valid-ready convention:
 

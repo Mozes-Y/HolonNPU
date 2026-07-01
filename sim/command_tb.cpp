@@ -288,7 +288,7 @@ bool test_invalid_descriptors(Vnpu_command_processor_test_top& dut) {
     ok &= run_invalid_descriptor_case(dut, desc, kErrInvalidSize, "bad size");
 
     desc = make_valid_descriptor();
-    desc.at(offsetof(holon_npu_gemm_desc_t, version)) = 2;
+    desc.at(offsetof(holon_npu_gemm_desc_t, version)) = 3;
     ok &= run_invalid_descriptor_case(dut, desc, kErrInvalidVersion, "bad version");
 
     desc = make_valid_descriptor();
@@ -352,7 +352,7 @@ bool test_descriptor_fuzz(Vnpu_command_processor_test_top& dut) {
                 expected_error = kErrInvalidSize;
                 break;
             case 1:
-                desc.at(offsetof(holon_npu_gemm_desc_t, version)) = static_cast<std::uint8_t>(2U + (seed & 3U));
+                desc.at(offsetof(holon_npu_gemm_desc_t, version)) = static_cast<std::uint8_t>(3U + (seed & 3U));
                 expected_error = kErrInvalidVersion;
                 break;
             case 2:

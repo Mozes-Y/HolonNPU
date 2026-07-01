@@ -1,18 +1,18 @@
 # HolonNPU
 
-`HolonNPU` is a roadmap-first SystemVerilog implementation of a v1 INT8 GEMM
+`HolonNPU` is a roadmap-first SystemVerilog implementation of a v1.1 INT8 GEMM
 accelerator intended for RISC-V SoC integration. The public hardware interface
 is an AXI-Lite control plane plus AXI4 master DMA. The matrix engine is a
-parameterized `16x16` systolic array with signed INT8 inputs and signed INT32
-outputs.
+parameterized `16x16` B-weight-stationary systolic array with signed INT8
+inputs and signed INT32 outputs.
 
-The v1 scope is intentionally narrow: one descriptor in flight, one outstanding
+The v1.1 scope is intentionally narrow: one descriptor in flight, one outstanding
 AXI4 burst per DMA engine, descriptor-driven GEMM, deterministic Verilator
 simulation, and a minimal C driver ABI.
 
 ## Status
 
-v1 implementation is complete against the project roadmap:
+v1.1 implementation is complete against the project roadmap:
 
 - SystemVerilog RTL for common infrastructure, control registers, DMA,
   descriptor command processing, tiled GEMM execution, and product top.
@@ -25,16 +25,18 @@ The release gate is:
 
 ```sh
 cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug --output-on-failure
-cmake --build --preset debug --target v1_lint
-cmake --build --preset regression
-ctest --preset regression --output-on-failure
+cmake --build --preset debug --parallel 2
+ctest --preset debug -j 2 --output-on-failure
+ctest --preset lint -j 2 --output-on-failure
+cmake --preset regression
+cmake --build --preset regression --parallel 2
+ctest --preset regression -j 2 --output-on-failure
 ```
 
 ## Requirements
 
 - CMake 4.0 or newer.
+- Ninja.
 - Verilator.
 - C++26-capable compiler.
 - C11-capable compiler for the driver library.
@@ -61,7 +63,7 @@ Actions CI.
 
 ## Architecture
 
-The v1 product top is `rtl/integration/npu_top.sv`.
+The v1.1 product top is `rtl/integration/npu_top.sv`.
 
 Major blocks:
 
@@ -71,17 +73,18 @@ Major blocks:
   ABI, and issues one GEMM command.
 - AXI4 DMA: 128-bit read and write DMA with 16-byte alignment and at most
   16-beat incremental bursts.
-- Scratchpad and tiling datapath: loads A/B tiles, masks tail dimensions, and
-  writes active C chunks.
-- Matrix engine: boundary-fed `16x16` systolic array with signed INT8 operands
-  and signed INT32 wraparound accumulation.
+- Scratchpad and tiling datapath: loads A rows, loads B rows into stationary PE
+  weights, masks tail dimensions, accumulates streamed C partials, and writes
+  active C chunks.
+- Matrix engine: B-weight-stationary `16x16` systolic array with signed INT8
+  operands and signed INT32 wraparound psum accumulation.
 
 See `docs/ARCHITECTURE.md` and `docs/INTERFACE.md` for the authoritative design
 and ABI details.
 
 ## ABI Summary
 
-The v1 ABI is frozen in `docs/INTERFACE.md` and mirrored by:
+The v1.1 ABI 2.0 contract is frozen in `docs/INTERFACE.md` and mirrored by:
 
 - `rtl/common/npu_pkg.sv`
 - `include/holon_npu_regs.h`
@@ -94,6 +97,7 @@ Key properties:
 - AXI4 address width: 64 bits.
 - AXI4 data width: 128 bits.
 - Descriptor size: 128 bytes.
+- Descriptor version: 2.
 - Descriptor alignment: 16 bytes.
 - Tensor base and row-stride alignment: 16 bytes.
 - Operation: signed INT8 A/B GEMM to signed INT32 C.
@@ -119,27 +123,43 @@ cmake --preset debug
 Build all debug targets:
 
 ```sh
-cmake --build --preset debug
+cmake --build --preset debug --parallel 2
 ```
 
-Run tests:
+Run the fast local debug test subset:
 
 ```sh
-ctest --preset debug --output-on-failure
+ctest --preset debug -j 2 --output-on-failure
 ```
 
-Run aggregate RTL lint:
+Run RTL lint tests:
 
 ```sh
-cmake --build --preset debug --target v1_lint
+ctest --preset lint -j 2 --output-on-failure
 ```
 
-Run the regression preset:
+Build and run optimized full regression:
 
 ```sh
-cmake --build --preset regression
-ctest --preset regression --output-on-failure
+cmake --preset regression
+cmake --build --preset regression --parallel 2
+ctest --preset regression -j 2 --output-on-failure
 ```
+
+Build and run one specific test:
+
+```sh
+cmake --build --preset debug --target npu_top_tb
+ctest --preset regression -R npu_top --verbose
+```
+
+Use `--target <test-target>` for focused builds and `ctest -R <test-name>` for
+focused test runs. The presets stay intentionally small; CMake targets and CTest
+filters handle the one-off cases.
+
+`CMakePresets.json` is intentionally retained only to pin the build directories,
+build types, Ninja generator, and the three stable test entry points. It is not
+used for subsystem shortcuts or version-specific build targets.
 
 ## Software Driver
 

@@ -8,12 +8,19 @@
   "configurePresets": [
     {
       "name": "debug",
-      "displayName": "Debug",
-      "description": "Debug build with Verilator smoke test enabled.",
-      "generator": "Unix Makefiles",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "regression",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/regression",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     }
@@ -25,26 +32,31 @@
     },
     {
       "name": "regression",
-      "configurePreset": "debug",
-      "targets": [
-        "v1_regression"
-      ]
+      "configurePreset": "regression"
     }
   ],
   "testPresets": [
     {
       "name": "debug",
       "configurePreset": "debug",
-      "output": {
-        "outputOnFailure": true
+      "filter": {
+        "include": {
+          "label": "fast"
+        }
+      }
+    },
+    {
+      "name": "lint",
+      "configurePreset": "debug",
+      "filter": {
+        "include": {
+          "label": "lint"
+        }
       }
     },
     {
       "name": "regression",
-      "configurePreset": "debug",
-      "output": {
-        "outputOnFailure": true
-      }
+      "configurePreset": "regression"
     }
   ]
 }

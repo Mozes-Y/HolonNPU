@@ -37,7 +37,7 @@ module npu_read_dma_test_top (
     assign out_data_lo_o = out_data[63:0];
     assign out_data_hi_o = out_data[127:64];
 
-    npu_axi4_read_dma u_read_dma (
+    npu_axi4_read_dma_test_wrapper u_read_dma (
         .clk_i(clk_i),
         .rst_ni(rst_ni),
         .start_i(start_i),

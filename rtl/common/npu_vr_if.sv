@@ -1,3 +1,4 @@
+/* verilator lint_off UNUSEDSIGNAL */
 interface npu_vr_if #(
     parameter int unsigned DATA_W = 32
 ) (
@@ -34,3 +35,4 @@ interface npu_vr_if #(
     );
 
 endinterface
+/* verilator lint_on UNUSEDSIGNAL */

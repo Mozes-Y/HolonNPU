@@ -56,11 +56,18 @@ set(NPU_DATAPATH_SOURCES
 )
 
 set(NPU_CONTROL_SOURCES
+  ${NPU_COMMON_INTERFACE_SOURCES}
   rtl/common/npu_pkg.sv
   rtl/control/npu_control_regs.sv
 )
 
+set(NPU_CONTROL_TEST_SOURCES
+  ${NPU_CONTROL_SOURCES}
+  rtl/control/npu_control_regs_test_wrapper.sv
+)
+
 set(NPU_DMA_MODULE_SOURCES
+  ${NPU_COMMON_INTERFACE_SOURCES}
   rtl/common/npu_pkg.sv
   rtl/dma/npu_axi4_read_dma.sv
   rtl/dma/npu_axi4_write_dma.sv
@@ -68,16 +75,20 @@ set(NPU_DMA_MODULE_SOURCES
 
 set(NPU_READ_DMA_TEST_SOURCES
   ${NPU_DMA_MODULE_SOURCES}
+  rtl/dma/npu_axi4_read_dma_test_wrapper.sv
   rtl/dma/npu_read_dma_test_top.sv
 )
 
 set(NPU_WRITE_DMA_TEST_SOURCES
   ${NPU_DMA_MODULE_SOURCES}
+  rtl/dma/npu_axi4_write_dma_test_wrapper.sv
   rtl/dma/npu_write_dma_test_top.sv
 )
 
 set(NPU_DMA_LINT_SOURCES
   ${NPU_DMA_MODULE_SOURCES}
+  rtl/dma/npu_axi4_read_dma_test_wrapper.sv
+  rtl/dma/npu_axi4_write_dma_test_wrapper.sv
   rtl/dma/npu_read_dma_test_top.sv
   rtl/dma/npu_write_dma_test_top.sv
 )
@@ -99,7 +110,13 @@ set(NPU_GEMM_SOURCES
   rtl/integration/npu_gemm_accelerator.sv
 )
 
+set(NPU_GEMM_TEST_SOURCES
+  ${NPU_GEMM_SOURCES}
+  rtl/integration/npu_gemm_accelerator_test_wrapper.sv
+)
+
 set(NPU_TOP_SOURCES
+  ${NPU_COMMON_INTERFACE_SOURCES}
   rtl/common/npu_pkg.sv
   rtl/dma/npu_axi4_read_dma.sv
   rtl/dma/npu_axi4_write_dma.sv
@@ -125,6 +142,77 @@ function(holon_npu_target_options target_name)
   )
 endfunction()
 
+function(holon_npu_test_labels test_name)
+  if(ARGN)
+    set_tests_properties(${test_name} PROPERTIES LABELS "${ARGN}")
+  endif()
+endfunction()
+
+function(holon_npu_add_python_check)
+  cmake_parse_arguments(ARG "" "TARGET;TEST;SCRIPT" "LABELS" ${ARGN})
+
+  add_test(
+    NAME ${ARG_TEST}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_SCRIPT}
+  )
+  holon_npu_test_labels(${ARG_TEST} ${ARG_LABELS})
+
+  add_custom_target(
+    ${ARG_TARGET}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_SCRIPT}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    VERBATIM
+  )
+endfunction()
+
+function(holon_npu_add_verilated_test)
+  cmake_parse_arguments(ARG "" "TARGET;TEST;CPP;TOP;PREFIX" "SOURCES;LABELS;INCLUDE_DIRS" ${ARGN})
+
+  add_executable(${ARG_TARGET} ${ARG_CPP})
+  holon_npu_target_options(${ARG_TARGET})
+
+  if(ARG_INCLUDE_DIRS)
+    target_include_directories(${ARG_TARGET} PRIVATE ${ARG_INCLUDE_DIRS})
+  endif()
+
+  set(prefix_args)
+  if(ARG_PREFIX)
+    list(APPEND prefix_args PREFIX ${ARG_PREFIX})
+  endif()
+
+  verilate(
+    ${ARG_TARGET}
+    SOURCES ${ARG_SOURCES}
+    TOP_MODULE ${ARG_TOP}
+    ${prefix_args}
+    VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  )
+
+  add_test(NAME ${ARG_TEST} COMMAND ${ARG_TARGET})
+  holon_npu_test_labels(${ARG_TEST} ${ARG_LABELS})
+endfunction()
+
+function(holon_npu_add_lint_test)
+  cmake_parse_arguments(ARG "" "TARGET;TOP" "SOURCES" ${ARGN})
+
+  add_custom_target(
+    ${ARG_TARGET}
+    COMMAND verilator --lint-only --sv -Wall ${ARG_SOURCES} --top-module ${ARG_TOP}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    VERBATIM
+  )
+
+  add_test(
+    NAME ${ARG_TARGET}
+    COMMAND verilator --lint-only --sv -Wall ${ARG_SOURCES} --top-module ${ARG_TOP}
+  )
+  holon_npu_test_labels(${ARG_TARGET} lint)
+  set_tests_properties(
+    ${ARG_TARGET}
+    PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+endfunction()
+
 add_library(holon_npu_driver sw/holon_npu_driver.c)
 target_compile_features(holon_npu_driver PRIVATE c_std_11)
 target_include_directories(
@@ -134,298 +222,184 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/sw
 )
 
-add_executable(npu_smoke_tb sim/smoke_tb.cpp)
-holon_npu_target_options(npu_smoke_tb)
+holon_npu_add_python_check(
+  TARGET abi_consistency_check
+  TEST abi_consistency
+  SCRIPT tools/check_abi_consistency.py
+  LABELS fast static
+)
 
-verilate(
-  npu_smoke_tb
+holon_npu_add_python_check(
+  TARGET rtl_interface_usage_check
+  TEST rtl_interface_usage
+  SCRIPT tools/check_rtl_interface_usage.py
+  LABELS fast static
+)
+
+holon_npu_add_verilated_test(
+  TARGET npu_smoke_tb
+  TEST npu_smoke
+  CPP sim/smoke_tb.cpp
   SOURCES rtl/npu_smoke_top.sv
-  TOP_MODULE npu_smoke_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  TOP npu_smoke_top
+  LABELS fast
 )
 
-add_test(NAME npu_smoke COMMAND npu_smoke_tb)
-
-add_test(
-  NAME abi_consistency
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_abi_consistency.py
-)
-
-add_custom_target(
-  abi_consistency_check
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_abi_consistency.py
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
-)
-
-add_executable(npu_common_tb sim/common_tb.cpp)
-holon_npu_target_options(npu_common_tb)
-
-verilate(
-  npu_common_tb
-  SOURCES ${NPU_COMMON_MODULE_SOURCES}
-  TOP_MODULE npu_common_smoke_top
+holon_npu_add_verilated_test(
+  TARGET npu_common_tb
+  TEST npu_common
+  CPP sim/common_tb.cpp
+  SOURCES ${NPU_COMMON_INTERFACE_SOURCES} ${NPU_COMMON_MODULE_SOURCES}
+  TOP npu_common_smoke_top
   PREFIX Vnpu_common_smoke_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS fast
 )
 
-add_test(NAME npu_common COMMAND npu_common_tb)
-
-add_custom_target(
-  common_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_COMMON_LINT_SOURCES}
-          --top-module npu_common_smoke_top
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
+holon_npu_add_lint_test(
+  TARGET common_rtl_lint
+  SOURCES ${NPU_COMMON_LINT_SOURCES}
+  TOP npu_common_smoke_top
 )
 
-add_test(
-  NAME common_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_COMMON_LINT_SOURCES}
-          --top-module npu_common_smoke_top
-)
-set_tests_properties(
-  common_rtl_lint
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_executable(npu_pe_tb sim/pe_tb.cpp)
-holon_npu_target_options(npu_pe_tb)
-
-verilate(
-  npu_pe_tb
+holon_npu_add_verilated_test(
+  TARGET npu_pe_tb
+  TEST npu_pe
+  CPP sim/pe_tb.cpp
   SOURCES rtl/matrix/npu_pe_i8.sv
-  TOP_MODULE npu_pe_i8
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  TOP npu_pe_i8
+  LABELS fast
 )
 
-add_test(NAME npu_pe COMMAND npu_pe_tb)
-
-add_executable(npu_array_tb sim/array_tb.cpp)
-holon_npu_target_options(npu_array_tb)
-
-verilate(
-  npu_array_tb
+holon_npu_add_verilated_test(
+  TARGET npu_array_tb
+  TEST npu_array
+  CPP sim/array_tb.cpp
   SOURCES ${NPU_MATRIX_TEST_SOURCES}
-  TOP_MODULE npu_systolic_array_test_top
+  TOP npu_systolic_array_test_top
   PREFIX Vnpu_systolic_array_test_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS fast
 )
 
-add_test(NAME npu_array COMMAND npu_array_tb)
-
-add_custom_target(
-  matrix_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_MATRIX_TEST_SOURCES}
-          --top-module npu_systolic_array_test_top
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
+holon_npu_add_lint_test(
+  TARGET matrix_rtl_lint
+  SOURCES ${NPU_MATRIX_TEST_SOURCES}
+  TOP npu_systolic_array_test_top
 )
 
-add_test(
-  NAME matrix_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_MATRIX_TEST_SOURCES}
-          --top-module npu_systolic_array_test_top
-)
-set_tests_properties(
-  matrix_rtl_lint
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_executable(npu_tiling_tb sim/tiling_tb.cpp)
-holon_npu_target_options(npu_tiling_tb)
-
-verilate(
-  npu_tiling_tb
+holon_npu_add_verilated_test(
+  TARGET npu_tiling_tb
+  TEST npu_tiling
+  CPP sim/tiling_tb.cpp
   SOURCES ${NPU_DATAPATH_SOURCES}
-  TOP_MODULE npu_tiling_datapath_test_top
+  TOP npu_tiling_datapath_test_top
   PREFIX Vnpu_tiling_datapath_test_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS fast
 )
 
-add_test(NAME npu_tiling COMMAND npu_tiling_tb)
-
-add_custom_target(
-  datapath_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_DATAPATH_SOURCES}
-          --top-module npu_tiling_datapath_test_top
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
+holon_npu_add_lint_test(
+  TARGET datapath_rtl_lint
+  SOURCES ${NPU_DATAPATH_SOURCES}
+  TOP npu_tiling_datapath_test_top
 )
 
-add_test(
-  NAME datapath_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_DATAPATH_SOURCES}
-          --top-module npu_tiling_datapath_test_top
-)
-set_tests_properties(
-  datapath_rtl_lint
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_executable(npu_control_tb sim/control_tb.cpp)
-holon_npu_target_options(npu_control_tb)
-target_include_directories(npu_control_tb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-verilate(
-  npu_control_tb
-  SOURCES ${NPU_CONTROL_SOURCES}
-  TOP_MODULE npu_control_regs
+holon_npu_add_verilated_test(
+  TARGET npu_control_tb
+  TEST npu_control
+  CPP sim/control_tb.cpp
+  SOURCES ${NPU_CONTROL_TEST_SOURCES}
+  TOP npu_control_regs_test_wrapper
   PREFIX Vnpu_control_regs
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS fast
+  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-add_test(NAME npu_control COMMAND npu_control_tb)
-
-add_custom_target(
-  control_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_CONTROL_SOURCES}
-          --top-module npu_control_regs
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
+holon_npu_add_lint_test(
+  TARGET control_rtl_lint
+  SOURCES ${NPU_CONTROL_TEST_SOURCES}
+  TOP npu_control_regs_test_wrapper
 )
 
-add_test(
-  NAME control_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_CONTROL_SOURCES}
-          --top-module npu_control_regs
-)
-set_tests_properties(
-  control_rtl_lint
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_executable(npu_read_dma_tb sim/read_dma_tb.cpp)
-holon_npu_target_options(npu_read_dma_tb)
-
-verilate(
-  npu_read_dma_tb
+holon_npu_add_verilated_test(
+  TARGET npu_read_dma_tb
+  TEST npu_read_dma
+  CPP sim/read_dma_tb.cpp
   SOURCES ${NPU_READ_DMA_TEST_SOURCES}
-  TOP_MODULE npu_read_dma_test_top
+  TOP npu_read_dma_test_top
   PREFIX Vnpu_read_dma_test_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS fast
 )
 
-add_test(NAME npu_read_dma COMMAND npu_read_dma_tb)
-
-add_executable(npu_write_dma_tb sim/write_dma_tb.cpp)
-holon_npu_target_options(npu_write_dma_tb)
-
-verilate(
-  npu_write_dma_tb
+holon_npu_add_verilated_test(
+  TARGET npu_write_dma_tb
+  TEST npu_write_dma
+  CPP sim/write_dma_tb.cpp
   SOURCES ${NPU_WRITE_DMA_TEST_SOURCES}
-  TOP_MODULE npu_write_dma_test_top
+  TOP npu_write_dma_test_top
   PREFIX Vnpu_write_dma_test_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS fast
 )
 
-add_test(NAME npu_write_dma COMMAND npu_write_dma_tb)
+holon_npu_add_lint_test(
+  TARGET dma_rtl_lint_read
+  SOURCES ${NPU_DMA_LINT_SOURCES}
+  TOP npu_read_dma_test_top
+)
+
+holon_npu_add_lint_test(
+  TARGET dma_rtl_lint_write
+  SOURCES ${NPU_DMA_LINT_SOURCES}
+  TOP npu_write_dma_test_top
+)
 
 add_custom_target(
   dma_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_DMA_LINT_SOURCES}
-          --top-module npu_read_dma_test_top
-  COMMAND verilator --lint-only --sv -Wall ${NPU_DMA_LINT_SOURCES}
-          --top-module npu_write_dma_test_top
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
+  DEPENDS
+    dma_rtl_lint_read
+    dma_rtl_lint_write
 )
 
-add_test(
-  NAME dma_rtl_lint_read
-  COMMAND verilator --lint-only --sv -Wall ${NPU_DMA_LINT_SOURCES}
-          --top-module npu_read_dma_test_top
-)
-set_tests_properties(
-  dma_rtl_lint_read
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_test(
-  NAME dma_rtl_lint_write
-  COMMAND verilator --lint-only --sv -Wall ${NPU_DMA_LINT_SOURCES}
-          --top-module npu_write_dma_test_top
-)
-set_tests_properties(
-  dma_rtl_lint_write
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_executable(npu_command_tb sim/command_tb.cpp)
-holon_npu_target_options(npu_command_tb)
-target_include_directories(npu_command_tb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-verilate(
-  npu_command_tb
+holon_npu_add_verilated_test(
+  TARGET npu_command_tb
+  TEST npu_command
+  CPP sim/command_tb.cpp
   SOURCES ${NPU_COMMAND_TEST_SOURCES}
-  TOP_MODULE npu_command_processor_test_top
+  TOP npu_command_processor_test_top
   PREFIX Vnpu_command_processor_test_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS fast
+  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-add_test(NAME npu_command COMMAND npu_command_tb)
-
-add_custom_target(
-  command_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_COMMAND_TEST_SOURCES}
-          --top-module npu_command_processor_test_top
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
+holon_npu_add_lint_test(
+  TARGET command_rtl_lint
+  SOURCES ${NPU_COMMAND_TEST_SOURCES}
+  TOP npu_command_processor_test_top
 )
 
-add_test(
-  NAME command_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_COMMAND_TEST_SOURCES}
-          --top-module npu_command_processor_test_top
-)
-set_tests_properties(
-  command_rtl_lint
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_executable(npu_gemm_tb sim/gemm_tb.cpp)
-holon_npu_target_options(npu_gemm_tb)
-
-verilate(
-  npu_gemm_tb
-  SOURCES ${NPU_GEMM_SOURCES}
-  TOP_MODULE npu_gemm_accelerator
+holon_npu_add_verilated_test(
+  TARGET npu_gemm_tb
+  TEST npu_gemm
+  CPP sim/gemm_tb.cpp
+  SOURCES ${NPU_GEMM_TEST_SOURCES}
+  TOP npu_gemm_accelerator_test_wrapper
   PREFIX Vnpu_gemm_accelerator
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS slow
 )
 
-add_test(NAME npu_gemm COMMAND npu_gemm_tb)
-
-add_executable(npu_top_tb sim/top_tb.cpp)
-holon_npu_target_options(npu_top_tb)
-target_include_directories(npu_top_tb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-verilate(
-  npu_top_tb
+holon_npu_add_verilated_test(
+  TARGET npu_top_tb
+  TEST npu_top
+  CPP sim/top_tb.cpp
   SOURCES ${NPU_TOP_SOURCES}
-  TOP_MODULE npu_top
+  TOP npu_top
   PREFIX Vnpu_top
-  VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
+  LABELS slow
+  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-add_test(NAME npu_top COMMAND npu_top_tb)
-
-add_custom_target(
-  integration_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_INTEGRATION_SOURCES}
-          --top-module npu_top
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
-)
-
-add_test(
-  NAME integration_rtl_lint
-  COMMAND verilator --lint-only --sv -Wall ${NPU_INTEGRATION_SOURCES}
-          --top-module npu_top
-)
-set_tests_properties(
-  integration_rtl_lint
-  PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+holon_npu_add_lint_test(
+  TARGET integration_rtl_lint
+  SOURCES ${NPU_INTEGRATION_SOURCES}
+  TOP npu_top
 )
 
 add_executable(holon_npu_driver_test tests/driver_test.cpp)
@@ -433,9 +407,10 @@ holon_npu_target_options(holon_npu_driver_test)
 target_link_libraries(holon_npu_driver_test PRIVATE holon_npu_driver)
 
 add_test(NAME holon_npu_driver COMMAND holon_npu_driver_test)
+holon_npu_test_labels(holon_npu_driver fast)
 
 add_custom_target(
-  v1_lint
+  lint
   DEPENDS
     common_rtl_lint
     matrix_rtl_lint
@@ -444,26 +419,4 @@ add_custom_target(
     dma_rtl_lint
     command_rtl_lint
     integration_rtl_lint
-)
-
-add_custom_target(
-  v1_regression
-  COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} --output-on-failure
-  DEPENDS
-    npu_smoke_tb
-    npu_common_tb
-    npu_pe_tb
-    npu_array_tb
-    npu_tiling_tb
-    npu_control_tb
-    npu_read_dma_tb
-    npu_write_dma_tb
-    npu_command_tb
-    npu_gemm_tb
-    npu_top_tb
-    holon_npu_driver_test
-    abi_consistency_check
-    v1_lint
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  VERBATIM
 )

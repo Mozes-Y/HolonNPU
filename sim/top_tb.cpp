@@ -520,6 +520,30 @@ bool check_gemm_results(
     return ok;
 }
 
+bool check_final_chunk_padding_zeroed(
+    const AxiMemory& memory,
+    const PreparedGemm& prepared,
+    const GemmCase& test_case,
+    std::uint64_t c_addr
+) {
+    const auto logical_row_bytes = static_cast<std::uint32_t>(test_case.n * 4);
+    const auto written_row_bytes = align_up(logical_row_bytes, 16);
+
+    bool ok = true;
+    for (int row = 0; row < test_case.m; ++row) {
+        for (std::uint32_t byte = logical_row_bytes; byte < written_row_bytes; ++byte) {
+            const auto actual = memory.load_u8(c_addr + (static_cast<std::uint64_t>(row) * prepared.c_stride) + byte);
+            if (actual != 0) {
+                std::cerr << test_case.name << " C row " << row << " padding byte " << byte
+                          << ": expected 0x0, got 0x" << std::hex << static_cast<unsigned>(actual)
+                          << std::dec << '\n';
+                ok = false;
+            }
+        }
+    }
+    return ok;
+}
+
 bool run_top_gemm_case(Vnpu_top& dut, const GemmCase& test_case) {
     reset(dut);
 
@@ -598,6 +622,35 @@ bool run_top_gemm_case(Vnpu_top& dut, const GemmCase& test_case) {
         }
     }
 
+    return ok;
+}
+
+bool test_c_final_chunk_padding_zeroed(Vnpu_top& dut) {
+    reset(dut);
+
+    constexpr std::uint64_t kDesc = 0x1000;
+    constexpr std::uint64_t kBaseA = 0x4000;
+    constexpr std::uint64_t kBaseB = 0x20000;
+    constexpr std::uint64_t kBaseC = 0x50000;
+    AxiMemory memory(1024 * 1024);
+    const GemmCase test_case{2, 5, 3, 88, "top-c-padding-zero"};
+    const auto prepared = prepare_gemm_memory(memory, test_case, kDesc, kBaseA, kBaseB, kBaseC);
+
+    for (int row = 0; row < test_case.m; ++row) {
+        for (std::uint32_t byte = 0; byte < prepared.c_stride; ++byte) {
+            memory.store_u8(kBaseC + (static_cast<std::uint64_t>(row) * prepared.c_stride) + byte, 0xA5U);
+        }
+    }
+
+    bool ok = true;
+    ok &= start_descriptor(dut, kDesc, test_case.name);
+    const bool completed = run_until_irq(dut, memory, 10000);
+    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
+    ok &= expect_eq(test_case.name + " completed", completed ? 1U : 0U, 1U);
+    ok &= expect_eq(test_case.name + " status done", status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
+    ok &= expect_eq(test_case.name + " status error", status & HOLON_NPU_STATUS_ERROR, 0U);
+    ok &= check_gemm_results(memory, prepared, test_case, kBaseC);
+    ok &= check_final_chunk_padding_zeroed(memory, prepared, test_case, kBaseC);
     return ok;
 }
 
@@ -780,6 +833,7 @@ int main(int argc, char** argv) {
     ok &= run_top_gemm_case(dut, GemmCase{16, 16, 16, 18, "top-16x16x16"});
     ok &= run_top_gemm_case(dut, GemmCase{17, 19, 23, 22, "top-17x19x23"});
     ok &= run_top_gemm_case(dut, GemmCase{64, 64, 64, 64, "top-64x64x64"});
+    ok &= test_c_final_chunk_padding_zeroed(dut);
     ok &= test_invalid_descriptor_reaches_control(dut);
     ok &= test_top_axil_write_skew(dut);
     ok &= test_descriptor_read_error_drains_and_recovers(dut);

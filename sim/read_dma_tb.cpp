@@ -280,6 +280,7 @@ bool test_alignment_error(Vnpu_read_dma_test_top& dut) {
     start_read(dut, 0x100, 0);
     ok &= expect_eq("zero byte read error", dut.error_o, 1U);
     ok &= expect_eq("zero byte read error code", dut.error_code_o, kErrUnsupportedAlignment);
+
     return ok;
 }
 

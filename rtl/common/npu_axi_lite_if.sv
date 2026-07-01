@@ -1,3 +1,4 @@
+/* verilator lint_off UNUSEDSIGNAL */
 interface npu_axi_lite_if #(
     parameter int unsigned ADDR_W = 12,
     parameter int unsigned DATA_W = 32
@@ -71,3 +72,4 @@ interface npu_axi_lite_if #(
     );
 
 endinterface
+/* verilator lint_on UNUSEDSIGNAL */

@@ -16,29 +16,8 @@ module npu_command_processor #(
     output logic                    irq_on_error_o,
     output logic                    clear_perf_on_start_o,
 
-    output logic [ADDR_W-1:0]       m_axi_araddr_o,
-    output logic [7:0]              m_axi_arlen_o,
-    output logic [2:0]              m_axi_arsize_o,
-    output logic [1:0]              m_axi_arburst_o,
-    output logic                    m_axi_arvalid_o,
-    input  logic                    m_axi_arready_i,
-    input  logic [DATA_W-1:0]       m_axi_rdata_i,
-    input  logic [1:0]              m_axi_rresp_i,
-    input  logic                    m_axi_rlast_i,
-    input  logic                    m_axi_rvalid_i,
-    output logic                    m_axi_rready_o,
-
-    output logic                    command_valid_o,
-    input  logic                    command_ready_i,
-    output logic [31:0]             command_m_o,
-    output logic [31:0]             command_n_o,
-    output logic [31:0]             command_k_o,
-    output logic [ADDR_W-1:0]       command_a_addr_o,
-    output logic [ADDR_W-1:0]       command_b_addr_o,
-    output logic [ADDR_W-1:0]       command_c_addr_o,
-    output logic [31:0]             command_a_stride_o,
-    output logic [31:0]             command_b_stride_o,
-    output logic [31:0]             command_c_stride_o
+    npu_axi4_if.read_master         m_axi,
+    npu_vr_if.source                command_o
 );
 
     import npu_pkg::*;
@@ -68,8 +47,10 @@ module npu_command_processor #(
     logic [31:0] dma_error_code;
     logic dma_out_valid;
     logic dma_out_ready;
+    logic [DATA_W:0] dma_out_payload;
     logic [127:0] dma_out_data;
     logic dma_out_last;
+    logic [NPU_GEMM_CMD_W-1:0] command_payload;
 
     logic [15:0] desc_size;
     logic [7:0]  desc_version;
@@ -98,26 +79,50 @@ module npu_command_processor #(
     assign error_o = (state_q == STATE_ERR) && !start_i;
     assign error_code_o = error_code_q;
 
-    assign command_valid_o = (state_q == STATE_ISSUE);
-    assign command_m_o = desc_m;
-    assign command_n_o = desc_n;
-    assign command_k_o = desc_k;
-    assign command_a_addr_o = desc_a_addr;
-    assign command_b_addr_o = desc_b_addr;
-    assign command_c_addr_o = desc_c_addr;
-    assign command_a_stride_o = desc_a_stride;
-    assign command_b_stride_o = desc_b_stride;
-    assign command_c_stride_o = desc_c_stride;
+    assign command_o.valid = (state_q == STATE_ISSUE);
+    assign command_o.data = command_payload;
     assign irq_on_done_o = flags_valid_q && desc_flags[0];
     assign irq_on_error_o = flags_valid_q ? desc_flags[1] : 1'b1;
     assign clear_perf_on_start_o = flags_valid_q && desc_flags[2];
     assign dma_rst_ni = rst_ni && !soft_reset_i;
 
     assign dma_out_ready = (state_q == STATE_FETCH);
+    assign dma_out_data = dma_out_payload[DATA_W-1:0];
+    assign dma_out_last = dma_out_payload[DATA_W];
     assign dma_last_mismatch = dma_out_valid && dma_out_ready &&
                                (dma_out_last != (desc_beat_count_q == 3'd7));
 
-    npu_axi4_read_dma u_desc_read_dma (
+    always_comb begin
+        command_payload = '0;
+        command_payload[NPU_GEMM_CMD_IRQ_ON_DONE_BIT] = irq_on_done_o;
+        command_payload[NPU_GEMM_CMD_IRQ_ON_ERROR_BIT] = irq_on_error_o;
+        command_payload[NPU_GEMM_CMD_CLEAR_PERF_BIT] = clear_perf_on_start_o;
+        command_payload[NPU_GEMM_CMD_M_LSB +: 32] = desc_m;
+        command_payload[NPU_GEMM_CMD_N_LSB +: 32] = desc_n;
+        command_payload[NPU_GEMM_CMD_K_LSB +: 32] = desc_k;
+        command_payload[NPU_GEMM_CMD_A_ADDR_LSB +: 64] = desc_a_addr;
+        command_payload[NPU_GEMM_CMD_B_ADDR_LSB +: 64] = desc_b_addr;
+        command_payload[NPU_GEMM_CMD_C_ADDR_LSB +: 64] = desc_c_addr;
+        command_payload[NPU_GEMM_CMD_A_STRIDE_LSB +: 32] = desc_a_stride;
+        command_payload[NPU_GEMM_CMD_B_STRIDE_LSB +: 32] = desc_b_stride;
+        command_payload[NPU_GEMM_CMD_C_STRIDE_LSB +: 32] = desc_c_stride;
+    end
+
+    npu_vr_if #(
+        .DATA_W(DATA_W + 1)
+    ) dma_out_if (
+        .clk_i(clk_i),
+        .rst_ni(dma_rst_ni)
+    );
+
+    assign dma_out_valid = dma_out_if.valid;
+    assign dma_out_payload = dma_out_if.data;
+    assign dma_out_if.ready = dma_out_ready;
+
+    npu_axi4_read_dma_core #(
+        .ADDR_W(ADDR_W),
+        .DATA_W(DATA_W)
+    ) u_desc_read_dma (
         .clk_i(clk_i),
         .rst_ni(dma_rst_ni),
         .start_i(dma_start_q),
@@ -127,21 +132,8 @@ module npu_command_processor #(
         .done_o(dma_done),
         .error_o(dma_error),
         .error_code_o(dma_error_code),
-        .m_axi_araddr_o(m_axi_araddr_o),
-        .m_axi_arlen_o(m_axi_arlen_o),
-        .m_axi_arsize_o(m_axi_arsize_o),
-        .m_axi_arburst_o(m_axi_arburst_o),
-        .m_axi_arvalid_o(m_axi_arvalid_o),
-        .m_axi_arready_i(m_axi_arready_i),
-        .m_axi_rdata_i(m_axi_rdata_i),
-        .m_axi_rresp_i(m_axi_rresp_i),
-        .m_axi_rlast_i(m_axi_rlast_i),
-        .m_axi_rvalid_i(m_axi_rvalid_i),
-        .m_axi_rready_o(m_axi_rready_o),
-        .out_valid_o(dma_out_valid),
-        .out_ready_i(dma_out_ready),
-        .out_data_o(dma_out_data),
-        .out_last_o(dma_out_last)
+        .m_axi(m_axi),
+        .out_o(dma_out_if)
     );
 
     function automatic logic [7:0] desc_byte(input int unsigned byte_offset);
@@ -209,7 +201,7 @@ module npu_command_processor #(
         if (desc_size != 16'(NPU_DESC_SIZE_BYTES)) begin
             validation_error = 1'b1;
             validation_error_code = 32'(NPU_ERR_INVALID_DESC_SIZE);
-        end else if (desc_version != 8'd1) begin
+        end else if (desc_version != 8'(NPU_ABI_MAJOR)) begin
             validation_error = 1'b1;
             validation_error_code = 32'(NPU_ERR_INVALID_DESC_VERSION);
         end else if (desc_opcode != 8'(NPU_OPCODE_GEMM_I8I8I32)) begin
@@ -244,17 +236,17 @@ module npu_command_processor #(
     end
 
     initial begin
-        if (NPU_ABI_MAJOR != 1) $fatal("Unexpected NPU_ABI_MAJOR");
+        if (NPU_ABI_MAJOR != 2) $fatal("Unexpected NPU_ABI_MAJOR");
         if (NPU_ABI_MINOR != 0) $fatal("Unexpected NPU_ABI_MINOR");
         if (NPU_DESC_SIZE_BYTES != 128) $fatal("Unexpected NPU_DESC_SIZE_BYTES");
         if (NPU_DESC_ALIGN_BYTES != 16) $fatal("Unexpected NPU_DESC_ALIGN_BYTES");
         if (NPU_TENSOR_ALIGN_BYTES != 16) $fatal("Unexpected NPU_TENSOR_ALIGN_BYTES");
-        if (NPU_ARRAY_M != 16) $fatal("Unexpected NPU_ARRAY_M");
+        if (NPU_ARRAY_K != 16) $fatal("Unexpected NPU_ARRAY_K");
         if (NPU_ARRAY_N != 16) $fatal("Unexpected NPU_ARRAY_N");
         if (NPU_INPUT_BITS != 8) $fatal("Unexpected NPU_INPUT_BITS");
         if (NPU_ACC_BITS != 32) $fatal("Unexpected NPU_ACC_BITS");
         if (NPU_DEVICE_ID_RESET != 32'h4E50_5501) $fatal("Unexpected NPU_DEVICE_ID_RESET");
-        if (NPU_ABI_VERSION_RESET != 32'h0001_0000) $fatal("Unexpected NPU_ABI_VERSION_RESET");
+        if (NPU_ABI_VERSION_RESET != 32'h0002_0000) $fatal("Unexpected NPU_ABI_VERSION_RESET");
         if (NPU_CAP0_RESET != 32'h0000_003F) $fatal("Unexpected NPU_CAP0_RESET");
         if (NPU_CAP1_RESET != 32'h0820_1010) $fatal("Unexpected NPU_CAP1_RESET");
     end
@@ -319,7 +311,7 @@ module npu_command_processor #(
                 end
 
                 STATE_ISSUE: begin
-                    if (command_ready_i) begin
+                    if (command_o.ready) begin
                         state_q <= STATE_DONE;
                     end
                 end

@@ -41,9 +41,10 @@ Prohibited for v1:
 
 ## Product Goal
 
-v1 is a RISC-V controlled INT8 GEMM accelerator exposed through an
+v1.1 is a RISC-V controlled INT8 GEMM accelerator exposed through an
 `AXI-Lite` control plane and `AXI4` DMA data movement. The matrix core is a
-parameterized `16x16` systolic array with INT32 accumulation.
+parameterized `16x16` B-weight-stationary systolic array with INT32
+accumulation.
 
 The implementation stack is fixed:
 
@@ -72,6 +73,22 @@ Non-goals:
 - BF16, FP8, MX formats, or other low precision floating formats.
 - Multiple descriptor queues, multiple contexts, IOMMU integration, or multi-NPU
   tile scaling.
+
+### v1.1: B-Weight-Stationary Matrix Engine
+
+Scope:
+
+- ABI 2.0 with descriptor `version=2`.
+- B tile weights are stationary inside the matrix PE array.
+- A tile values stream across the array as a wavefront.
+- INT32 partial sums stream through K lanes and accumulate in a C tile buffer.
+- Public capability naming uses `ARRAY_K` and `ARRAY_N`.
+
+Non-goals:
+
+- Compatibility with ABI 1.0 descriptors.
+- Runtime-selectable matrix dataflow.
+- Vector post-processing, BF16, FP8, multiple queues, or multi-context support.
 
 ### v2: RVV-Style Vector/Post Engine
 
@@ -199,8 +216,8 @@ Acceptance criteria:
 
 - `docs/INTERFACE.md` defines offsets, field widths, reset values, access types,
   and side effects.
-- `docs/DECISIONS.md` records descriptor queue semantics, output-stationary data
-  flow, and INT8/INT32 arithmetic choices.
+- `docs/DECISIONS.md` records descriptor queue semantics, matrix dataflow, and
+  INT8/INT32 arithmetic choices.
 - Later RTL must match this ABI.
 
 Dependencies:
@@ -260,7 +277,7 @@ Allowed edit scope:
 Deliverables:
 
 - Signed INT8 processing element.
-- Parameterized `ARRAY_M x ARRAY_N` systolic array.
+- Parameterized `ARRAY_K x ARRAY_N` systolic array.
 - Signed INT32 accumulator.
 - Valid/mask propagation.
 - Non-full tile boundary handling.
@@ -531,7 +548,139 @@ Primary risks:
 - Random tests are non-reproducible without seed logging.
 - Coverage may miss error state transitions.
 
+## v1.1 Phase Plan
+
+### Phase 12: B-Weight-Stationary Matrix Engine
+
+Goal: replace the v1 matrix dataflow with a B-weight-stationary engine and
+publish ABI 2.0.
+
+Allowed edit scope:
+
+- Architecture, interface, verification, progress, and decision docs.
+- Shared ABI constants and driver/test ABI expectations.
+- PE, systolic-array, scratchpad wavefront, GEMM scheduler, and related tests.
+
+Deliverables:
+
+- ABI 2.0 constants with descriptor `version=2`.
+- Public `ARRAY_K`/`ARRAY_N` capability naming.
+- PE-local B weight registers.
+- K-by-N systolic array with A wavefront input and vertical psum flow.
+- C tile accumulator buffer used by GEMM writeback.
+- Updated PE, array, tiling, GEMM, top, driver, lint, and regression tests.
+
+Acceptance criteria:
+
+- ABI checker passes with ABI 2.0 and `ARRAY_K` constants.
+- PE and array tests prove B-weight-stationary weight load, psum flow, masking,
+  signed arithmetic, and INT32 wraparound.
+- Integrated GEMM and public top tests match the C++ INT32 golden model exactly.
+- `ctest --preset debug`, `ctest --preset lint`, and regression presets pass.
+- Current documentation contains no stale dataflow or old M-row capability
+  contract.
+
+Dependencies:
+
+- v1 Phase 11 complete.
+
+Primary risks:
+
+- Off-by-one wavefront timing in A injection or psum output collection.
+- Tail K rows retaining stale stationary weights.
+- C accumulator update races at K tile boundaries.
+
+### Phase 13: Interface-Native Core Boundary
+
+Goal: make SystemVerilog interfaces the canonical internal RTL connection
+contract and keep flattened wrappers limited to C++/Verilator test harnesses.
+
+Allowed edit scope:
+
+- Common valid-ready primitives.
+- AXI-Lite control core.
+- AXI4 read/write DMA cores.
+- Command processor, GEMM accelerator, and product top integration.
+- CMake source-set hygiene, architecture/verification docs, and guardrail
+  tooling.
+
+Deliverables:
+
+- `npu_fifo`, `npu_skid_buffer`, and `npu_register_slice` use `npu_vr_if`.
+- DMA, command, GEMM, control, and top product cores use
+  `npu_axi4_if`, `npu_axi_lite_if`, and `npu_vr_if` modports.
+- Flattened `*_test_wrapper.sv` files exist only for C++/Verilator test access
+  and are excluded from product source sets.
+- `npu_top.sv` remains the product pin boundary and internally instantiates
+  interface-native `npu_top_core`.
+- `tools/check_rtl_interface_usage.py` is part of CTest and regression.
+
+Acceptance criteria:
+
+- `python3 tools/check_rtl_interface_usage.py` passes.
+- `ctest --preset debug` includes and passes `rtl_interface_usage`.
+- Common, DMA, control, command, GEMM, and top tests still pass with unchanged
+  C++ flattened access.
+- Product/core RTL does not instantiate `*_test_wrapper` modules.
+- No public C ABI, descriptor ABI, register map, or error semantics change.
+
+Dependencies:
+
+- Phase 12 B-weight-stationary v1.1 implementation.
+
+Primary risks:
+
+- Verilator C++ harnesses still require stable flattened top-level pins.
+- Interface modport direction mistakes can produce subtle integration failures.
+- Product source sets can accidentally absorb test wrappers if CMake hygiene is
+  not checked automatically.
+
+### Phase 14: Build/Test Preset Separation
+
+Goal: make build presets compile only, make CTest presets own test execution,
+and keep the build/test command surface small.
+
+Allowed edit scope:
+
+- CMake presets, minimal CTest labels, CI workflow, and build/verification
+  documentation.
+
+Deliverables:
+
+- Separate Debug and RelWithDebInfo regression configure presets.
+- Ninja generator pinned in presets.
+- Build presets only for `debug` and `regression`.
+- Test presets only for `debug`, `lint`, and `regression`.
+- Minimal CTest labels: `fast`, `lint`, `slow`, and `static`.
+- Focused builds use CMake's native `--target`; focused test runs use CTest's
+  native `-R` and `--verbose`.
+- No build target runs CTest directly.
+- No build target name includes an architecture version.
+
+Acceptance criteria:
+
+- `ctest --preset debug -N` lists only the fast local subset.
+- `ctest --preset lint -N` lists only lint tests.
+- `ctest --preset regression -N` lists the full matrix.
+- `cmake --build --preset regression --parallel 2` builds optimized targets
+  without running CTest.
+- `cmake --build --preset debug --target lint --parallel 2` builds the
+  aggregate lint target.
+- `cmake --build --preset debug --target npu_top_tb` builds one selected test.
+- `ctest --preset regression -R npu_top --verbose` runs one selected test with
+  normal CTest output.
+
+Dependencies:
+
+- Phase 13 interface-native core boundary.
+
+Primary risks:
+
+- Too many presets can become more confusing than the target/test names they
+  wrap.
+- Test parallelism is explicit at call sites with `ctest -j`, not hidden in
+  presets.
+
 ## Current Phase
 
-The active phase after Phase 0 is Phase 1: Project Skeleton, unless
-`docs/PROGRESS.md` records a different active phase.
+The active phase is the latest incomplete phase recorded in `docs/PROGRESS.md`.

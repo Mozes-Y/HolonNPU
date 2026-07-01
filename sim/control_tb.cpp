@@ -215,10 +215,10 @@ bool test_reset_values(Vnpu_control_regs& dut) {
     reset(dut);
 
     bool ok = true;
-    ok &= expect_eq("DEVICE_ID", axil_read(dut, kDeviceId), 0x4E50'5501U);
-    ok &= expect_eq("ABI_VERSION", axil_read(dut, kAbiVersion), 0x0001'0000U);
-    ok &= expect_eq("CAP0", axil_read(dut, kCap0), 0x0000'003FU);
-    ok &= expect_eq("CAP1", axil_read(dut, kCap1), 0x0820'1010U);
+    ok &= expect_eq("DEVICE_ID", axil_read(dut, kDeviceId), HOLON_NPU_DEVICE_ID_RESET);
+    ok &= expect_eq("ABI_VERSION", axil_read(dut, kAbiVersion), HOLON_NPU_ABI_VERSION_RESET);
+    ok &= expect_eq("CAP0", axil_read(dut, kCap0), HOLON_NPU_CAP0_RESET);
+    ok &= expect_eq("CAP1", axil_read(dut, kCap1), HOLON_NPU_CAP1_RESET);
     ok &= expect_eq("STATUS reset", axil_read(dut, kStatus), 0x0000'0001U);
     ok &= expect_eq("ERROR_CODE reset", axil_read(dut, kErrorCode), 0x0000'0000U);
     ok &= expect_eq("IRQ_ENABLE reset", axil_read(dut, kIrqEnable), 0x0000'0000U);

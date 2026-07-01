@@ -29,60 +29,70 @@ module npu_common_smoke_top (
 
     import npu_pkg::*;
 
+    npu_vr_if #(.DATA_W(8)) fifo_in_if (.clk_i(clk_i), .rst_ni(rst_ni));
+    npu_vr_if #(.DATA_W(8)) fifo_out_if (.clk_i(clk_i), .rst_ni(rst_ni));
+    npu_vr_if #(.DATA_W(8)) skid_in_if (.clk_i(clk_i), .rst_ni(rst_ni));
+    npu_vr_if #(.DATA_W(8)) skid_out_if (.clk_i(clk_i), .rst_ni(rst_ni));
+    npu_vr_if #(.DATA_W(8)) slice_in_if (.clk_i(clk_i), .rst_ni(rst_ni));
+    npu_vr_if #(.DATA_W(8)) slice_out_if (.clk_i(clk_i), .rst_ni(rst_ni));
+
     assign abi_constants_ok_o =
-        (NPU_ABI_MAJOR == 1) &&
+        (NPU_ABI_MAJOR == 2) &&
         (NPU_ABI_MINOR == 0) &&
         (NPU_DESC_SIZE_BYTES == 128) &&
         (NPU_DESC_ALIGN_BYTES == 16) &&
         (NPU_TENSOR_ALIGN_BYTES == 16) &&
-        (NPU_ARRAY_M == 16) &&
+        (NPU_ARRAY_K == 16) &&
         (NPU_ARRAY_N == 16) &&
         (NPU_INPUT_BITS == 8) &&
         (NPU_ACC_BITS == 32) &&
         (NPU_DEVICE_ID_RESET == 32'h4E50_5501) &&
-        (NPU_ABI_VERSION_RESET == 32'h0001_0000) &&
+        (NPU_ABI_VERSION_RESET == 32'h0002_0000) &&
         (NPU_CAP0_RESET == 32'h0000_003F) &&
         (NPU_CAP1_RESET == 32'h0820_1010);
+
+    assign fifo_in_if.valid = fifo_in_valid_i;
+    assign fifo_in_if.data = fifo_in_data_i;
+    assign fifo_in_ready_o = fifo_in_if.ready;
+    assign fifo_out_valid_o = fifo_out_if.valid;
+    assign fifo_out_data_o = fifo_out_if.data;
+    assign fifo_out_if.ready = fifo_out_ready_i;
+
+    assign skid_in_if.valid = skid_in_valid_i;
+    assign skid_in_if.data = skid_in_data_i;
+    assign skid_in_ready_o = skid_in_if.ready;
+    assign skid_out_valid_o = skid_out_if.valid;
+    assign skid_out_data_o = skid_out_if.data;
+    assign skid_out_if.ready = skid_out_ready_i;
+
+    assign slice_in_if.valid = slice_in_valid_i;
+    assign slice_in_if.data = slice_in_data_i;
+    assign slice_in_ready_o = slice_in_if.ready;
+    assign slice_out_valid_o = slice_out_if.valid;
+    assign slice_out_data_o = slice_out_if.data;
+    assign slice_out_if.ready = slice_out_ready_i;
 
     npu_fifo #(
         .DATA_W(8),
         .DEPTH(2)
     ) u_fifo (
-        .clk_i(clk_i),
-        .rst_ni(rst_ni),
-        .in_valid_i(fifo_in_valid_i),
-        .in_ready_o(fifo_in_ready_o),
-        .in_data_i(fifo_in_data_i),
-        .out_valid_o(fifo_out_valid_o),
-        .out_ready_i(fifo_out_ready_i),
-        .out_data_o(fifo_out_data_o),
+        .in_i(fifo_in_if),
+        .out_o(fifo_out_if),
         .count_o(fifo_count_o)
     );
 
     npu_skid_buffer #(
         .DATA_W(8)
     ) u_skid (
-        .clk_i(clk_i),
-        .rst_ni(rst_ni),
-        .in_valid_i(skid_in_valid_i),
-        .in_ready_o(skid_in_ready_o),
-        .in_data_i(skid_in_data_i),
-        .out_valid_o(skid_out_valid_o),
-        .out_ready_i(skid_out_ready_i),
-        .out_data_o(skid_out_data_o)
+        .in_i(skid_in_if),
+        .out_o(skid_out_if)
     );
 
     npu_register_slice #(
         .DATA_W(8)
     ) u_slice (
-        .clk_i(clk_i),
-        .rst_ni(rst_ni),
-        .in_valid_i(slice_in_valid_i),
-        .in_ready_o(slice_in_ready_o),
-        .in_data_i(slice_in_data_i),
-        .out_valid_o(slice_out_valid_o),
-        .out_ready_i(slice_out_ready_i),
-        .out_data_o(slice_out_data_o)
+        .in_i(slice_in_if),
+        .out_o(slice_out_if)
     );
 
 endmodule

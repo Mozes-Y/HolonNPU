@@ -1,4 +1,5 @@
-module npu_axi4_read_dma #(
+/* verilator lint_off DECLFILENAME */
+module npu_axi4_read_dma_core #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128,
     parameter int unsigned LEN_W = 32,
@@ -16,22 +17,8 @@ module npu_axi4_read_dma #(
     output logic                    error_o,
     output logic [31:0]             error_code_o,
 
-    output logic [ADDR_W-1:0]       m_axi_araddr_o,
-    output logic [7:0]              m_axi_arlen_o,
-    output logic [2:0]              m_axi_arsize_o,
-    output logic [1:0]              m_axi_arburst_o,
-    output logic                    m_axi_arvalid_o,
-    input  logic                    m_axi_arready_i,
-    input  logic [DATA_W-1:0]       m_axi_rdata_i,
-    input  logic [1:0]              m_axi_rresp_i,
-    input  logic                    m_axi_rlast_i,
-    input  logic                    m_axi_rvalid_i,
-    output logic                    m_axi_rready_o,
-
-    output logic                    out_valid_o,
-    input  logic                    out_ready_i,
-    output logic [DATA_W-1:0]       out_data_o,
-    output logic                    out_last_o
+    npu_axi4_if.read_master         m_axi,
+    npu_vr_if.source                out_o
 );
 
     import npu_pkg::*;
@@ -79,10 +66,10 @@ module npu_axi4_read_dma #(
         ? 5'd16
         : 5'(beats_remaining_q);
 
-    assign output_can_accept = !out_valid_q || out_ready_i;
-    assign r_fire = m_axi_rvalid_i && m_axi_rready_o;
-    assign r_resp_ok = (m_axi_rresp_i == AXI_RESP_OKAY) ||
-                       (m_axi_rresp_i == AXI_RESP_EXOKAY);
+    assign output_can_accept = !out_valid_q || out_o.ready;
+    assign r_fire = m_axi.rvalid && m_axi.rready;
+    assign r_resp_ok = (m_axi.rresp == AXI_RESP_OKAY) ||
+                       (m_axi.rresp == AXI_RESP_EXOKAY);
     assign final_r_beat = (burst_beats_sent_q == (burst_beats_q - 5'd1));
 
     assign busy_o = (state_q == STATE_AR) || (state_q == STATE_R) ||
@@ -91,30 +78,30 @@ module npu_axi4_read_dma #(
     assign error_o = (state_q == STATE_ERR) && !start_i;
     assign error_code_o = error_code_q;
 
-    assign m_axi_araddr_o = addr_q;
-    assign m_axi_arlen_o = 8'(next_burst_beats - 5'd1);
-    assign m_axi_arsize_o = 3'(BEAT_SHIFT);
-    assign m_axi_arburst_o = AXI_BURST_INCR;
-    assign m_axi_arvalid_o = (state_q == STATE_AR);
-    assign m_axi_rready_o = ((state_q == STATE_R) && output_can_accept) ||
-                            (state_q == STATE_DRAIN);
+    assign m_axi.arid = '0;
+    assign m_axi.araddr = addr_q;
+    assign m_axi.arlen = 8'(next_burst_beats - 5'd1);
+    assign m_axi.arsize = 3'(BEAT_SHIFT);
+    assign m_axi.arburst = AXI_BURST_INCR;
+    assign m_axi.arvalid = (state_q == STATE_AR);
+    assign m_axi.rready = ((state_q == STATE_R) && output_can_accept) ||
+                          (state_q == STATE_DRAIN);
 
-    assign out_valid_o = out_valid_q;
-    assign out_data_o = out_data_q;
-    assign out_last_o = out_last_q;
+    assign out_o.valid = out_valid_q;
+    assign out_o.data = {out_last_q, out_data_q};
 
     initial begin
-        if (NPU_ABI_MAJOR != 1) $fatal("Unexpected NPU_ABI_MAJOR");
+        if (NPU_ABI_MAJOR != 2) $fatal("Unexpected NPU_ABI_MAJOR");
         if (NPU_ABI_MINOR != 0) $fatal("Unexpected NPU_ABI_MINOR");
         if (NPU_DESC_SIZE_BYTES != 128) $fatal("Unexpected NPU_DESC_SIZE_BYTES");
         if (NPU_DESC_ALIGN_BYTES != 16) $fatal("Unexpected NPU_DESC_ALIGN_BYTES");
         if (NPU_TENSOR_ALIGN_BYTES != 16) $fatal("Unexpected NPU_TENSOR_ALIGN_BYTES");
-        if (NPU_ARRAY_M != 16) $fatal("Unexpected NPU_ARRAY_M");
+        if (NPU_ARRAY_K != 16) $fatal("Unexpected NPU_ARRAY_K");
         if (NPU_ARRAY_N != 16) $fatal("Unexpected NPU_ARRAY_N");
         if (NPU_INPUT_BITS != 8) $fatal("Unexpected NPU_INPUT_BITS");
         if (NPU_ACC_BITS != 32) $fatal("Unexpected NPU_ACC_BITS");
         if (NPU_DEVICE_ID_RESET != 32'h4E50_5501) $fatal("Unexpected NPU_DEVICE_ID_RESET");
-        if (NPU_ABI_VERSION_RESET != 32'h0001_0000) $fatal("Unexpected NPU_ABI_VERSION_RESET");
+        if (NPU_ABI_VERSION_RESET != 32'h0002_0000) $fatal("Unexpected NPU_ABI_VERSION_RESET");
         if (NPU_CAP0_RESET != 32'h0000_003F) $fatal("Unexpected NPU_CAP0_RESET");
         if (NPU_CAP1_RESET != 32'h0820_1010) $fatal("Unexpected NPU_CAP1_RESET");
     end
@@ -131,7 +118,7 @@ module npu_axi4_read_dma #(
             out_valid_q <= 1'b0;
             out_last_q <= 1'b0;
         end else begin
-            if (out_valid_q && out_ready_i) begin
+            if (out_valid_q && out_o.ready) begin
                 out_valid_q <= 1'b0;
                 out_last_q <= 1'b0;
             end
@@ -152,7 +139,7 @@ module npu_axi4_read_dma #(
                 end
 
                 STATE_AR: begin
-                    if (m_axi_arready_i) begin
+                    if (m_axi.arready) begin
                         burst_beats_q <= next_burst_beats;
                         burst_beats_sent_q <= '0;
                         state_q <= STATE_R;
@@ -165,14 +152,14 @@ module npu_axi4_read_dma #(
                             error_code_q <= 32'(NPU_ERR_AXI_READ);
                             out_valid_q <= 1'b0;
                             out_last_q <= 1'b0;
-                            if (m_axi_rlast_i) begin
+                            if (m_axi.rlast) begin
                                 state_q <= STATE_ERR;
                             end else begin
                                 state_q <= STATE_DRAIN;
                                 burst_beats_sent_q <= burst_beats_sent_q + 5'd1;
                             end
                         end else begin
-                            out_data_q <= m_axi_rdata_i;
+                            out_data_q <= m_axi.rdata;
                             out_valid_q <= 1'b1;
                             out_last_q <= (beats_remaining_q == BEAT_COUNT_W'(burst_beats_q)) &&
                                           final_r_beat;
@@ -180,9 +167,9 @@ module npu_axi4_read_dma #(
                             if (final_r_beat) begin
                                 beats_remaining_q <= beats_remaining_q - BEAT_COUNT_W'(burst_beats_q);
                                 addr_q <= addr_q + ADDR_W'(burst_beats_q * BEAT_BYTES);
-                                if ((beats_remaining_q == BEAT_COUNT_W'(burst_beats_q)) && m_axi_rlast_i) begin
+                                if ((beats_remaining_q == BEAT_COUNT_W'(burst_beats_q)) && m_axi.rlast) begin
                                     state_q <= STATE_DONE;
-                                end else if (m_axi_rlast_i) begin
+                                end else if (m_axi.rlast) begin
                                     state_q <= STATE_AR;
                                 end else begin
                                     state_q <= STATE_ERR;
@@ -190,7 +177,7 @@ module npu_axi4_read_dma #(
                                 end
                             end else begin
                                 burst_beats_sent_q <= burst_beats_sent_q + 5'd1;
-                                if (m_axi_rlast_i) begin
+                                if (m_axi.rlast) begin
                                     state_q <= STATE_ERR;
                                     error_code_q <= 32'(NPU_ERR_INTERNAL_PROTOCOL);
                                 end
@@ -203,7 +190,7 @@ module npu_axi4_read_dma #(
                     out_valid_q <= 1'b0;
                     out_last_q <= 1'b0;
                     if (r_fire) begin
-                        if (m_axi_rlast_i) begin
+                        if (m_axi.rlast) begin
                             state_q <= STATE_ERR;
                         end else begin
                             burst_beats_sent_q <= burst_beats_sent_q + 5'd1;
@@ -247,3 +234,4 @@ module npu_axi4_read_dma #(
     end
 
 endmodule
+/* verilator lint_on DECLFILENAME */

@@ -10,21 +10,29 @@
 namespace {
 
 static_assert(sizeof(holon_npu_gemm_desc_t) == HOLON_NPU_DESC_SIZE);
-static_assert(offsetof(holon_npu_gemm_desc_t, size_bytes) == 0x00);
-static_assert(offsetof(holon_npu_gemm_desc_t, version) == 0x02);
-static_assert(offsetof(holon_npu_gemm_desc_t, opcode) == 0x03);
-static_assert(offsetof(holon_npu_gemm_desc_t, flags) == 0x04);
-static_assert(offsetof(holon_npu_gemm_desc_t, m) == 0x08);
-static_assert(offsetof(holon_npu_gemm_desc_t, n) == 0x0C);
-static_assert(offsetof(holon_npu_gemm_desc_t, k) == 0x10);
-static_assert(offsetof(holon_npu_gemm_desc_t, a_addr) == 0x18);
-static_assert(offsetof(holon_npu_gemm_desc_t, b_addr) == 0x20);
-static_assert(offsetof(holon_npu_gemm_desc_t, c_addr) == 0x28);
-static_assert(offsetof(holon_npu_gemm_desc_t, a_row_stride_bytes) == 0x30);
-static_assert(offsetof(holon_npu_gemm_desc_t, b_row_stride_bytes) == 0x34);
-static_assert(offsetof(holon_npu_gemm_desc_t, c_row_stride_bytes) == 0x38);
-static_assert(offsetof(holon_npu_gemm_desc_t, reserved_40) == 0x40);
+static_assert(offsetof(holon_npu_gemm_desc_t, size_bytes) == HOLON_NPU_DESC_OFF_SIZE_BYTES);
+static_assert(offsetof(holon_npu_gemm_desc_t, version) == HOLON_NPU_DESC_OFF_VERSION);
+static_assert(offsetof(holon_npu_gemm_desc_t, opcode) == HOLON_NPU_DESC_OFF_OPCODE);
+static_assert(offsetof(holon_npu_gemm_desc_t, flags) == HOLON_NPU_DESC_OFF_FLAGS);
+static_assert(offsetof(holon_npu_gemm_desc_t, m) == HOLON_NPU_DESC_OFF_M);
+static_assert(offsetof(holon_npu_gemm_desc_t, n) == HOLON_NPU_DESC_OFF_N);
+static_assert(offsetof(holon_npu_gemm_desc_t, k) == HOLON_NPU_DESC_OFF_K);
+static_assert(offsetof(holon_npu_gemm_desc_t, reserved_14) == HOLON_NPU_DESC_OFF_RESERVED_14);
+static_assert(offsetof(holon_npu_gemm_desc_t, a_addr) == HOLON_NPU_DESC_OFF_A_ADDR);
+static_assert(offsetof(holon_npu_gemm_desc_t, b_addr) == HOLON_NPU_DESC_OFF_B_ADDR);
+static_assert(offsetof(holon_npu_gemm_desc_t, c_addr) == HOLON_NPU_DESC_OFF_C_ADDR);
+static_assert(offsetof(holon_npu_gemm_desc_t, a_row_stride_bytes) == HOLON_NPU_DESC_OFF_A_STRIDE);
+static_assert(offsetof(holon_npu_gemm_desc_t, b_row_stride_bytes) == HOLON_NPU_DESC_OFF_B_STRIDE);
+static_assert(offsetof(holon_npu_gemm_desc_t, c_row_stride_bytes) == HOLON_NPU_DESC_OFF_C_STRIDE);
+static_assert(offsetof(holon_npu_gemm_desc_t, reserved_3c) == HOLON_NPU_DESC_OFF_RESERVED_3C);
+static_assert(offsetof(holon_npu_gemm_desc_t, reserved_40) == HOLON_NPU_DESC_OFF_RESERVED_TAIL);
 static_assert(offsetof(holon_npu_gemm_desc_t, reserved_78) == 0x78);
+static_assert(HOLON_NPU_ABI_MAJOR == 2);
+static_assert(HOLON_NPU_ABI_MINOR == 0);
+static_assert(HOLON_NPU_ARRAY_K == 16);
+static_assert(HOLON_NPU_ARRAY_N == 16);
+static_assert((HOLON_NPU_CAP1_RESET & 0xFFU) == HOLON_NPU_ARRAY_K);
+static_assert(((HOLON_NPU_CAP1_RESET >> 8U) & 0xFFU) == HOLON_NPU_ARRAY_N);
 
 using RegFile = std::array<std::uint32_t, 256>;
 
@@ -92,6 +100,8 @@ bool test_init_and_caps() {
     ok &= expect_eq("abi version", caps.abi_version, HOLON_NPU_ABI_VERSION_RESET);
     ok &= expect_eq("cap0", caps.cap0, HOLON_NPU_CAP0_RESET);
     ok &= expect_eq("cap1", caps.cap1, HOLON_NPU_CAP1_RESET);
+    ok &= expect_eq("cap1 array k", caps.cap1 & 0xFFU, HOLON_NPU_ARRAY_K);
+    ok &= expect_eq("cap1 array n", (caps.cap1 >> 8U) & 0xFFU, HOLON_NPU_ARRAY_N);
     ok &= expect_eq("caps null", holon_npu_get_caps(&dev, nullptr), HOLON_NPU_E_ARG);
     return ok;
 }

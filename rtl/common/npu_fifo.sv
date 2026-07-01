@@ -4,14 +4,8 @@ module npu_fifo #(
     localparam int unsigned PTR_W = (DEPTH <= 1) ? 1 : $clog2(DEPTH),
     localparam int unsigned COUNT_W = $clog2(DEPTH + 1)
 ) (
-    input  logic                 clk_i,
-    input  logic                 rst_ni,
-    input  logic                 in_valid_i,
-    output logic                 in_ready_o,
-    input  logic [DATA_W-1:0]    in_data_i,
-    output logic                 out_valid_o,
-    input  logic                 out_ready_i,
-    output logic [DATA_W-1:0]    out_data_o,
+    npu_vr_if.sink               in_i,
+    npu_vr_if.source             out_o,
     output logic [COUNT_W-1:0]   count_o
 );
 
@@ -26,13 +20,13 @@ module npu_fifo #(
     logic push;
     logic pop;
 
-    assign in_ready_o  = (count_q != DEPTH_COUNT);
-    assign out_valid_o = (count_q != '0);
-    assign out_data_o  = mem_q[rd_ptr_q];
+    assign in_i.ready  = (count_q != DEPTH_COUNT);
+    assign out_o.valid = (count_q != '0);
+    assign out_o.data  = mem_q[rd_ptr_q];
     assign count_o     = count_q;
 
-    assign push = in_valid_i && in_ready_o;
-    assign pop  = out_valid_o && out_ready_i;
+    assign push = in_i.valid && in_i.ready;
+    assign pop  = out_o.valid && out_o.ready;
 
     function automatic logic [PTR_W-1:0] ptr_inc(input logic [PTR_W-1:0] ptr);
         if (ptr == LAST_PTR) begin
@@ -42,8 +36,8 @@ module npu_fifo #(
         end
     endfunction
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) begin
+    always_ff @(posedge in_i.clk_i or negedge in_i.rst_ni) begin
+        if (!in_i.rst_ni) begin
             rd_ptr_q <= '0;
             wr_ptr_q <= '0;
             count_q  <= '0;
@@ -52,7 +46,7 @@ module npu_fifo #(
             end
         end else begin
             if (push) begin
-                mem_q[wr_ptr_q] <= in_data_i;
+                mem_q[wr_ptr_q] <= in_i.data;
                 wr_ptr_q <= ptr_inc(wr_ptr_q);
             end
 

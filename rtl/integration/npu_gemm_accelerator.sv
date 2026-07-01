@@ -1,27 +1,14 @@
-module npu_gemm_accelerator #(
+/* verilator lint_off DECLFILENAME */
+module npu_gemm_accelerator_core #(
     parameter int unsigned ADDR_W = 64,
-    parameter int unsigned DATA_W = 128,
-    localparam int unsigned STRB_W = DATA_W / 8
+    parameter int unsigned DATA_W = 128
 ) (
     input  logic                    clk_i,
     input  logic                    rst_ni,
     input  logic                    soft_reset_i,
     input  logic                    clear_perf_i,
 
-    input  logic                    command_valid_i,
-    output logic                    command_ready_o,
-    input  logic [31:0]             command_m_i,
-    input  logic [31:0]             command_n_i,
-    input  logic [31:0]             command_k_i,
-    input  logic [ADDR_W-1:0]       command_a_addr_i,
-    input  logic [ADDR_W-1:0]       command_b_addr_i,
-    input  logic [ADDR_W-1:0]       command_c_addr_i,
-    input  logic [31:0]             command_a_stride_i,
-    input  logic [31:0]             command_b_stride_i,
-    input  logic [31:0]             command_c_stride_i,
-    input  logic                    command_irq_on_done_i,
-    input  logic                    command_irq_on_error_i,
-    input  logic                    command_clear_perf_on_start_i,
+    npu_vr_if.sink                  command_i,
 
     output logic                    busy_o,
     output logic                    done_o,
@@ -34,34 +21,8 @@ module npu_gemm_accelerator #(
     output logic [31:0]             perf_desc_count_o,
     output logic [31:0]             perf_error_count_o,
 
-    output logic [ADDR_W-1:0]       m_axi_araddr_o,
-    output logic [7:0]              m_axi_arlen_o,
-    output logic [2:0]              m_axi_arsize_o,
-    output logic [1:0]              m_axi_arburst_o,
-    output logic                    m_axi_arvalid_o,
-    input  logic                    m_axi_arready_i,
-    input  logic [63:0]             m_axi_rdata_lo_i,
-    input  logic [63:0]             m_axi_rdata_hi_i,
-    input  logic [1:0]              m_axi_rresp_i,
-    input  logic                    m_axi_rlast_i,
-    input  logic                    m_axi_rvalid_i,
-    output logic                    m_axi_rready_o,
-
-    output logic [ADDR_W-1:0]       m_axi_awaddr_o,
-    output logic [7:0]              m_axi_awlen_o,
-    output logic [2:0]              m_axi_awsize_o,
-    output logic [1:0]              m_axi_awburst_o,
-    output logic                    m_axi_awvalid_o,
-    input  logic                    m_axi_awready_i,
-    output logic [63:0]             m_axi_wdata_lo_o,
-    output logic [63:0]             m_axi_wdata_hi_o,
-    output logic [STRB_W-1:0]       m_axi_wstrb_o,
-    output logic                    m_axi_wlast_o,
-    output logic                    m_axi_wvalid_o,
-    input  logic                    m_axi_wready_i,
-    input  logic [1:0]              m_axi_bresp_i,
-    input  logic                    m_axi_bvalid_i,
-    output logic                    m_axi_bready_o
+    npu_axi4_if.read_master         m_axi_read,
+    npu_axi4_if.write_master        m_axi_write
 );
 
     import npu_pkg::*;
@@ -127,14 +88,18 @@ module npu_gemm_accelerator #(
     logic [31:0] perf_desc_count_q;
     logic [31:0] perf_error_count_q;
 
-    logic signed [INPUT_W-1:0] a_vec [TILE_M];
-    logic signed [INPUT_W-1:0] b_vec [TILE_N];
-    logic [TILE_M-1:0] row_mask;
+    logic signed [INPUT_W-1:0] a_vec [TILE_K];
+    logic signed [INPUT_W-1:0] weight_vec [TILE_N];
+    logic signed [ACC_W-1:0] psum_zero [TILE_N];
+    logic [TILE_K-1:0] k_mask;
     logic [TILE_N-1:0] col_mask;
-    logic [TILE_M-1:0] a_valid_vec;
-    logic [TILE_N-1:0] b_valid_vec;
-    logic [TILE_N-1:0] c_valid [TILE_M];
-    logic signed [ACC_W-1:0] c_data [TILE_M][TILE_N];
+    logic [TILE_K-1:0] a_valid_vec;
+    logic [TILE_N-1:0] psum_valid_vec;
+    logic [TILE_N-1:0] c_stream_valid;
+    logic signed [ACC_W-1:0] c_stream_data [TILE_N];
+    logic signed [ACC_W-1:0] c_accum_q [TILE_M][TILE_N];
+    logic [5:0] array_output_cycle_q;
+    logic array_output_valid_q;
 
     logic array_clear;
     logic array_step_valid;
@@ -150,7 +115,6 @@ module npu_gemm_accelerator #(
     logic read_out_ready;
     logic [DATA_W-1:0] read_out_data;
     logic read_out_last;
-    logic [DATA_W-1:0] read_dma_rdata;
     logic scratch_a_wr_valid;
     logic scratch_b_wr_valid;
 
@@ -163,7 +127,6 @@ module npu_gemm_accelerator #(
     logic write_in_valid;
     logic write_in_ready;
     logic [DATA_W-1:0] write_in_data;
-    logic [DATA_W-1:0] write_dma_wdata;
 
     logic command_fire;
     logic busy_state;
@@ -172,11 +135,23 @@ module npu_gemm_accelerator #(
     logic command_alignment_error;
     logic [31:0] command_c_stride_min;
     logic [2:0] store_chunk_count;
+    logic [31:0] command_m_i;
+    logic [31:0] command_n_i;
+    logic [31:0] command_k_i;
+    logic [ADDR_W-1:0] command_a_addr_i;
+    logic [ADDR_W-1:0] command_b_addr_i;
+    logic [ADDR_W-1:0] command_c_addr_i;
+    logic [31:0] command_a_stride_i;
+    logic [31:0] command_b_stride_i;
+    logic [31:0] command_c_stride_i;
+    logic command_irq_on_done_i;
+    logic command_irq_on_error_i;
+    logic command_clear_perf_on_start_i;
 
-    assign command_fire = command_valid_i && command_ready_o;
+    assign command_fire = command_i.valid && command_i.ready;
     assign busy_state = (state_q != STATE_IDLE) && (state_q != STATE_DONE) && (state_q != STATE_ERR);
 
-    assign command_ready_o = (state_q == STATE_IDLE) || (state_q == STATE_DONE) || (state_q == STATE_ERR);
+    assign command_i.ready = (state_q == STATE_IDLE) || (state_q == STATE_DONE) || (state_q == STATE_ERR);
     assign busy_o = busy_state || read_dma_busy || write_dma_busy ||
                     (((state_q == STATE_LOAD_A_WAIT) || (state_q == STATE_LOAD_B_WAIT)) && read_dma_done) ||
                     ((state_q == STATE_STORE_WAIT) && write_in_ready);
@@ -189,7 +164,19 @@ module npu_gemm_accelerator #(
     assign perf_desc_count_o = perf_desc_count_q;
     assign perf_error_count_o = perf_error_count_q;
 
-    assign read_dma_rdata = {m_axi_rdata_hi_i, m_axi_rdata_lo_i};
+    assign command_irq_on_done_i = command_i.data[NPU_GEMM_CMD_IRQ_ON_DONE_BIT];
+    assign command_irq_on_error_i = command_i.data[NPU_GEMM_CMD_IRQ_ON_ERROR_BIT];
+    assign command_clear_perf_on_start_i = command_i.data[NPU_GEMM_CMD_CLEAR_PERF_BIT];
+    assign command_m_i = command_i.data[NPU_GEMM_CMD_M_LSB +: 32];
+    assign command_n_i = command_i.data[NPU_GEMM_CMD_N_LSB +: 32];
+    assign command_k_i = command_i.data[NPU_GEMM_CMD_K_LSB +: 32];
+    assign command_a_addr_i = command_i.data[NPU_GEMM_CMD_A_ADDR_LSB +: ADDR_W];
+    assign command_b_addr_i = command_i.data[NPU_GEMM_CMD_B_ADDR_LSB +: ADDR_W];
+    assign command_c_addr_i = command_i.data[NPU_GEMM_CMD_C_ADDR_LSB +: ADDR_W];
+    assign command_a_stride_i = command_i.data[NPU_GEMM_CMD_A_STRIDE_LSB +: 32];
+    assign command_b_stride_i = command_i.data[NPU_GEMM_CMD_B_STRIDE_LSB +: 32];
+    assign command_c_stride_i = command_i.data[NPU_GEMM_CMD_C_STRIDE_LSB +: 32];
+
     assign read_out_ready = (state_q == STATE_LOAD_A_WAIT) || (state_q == STATE_LOAD_B_WAIT);
     assign dma_rst_ni = rst_ni && !soft_reset_i;
     assign scratch_a_wr_valid = (state_q == STATE_LOAD_A_WAIT) && read_out_valid && read_out_last;
@@ -197,9 +184,6 @@ module npu_gemm_accelerator #(
 
     assign write_in_valid = (state_q == STATE_STORE_WAIT);
     assign write_in_data = pack_store_beat(store_row_q, store_chunk_q);
-    assign m_axi_wdata_lo_o = write_dma_wdata[63:0];
-    assign m_axi_wdata_hi_o = write_dma_wdata[127:64];
-
     assign array_clear = (state_q == STATE_TILE_CLEAR);
     assign array_step_valid = (state_q == STATE_COMPUTE);
 
@@ -223,12 +207,12 @@ module npu_gemm_accelerator #(
     assign store_chunk_count = active_store_chunks();
 
     initial begin
-        if (NPU_ABI_MAJOR != 1) $fatal("Unexpected NPU_ABI_MAJOR");
+        if (NPU_ABI_MAJOR != 2) $fatal("Unexpected NPU_ABI_MAJOR");
         if (NPU_ABI_MINOR != 0) $fatal("Unexpected NPU_ABI_MINOR");
         if (NPU_DESC_SIZE_BYTES != 128) $fatal("Unexpected NPU_DESC_SIZE_BYTES");
         if (NPU_DESC_ALIGN_BYTES != 16) $fatal("Unexpected NPU_DESC_ALIGN_BYTES");
         if (NPU_TENSOR_ALIGN_BYTES != 16) $fatal("Unexpected NPU_TENSOR_ALIGN_BYTES");
-        if (NPU_ARRAY_M != 16) $fatal("Unexpected NPU_ARRAY_M");
+        if (NPU_ARRAY_K != 16) $fatal("Unexpected NPU_ARRAY_K");
         if (NPU_ARRAY_N != 16) $fatal("Unexpected NPU_ARRAY_N");
         if (NPU_INPUT_BITS != 8) $fatal("Unexpected NPU_INPUT_BITS");
         if (NPU_ACC_BITS != 32) $fatal("Unexpected NPU_ACC_BITS");
@@ -291,13 +275,18 @@ module npu_gemm_accelerator #(
             for (int unsigned lane = 0; lane < 4; lane++) begin
                 col_index = (int'(chunk_index) * 4) + lane;
                 if ((col_index < TILE_N) && active_m_index(row_index) &&
-                    c_valid[int'(row_index[3:0])][col_index] &&
                     ((n_base_q + 32'(col_index)) < n_q)) begin
-                    pack_store_beat[(lane * 32) +: 32] = c_data[int'(row_index[3:0])][col_index];
+                    pack_store_beat[(lane * 32) +: 32] = c_accum_q[int'(row_index[3:0])][col_index];
                 end
             end
         end
     endfunction
+
+    always_comb begin
+        for (int unsigned col = 0; col < TILE_N; col++) begin
+            weight_vec[col] = read_out_data[(col * INPUT_W) +: INPUT_W];
+        end
+    end
 
     npu_gemm_tile_scratchpad #(
         .TILE_M(TILE_M),
@@ -312,9 +301,6 @@ module npu_gemm_accelerator #(
         .a_wr_valid_i(scratch_a_wr_valid),
         .a_wr_row_i(load_row_q[3:0]),
         .a_wr_data_i(read_out_data),
-        .b_wr_valid_i(scratch_b_wr_valid),
-        .b_wr_k_i(load_k_q[3:0]),
-        .b_wr_data_i(read_out_data),
         .m_i(m_q),
         .n_i(n_q),
         .k_i(k_q),
@@ -322,12 +308,12 @@ module npu_gemm_accelerator #(
         .n_base_i(n_base_q),
         .k_base_i(k_base_q),
         .compute_cycle_i(compute_k_q),
-        .row_mask_o(row_mask),
+        .k_mask_o(k_mask),
         .col_mask_o(col_mask),
         .a_valid_o(a_valid_vec),
-        .b_valid_o(b_valid_vec),
         .a_o(a_vec),
-        .b_o(b_vec)
+        .psum_valid_o(psum_valid_vec),
+        .psum_o(psum_zero)
     );
 
     always_comb begin
@@ -349,7 +335,30 @@ module npu_gemm_accelerator #(
         endcase
     end
 
-    npu_axi4_read_dma #(
+    npu_vr_if #(
+        .DATA_W(DATA_W + 1)
+    ) read_out_if (
+        .clk_i(clk_i),
+        .rst_ni(dma_rst_ni)
+    );
+
+    npu_vr_if #(
+        .DATA_W(DATA_W)
+    ) write_in_if (
+        .clk_i(clk_i),
+        .rst_ni(dma_rst_ni)
+    );
+
+    assign read_out_valid = read_out_if.valid;
+    assign read_out_data = read_out_if.data[DATA_W-1:0];
+    assign read_out_last = read_out_if.data[DATA_W];
+    assign read_out_if.ready = read_out_ready;
+
+    assign write_in_if.valid = write_in_valid;
+    assign write_in_if.data = write_in_data;
+    assign write_in_ready = write_in_if.ready;
+
+    npu_axi4_read_dma_core #(
         .ADDR_W(ADDR_W),
         .DATA_W(DATA_W)
     ) u_read_dma (
@@ -362,24 +371,11 @@ module npu_gemm_accelerator #(
         .done_o(read_dma_done),
         .error_o(read_dma_error),
         .error_code_o(read_dma_error_code),
-        .m_axi_araddr_o(m_axi_araddr_o),
-        .m_axi_arlen_o(m_axi_arlen_o),
-        .m_axi_arsize_o(m_axi_arsize_o),
-        .m_axi_arburst_o(m_axi_arburst_o),
-        .m_axi_arvalid_o(m_axi_arvalid_o),
-        .m_axi_arready_i(m_axi_arready_i),
-        .m_axi_rdata_i(read_dma_rdata),
-        .m_axi_rresp_i(m_axi_rresp_i),
-        .m_axi_rlast_i(m_axi_rlast_i),
-        .m_axi_rvalid_i(m_axi_rvalid_i),
-        .m_axi_rready_o(m_axi_rready_o),
-        .out_valid_o(read_out_valid),
-        .out_ready_i(read_out_ready),
-        .out_data_o(read_out_data),
-        .out_last_o(read_out_last)
+        .m_axi(m_axi_read),
+        .out_o(read_out_if)
     );
 
-    npu_axi4_write_dma #(
+    npu_axi4_write_dma_core #(
         .ADDR_W(ADDR_W),
         .DATA_W(DATA_W)
     ) u_write_dma (
@@ -392,27 +388,12 @@ module npu_gemm_accelerator #(
         .done_o(write_dma_done),
         .error_o(write_dma_error),
         .error_code_o(write_dma_error_code),
-        .m_axi_awaddr_o(m_axi_awaddr_o),
-        .m_axi_awlen_o(m_axi_awlen_o),
-        .m_axi_awsize_o(m_axi_awsize_o),
-        .m_axi_awburst_o(m_axi_awburst_o),
-        .m_axi_awvalid_o(m_axi_awvalid_o),
-        .m_axi_awready_i(m_axi_awready_i),
-        .m_axi_wdata_o(write_dma_wdata),
-        .m_axi_wstrb_o(m_axi_wstrb_o),
-        .m_axi_wlast_o(m_axi_wlast_o),
-        .m_axi_wvalid_o(m_axi_wvalid_o),
-        .m_axi_wready_i(m_axi_wready_i),
-        .m_axi_bresp_i(m_axi_bresp_i),
-        .m_axi_bvalid_i(m_axi_bvalid_i),
-        .m_axi_bready_o(m_axi_bready_o),
-        .in_valid_i(write_in_valid),
-        .in_ready_o(write_in_ready),
-        .in_data_i(write_in_data)
+        .m_axi(m_axi_write),
+        .in_i(write_in_if)
     );
 
     npu_systolic_array #(
-        .ARRAY_M(TILE_M),
+        .ARRAY_K(TILE_K),
         .ARRAY_N(TILE_N),
         .INPUT_W(INPUT_W),
         .ACC_W(ACC_W)
@@ -420,15 +401,19 @@ module npu_gemm_accelerator #(
         .clk_i(clk_i),
         .rst_ni(rst_ni),
         .clear_i(array_clear),
+        .weight_valid_i(scratch_b_wr_valid),
+        .weight_k_i(load_k_q[3:0]),
+        .weight_col_mask_i(col_mask),
+        .weight_i(weight_vec),
         .step_valid_i(array_step_valid),
-        .row_mask_i(row_mask),
+        .k_mask_i(k_mask),
         .col_mask_i(col_mask),
         .a_valid_i(a_valid_vec),
-        .b_valid_i(b_valid_vec),
         .a_i(a_vec),
-        .b_i(b_vec),
-        .c_valid_o(c_valid),
-        .c_o(c_data)
+        .psum_valid_i(psum_valid_vec),
+        .psum_i(psum_zero),
+        .psum_valid_o(c_stream_valid),
+        .psum_o(c_stream_data)
     );
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -462,9 +447,32 @@ module npu_gemm_accelerator #(
             read_addr_q <= '0;
             write_start_q <= 1'b0;
             write_addr_q <= '0;
+            array_output_cycle_q <= 6'd0;
+            array_output_valid_q <= 1'b0;
+            for (int unsigned row = 0; row < TILE_M; row++) begin
+                for (int unsigned col = 0; col < TILE_N; col++) begin
+                    c_accum_q[row][col] <= '0;
+                end
+            end
         end else begin
             read_start_q <= 1'b0;
             write_start_q <= 1'b0;
+
+            if (array_output_valid_q) begin
+                for (int unsigned col = 0; col < TILE_N; col++) begin
+                    int signed out_row;
+
+                    out_row = int'(array_output_cycle_q) - int'(TILE_K - 1) - int'(col);
+                    if (c_stream_valid[col] && (out_row >= 0) && (out_row < TILE_M) &&
+                        ((m_base_q + 32'(out_row)) < m_q) &&
+                        ((n_base_q + 32'(col)) < n_q)) begin
+                        c_accum_q[out_row][col] <= c_accum_q[out_row][col] + c_stream_data[col];
+                    end
+                end
+            end
+
+            array_output_cycle_q <= compute_k_q;
+            array_output_valid_q <= array_step_valid;
 
             if (clear_perf_i) begin
                 perf_cycles_q <= 64'd0;
@@ -534,6 +542,13 @@ module npu_gemm_accelerator #(
                     compute_k_q <= 6'd0;
                     store_row_q <= 5'd0;
                     store_chunk_q <= 3'd0;
+                    array_output_cycle_q <= 6'd0;
+                    array_output_valid_q <= 1'b0;
+                    for (int unsigned row = 0; row < TILE_M; row++) begin
+                        for (int unsigned col = 0; col < TILE_N; col++) begin
+                            c_accum_q[row][col] <= '0;
+                        end
+                    end
                     state_q <= STATE_LOAD_A_PREP;
                 end
 
@@ -678,3 +693,4 @@ module npu_gemm_accelerator #(
     end
 
 endmodule
+/* verilator lint_on DECLFILENAME */

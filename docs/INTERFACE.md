@@ -6,7 +6,7 @@ update and a decision record before code changes.
 
 ## ABI Rules
 
-- ABI version: 1.0.
+- ABI version: 2.0.
 - All multi-byte fields are little-endian.
 - AXI-Lite data width is 32 bits.
 - AXI-Lite register offsets are byte offsets and must be 32-bit aligned.
@@ -25,14 +25,14 @@ update and a decision record before code changes.
 
 | Name | Value | Description |
 | ---- | ----- | ----------- |
-| `HOLON_NPU_ABI_MAJOR` | `1` | Major ABI version. |
+| `HOLON_NPU_ABI_MAJOR` | `2` | Major ABI version. |
 | `HOLON_NPU_ABI_MINOR` | `0` | Minor ABI version. |
 | `HOLON_NPU_DESC_SIZE` | `128` | GEMM descriptor size in bytes. |
 | `HOLON_NPU_DESC_ALIGN` | `16` | Descriptor base alignment in bytes. |
 | `HOLON_NPU_TENSOR_ALIGN` | `16` | Tensor base and row-stride alignment. |
 | `HOLON_NPU_OPCODE_GEMM_I8I8I32` | `1` | Signed INT8 GEMM with INT32 output. |
-| `HOLON_NPU_ARRAY_M` | `16` | v1 target systolic-array rows. |
-| `HOLON_NPU_ARRAY_N` | `16` | v1 target systolic-array columns. |
+| `HOLON_NPU_ARRAY_K` | `16` | v1.1 stationary B-weight/K lanes. |
+| `HOLON_NPU_ARRAY_N` | `16` | v1.1 systolic-array columns. |
 | `HOLON_NPU_INPUT_BITS` | `8` | A and B operand width. |
 | `HOLON_NPU_ACC_BITS` | `32` | Accumulator and output width. |
 
@@ -59,7 +59,7 @@ update and a decision record before code changes.
 | Offset | Name | Width | Access | Reset | Description |
 | ------ | ---- | ----- | ------ | ----- | ----------- |
 | `0x000` | `DEVICE_ID` | 32 | RO | `0x4E505501` | ASCII-like device ID, `NPU` plus v1 marker. |
-| `0x004` | `ABI_VERSION` | 32 | RO | `0x00010000` | Bits `[31:16]` major, `[15:0]` minor. |
+| `0x004` | `ABI_VERSION` | 32 | RO | `0x00020000` | Bits `[31:16]` major, `[15:0]` minor. |
 | `0x008` | `CAP0` | 32 | RO | `0x0000003F` | Feature capability bits. |
 | `0x00C` | `CAP1` | 32 | RO | `0x08201010` | Array and arithmetic widths. |
 | `0x010` | `CONTROL` | 32 | WO | `0x00000000` | Write-one pulse controls. |
@@ -92,7 +92,7 @@ update and a decision record before code changes.
 | `CAP0` | `[4]` | `PERF_COUNTERS` | `1` | Performance counters supported. |
 | `CAP0` | `[5]` | `SINGLE_QUEUE` | `1` | Single descriptor queue/in-flight model. |
 | `CAP0` | `[31:6]` | `RESERVED` | `0` | Reserved. |
-| `CAP1` | `[7:0]` | `ARRAY_M` | `16` | Systolic-array row count. |
+| `CAP1` | `[7:0]` | `ARRAY_K` | `16` | Stationary B-weight/K lane count. |
 | `CAP1` | `[15:8]` | `ARRAY_N` | `16` | Systolic-array column count. |
 | `CAP1` | `[23:16]` | `ACC_BITS` | `32` | Accumulator/output bit width. |
 | `CAP1` | `[31:24]` | `INPUT_BITS` | `8` | A/B operand bit width. |
@@ -149,7 +149,7 @@ update and a decision record before code changes.
 | Code | Name | Description |
 | ---- | ---- | ----------- |
 | `0` | `ERR_NONE` | No error. |
-| `1` | `ERR_INVALID_DESC_VERSION` | Descriptor `version` is not `1`. |
+| `1` | `ERR_INVALID_DESC_VERSION` | Descriptor `version` is not `2`. |
 | `2` | `ERR_INVALID_OPCODE` | Descriptor `opcode` is not `HOLON_NPU_OPCODE_GEMM_I8I8I32`. |
 | `3` | `ERR_INVALID_DESC_SIZE` | Descriptor `size_bytes` is not `128`. |
 | `4` | `ERR_INVALID_FLAGS` | Descriptor flags contain unsupported bits. |
@@ -160,7 +160,7 @@ update and a decision record before code changes.
 | `9` | `ERR_DOORBELL_BUSY` | Doorbell write was attempted while busy. Used only if the implementation chooses to count the rejected write. |
 | `10` | `ERR_RESERVED_NONZERO` | A reserved descriptor field was nonzero. |
 | `11` | `ERR_DIMENSION_ZERO` | M, N, or K is zero. |
-| `12` | `ERR_DIMENSION_UNSUPPORTED` | A dimension exceeds the v1 implementation limit. |
+| `12` | `ERR_DIMENSION_UNSUPPORTED` | A dimension exceeds the v1.1 implementation limit. |
 
 ## AXI4 Master Interface
 
@@ -175,8 +175,12 @@ update and a decision record before code changes.
 - Outstanding writes: 1 in v1.
 - Descriptor fetch: one aligned 128-byte read.
 - Tensor reads and writes: generated as aligned 16-byte beat accesses. Edge
-  tiles use byte-lane masking internally; system memory accesses remain aligned
-  to the documented tensor base and row-stride constraints.
+  tiles use element masking internally; system memory accesses remain aligned to
+  the documented tensor base and row-stride constraints.
+- C stores write full 16-byte beats. Inactive INT32 lanes inside the final
+  written beat of an edge N tile are written as zero. If `c_row_stride_bytes` is
+  larger than the minimum active written span, bytes after the last emitted beat
+  in that row are not accessed.
 - Phase 7 DMA requests must use a 16-byte aligned base address and a nonzero
   byte count that is a multiple of 16 bytes.
 - Requests that violate Phase 7 DMA alignment or size constraints fail before
@@ -193,7 +197,7 @@ update and a decision record before code changes.
 
 ## GEMM Descriptor ABI
 
-The v1 command processor fetches exactly one 128-byte descriptor from
+The v1.1 command processor fetches exactly one 128-byte descriptor from
 `DESC_ADDR_HI:DESC_ADDR_LO` after a valid doorbell write.
 
 ### Descriptor Layout
@@ -201,7 +205,7 @@ The v1 command processor fetches exactly one 128-byte descriptor from
 | Byte Offset | Field | Width | Required Value | Description |
 | ----------- | ----- | ----- | -------------- | ----------- |
 | `0x00` | `size_bytes` | 16 | `128` | Descriptor size in bytes. |
-| `0x02` | `version` | 8 | `1` | Descriptor ABI version. |
+| `0x02` | `version` | 8 | `2` | Descriptor ABI major version. |
 | `0x03` | `opcode` | 8 | `1` | `HOLON_NPU_OPCODE_GEMM_I8I8I32`. |
 | `0x04` | `flags` | 32 | See flag table | Per-command options. |
 | `0x08` | `m` | 32 | `1..65535` | Rows of A and C. |
@@ -249,7 +253,8 @@ C[m,n] = sum(k: 0..K-1) int32(A[m,k]) * int32(B[k,n])
 - v1 does not add bias, scaling, activation, transposition, saturation, or
   accumulation with an existing C matrix.
 - Non-multiple tile dimensions are valid. The implementation must mask elements
-  outside M, N, or K.
+  outside M, N, or K; inactive C lanes in an emitted final beat follow the
+  zero-write rule above.
 
 ## Interrupt Semantics
 
@@ -269,7 +274,7 @@ Phase 10 must implement a C API with these operations and semantics:
 | -------- | ------- |
 | `holon_npu_init(base)` | Bind a driver instance to an MMIO base pointer. |
 | `holon_npu_get_caps(dev, caps)` | Read `DEVICE_ID`, `ABI_VERSION`, `CAP0`, and `CAP1`. |
-| `holon_npu_build_gemm_desc(desc, cfg)` | Fill a 128-byte v1 GEMM descriptor and zero reserved fields. |
+| `holon_npu_build_gemm_desc(desc, cfg)` | Fill a 128-byte v1.1 GEMM descriptor and zero reserved fields. |
 | `holon_npu_submit(dev, desc_pa)` | Write descriptor address and doorbell. |
 | `holon_npu_poll(dev)` | Read `STATUS` once and return decoded state. |
 | `holon_npu_wait(dev, timeout)` | Poll until done, error, or timeout. |

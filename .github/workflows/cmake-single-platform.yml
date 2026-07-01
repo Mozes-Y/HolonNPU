@@ -16,10 +16,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CMAKE_PRESET: debug
+  CMAKE_DEBUG_PRESET: debug
+  CMAKE_REGRESSION_PRESET: regression
   CC: gcc-15
   CXX: g++-15
-  CTEST_OUTPUT_ON_FAILURE: "1"
 
 jobs:
   build-test-lint:
@@ -38,6 +38,7 @@ jobs:
             build-essential \
             gcc-15 \
             g++-15 \
+            ninja-build \
             python3 \
             python3-pip \
             cmake \
@@ -47,28 +48,32 @@ jobs:
       - name: Show tool versions
         run: |
           cmake --version
+          ninja --version
           verilator --version
           "${CC}" --version
           "${CXX}" --version
           python3 --version
 
-      - name: Configure
-        run: cmake --preset "${CMAKE_PRESET}"
+      - name: Configure debug
+        run: cmake --preset "${CMAKE_DEBUG_PRESET}"
 
-      - name: Build
-        run: cmake --build --preset "${CMAKE_PRESET}" --parallel 2
+      - name: Build debug
+        run: cmake --build --preset "${CMAKE_DEBUG_PRESET}" --parallel 2
 
-      - name: Test
-        run: ctest --preset "${CMAKE_PRESET}" --output-on-failure
+      - name: Test debug fast path
+        run: ctest --preset "${CMAKE_DEBUG_PRESET}" -j 2 --output-on-failure
 
-      - name: RTL lint
-        run: cmake --build --preset "${CMAKE_PRESET}" --target v1_lint --parallel 2
+      - name: Test RTL lint
+        run: ctest --preset lint -j 2 --output-on-failure
 
-      - name: Regression build
-        run: cmake --build --preset regression --parallel 2
+      - name: Configure regression
+        run: cmake --preset "${CMAKE_REGRESSION_PRESET}"
+
+      - name: Build regression
+        run: cmake --build --preset "${CMAKE_REGRESSION_PRESET}" --parallel 2
 
       - name: Regression test
-        run: ctest --preset regression --output-on-failure
+        run: ctest --preset "${CMAKE_REGRESSION_PRESET}" -j 2 --output-on-failure
 
       - name: Upload CTest logs on failure
         if: failure()
@@ -79,3 +84,5 @@ jobs:
           path: |
             build/debug/Testing/Temporary/LastTest.log
             build/debug/CMakeFiles/CMakeConfigureLog.yaml
+            build/regression/Testing/Temporary/LastTest.log
+            build/regression/CMakeFiles/CMakeConfigureLog.yaml

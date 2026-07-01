@@ -63,6 +63,8 @@ void clear_inputs(Vnpu_tiling_datapath_test_top& dut) {
     dut.c_rd_addr_i = 0;
 
     dut.compute_clear_i = 0;
+    dut.compute_weight_load_i = 0;
+    dut.compute_weight_k_i = 0;
     dut.compute_step_valid_i = 0;
     dut.compute_k_index_i = 0;
     dut.compute_pattern_i = 0;
@@ -272,14 +274,24 @@ bool test_masked_tail_compute(Vnpu_tiling_datapath_test_top& dut) {
     dut.compute_clear_i = 1;
     tick(dut);
     dut.compute_clear_i = 0;
+
+    for (int k = 0; k < 7; ++k) {
+        dut.compute_weight_load_i = 1;
+        dut.compute_weight_k_i = static_cast<std::uint8_t>(k);
+        tick(dut);
+    }
+    dut.compute_weight_load_i = 0;
+
     dut.compute_step_valid_i = 1;
 
-    for (int cycle = 0; cycle < 10; ++cycle) {
+    for (int cycle = 0; cycle < 20; ++cycle) {
         dut.compute_k_index_i = static_cast<std::uint8_t>(cycle);
         tick(dut);
     }
 
     dut.compute_step_valid_i = 0;
+    dut.compute_k_index_i = 0;
+    tick(dut);
     eval(dut);
 
     bool ok = true;

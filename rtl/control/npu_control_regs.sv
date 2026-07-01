@@ -1,29 +1,10 @@
-module npu_control_regs #(
+/* verilator lint_off DECLFILENAME */
+module npu_control_regs_core #(
     parameter int unsigned ADDR_W = 12,
     parameter int unsigned DATA_W = 32,
     localparam int unsigned STRB_W = DATA_W / 8
 ) (
-    input  logic                  clk_i,
-    input  logic                  rst_ni,
-
-    input  logic [ADDR_W-1:0]     s_axil_awaddr_i,
-    input  logic                  s_axil_awvalid_i,
-    output logic                  s_axil_awready_o,
-    input  logic [DATA_W-1:0]     s_axil_wdata_i,
-    input  logic [STRB_W-1:0]     s_axil_wstrb_i,
-    input  logic                  s_axil_wvalid_i,
-    output logic                  s_axil_wready_o,
-    output logic [1:0]            s_axil_bresp_o,
-    output logic                  s_axil_bvalid_o,
-    input  logic                  s_axil_bready_i,
-
-    input  logic [ADDR_W-1:0]     s_axil_araddr_i,
-    input  logic                  s_axil_arvalid_i,
-    output logic                  s_axil_arready_o,
-    output logic [DATA_W-1:0]     s_axil_rdata_o,
-    output logic [1:0]            s_axil_rresp_o,
-    output logic                  s_axil_rvalid_o,
-    input  logic                  s_axil_rready_i,
+    npu_axi_lite_if.slave         s_axil,
 
     input  logic                  backend_done_i,
     input  logic                  backend_error_i,
@@ -70,12 +51,12 @@ module npu_control_regs #(
     localparam logic [ADDR_W-1:0] REG_PERF_ERROR_COUNT   = ADDR_W'(NPU_REG_PERF_ERROR_COUNT);
 
     initial begin
-        if (NPU_ABI_MAJOR != 1) $fatal("Unexpected NPU_ABI_MAJOR");
+        if (NPU_ABI_MAJOR != 2) $fatal("Unexpected NPU_ABI_MAJOR");
         if (NPU_ABI_MINOR != 0) $fatal("Unexpected NPU_ABI_MINOR");
         if (NPU_DESC_SIZE_BYTES != 128) $fatal("Unexpected NPU_DESC_SIZE_BYTES");
         if (NPU_DESC_ALIGN_BYTES != 16) $fatal("Unexpected NPU_DESC_ALIGN_BYTES");
         if (NPU_TENSOR_ALIGN_BYTES != 16) $fatal("Unexpected NPU_TENSOR_ALIGN_BYTES");
-        if (NPU_ARRAY_M != 16) $fatal("Unexpected NPU_ARRAY_M");
+        if (NPU_ARRAY_K != 16) $fatal("Unexpected NPU_ARRAY_K");
         if (NPU_ARRAY_N != 16) $fatal("Unexpected NPU_ARRAY_N");
         if (NPU_INPUT_BITS != 8) $fatal("Unexpected NPU_INPUT_BITS");
         if (NPU_ACC_BITS != 32) $fatal("Unexpected NPU_ACC_BITS");
@@ -117,24 +98,24 @@ module npu_control_regs #(
     logic [STRB_W-1:0] write_strb;
     logic [31:0] status_value;
 
-    assign s_axil_awready_o = !aw_pending_q && !bvalid_q;
-    assign s_axil_wready_o  = !w_pending_q && !bvalid_q;
-    assign s_axil_bvalid_o  = bvalid_q;
-    assign s_axil_bresp_o   = bresp_q;
+    assign s_axil.awready = !aw_pending_q && !bvalid_q;
+    assign s_axil.wready  = !w_pending_q && !bvalid_q;
+    assign s_axil.bvalid  = bvalid_q;
+    assign s_axil.bresp   = bresp_q;
 
-    assign s_axil_arready_o = !rvalid_q;
-    assign s_axil_rvalid_o  = rvalid_q;
-    assign s_axil_rresp_o   = rresp_q;
-    assign s_axil_rdata_o   = rdata_q;
+    assign s_axil.arready = !rvalid_q;
+    assign s_axil.rvalid  = rvalid_q;
+    assign s_axil.rresp   = rresp_q;
+    assign s_axil.rdata   = rdata_q;
 
-    assign aw_accept = s_axil_awvalid_i && s_axil_awready_o;
-    assign w_accept = s_axil_wvalid_i && s_axil_wready_o;
+    assign aw_accept = s_axil.awvalid && s_axil.awready;
+    assign w_accept = s_axil.wvalid && s_axil.wready;
     assign write_fire = !bvalid_q && (aw_pending_q || aw_accept) &&
                         (w_pending_q || w_accept);
-    assign read_fire = s_axil_arvalid_i && s_axil_arready_o;
-    assign write_addr = aw_pending_q ? awaddr_q : s_axil_awaddr_i;
-    assign write_data = w_pending_q ? wdata_q : s_axil_wdata_i;
-    assign write_strb = w_pending_q ? wstrb_q : s_axil_wstrb_i;
+    assign read_fire = s_axil.arvalid && s_axil.arready;
+    assign write_addr = aw_pending_q ? awaddr_q : s_axil.awaddr;
+    assign write_data = w_pending_q ? wdata_q : s_axil.wdata;
+    assign write_strb = w_pending_q ? wstrb_q : s_axil.wstrb;
 
     assign command_start_o = command_start_q;
     assign command_desc_addr_o = {desc_addr_hi_q, desc_addr_lo_q};
@@ -194,8 +175,8 @@ module npu_control_regs #(
         end
     endtask
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) begin
+    always_ff @(posedge s_axil.aclk_i or negedge s_axil.aresetn_i) begin
+        if (!s_axil.aresetn_i) begin
             reset_regs();
             bvalid_q <= 1'b0;
             bresp_q <= AXI_RESP_OKAY;
@@ -217,15 +198,15 @@ module npu_control_regs #(
 
             if (aw_accept && !write_fire) begin
                 aw_pending_q <= 1'b1;
-                awaddr_q <= s_axil_awaddr_i;
+                awaddr_q <= s_axil.awaddr;
             end else if (write_fire) begin
                 aw_pending_q <= 1'b0;
             end
 
             if (w_accept && !write_fire) begin
                 w_pending_q <= 1'b1;
-                wdata_q <= s_axil_wdata_i;
-                wstrb_q <= s_axil_wstrb_i;
+                wdata_q <= s_axil.wdata;
+                wstrb_q <= s_axil.wstrb;
             end else if (write_fire) begin
                 w_pending_q <= 1'b0;
             end
@@ -259,11 +240,11 @@ module npu_control_regs #(
                 end
             end
 
-            if (bvalid_q && s_axil_bready_i) begin
+            if (bvalid_q && s_axil.bready) begin
                 bvalid_q <= 1'b0;
             end
 
-            if (rvalid_q && s_axil_rready_i) begin
+            if (rvalid_q && s_axil.rready) begin
                 rvalid_q <= 1'b0;
             end
 
@@ -372,7 +353,7 @@ module npu_control_regs #(
                 rresp_q <= AXI_RESP_OKAY;
                 rdata_q <= 32'h0000_0000;
 
-                unique case (s_axil_araddr_i)
+                unique case (s_axil.araddr)
                     REG_DEVICE_ID: rdata_q <= NPU_DEVICE_ID_RESET;
                     REG_ABI_VERSION: rdata_q <= NPU_ABI_VERSION_RESET;
                     REG_CAP0: rdata_q <= NPU_CAP0_RESET;
@@ -405,3 +386,4 @@ module npu_control_regs #(
     end
 
 endmodule
+/* verilator lint_on DECLFILENAME */

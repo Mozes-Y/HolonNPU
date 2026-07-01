@@ -161,7 +161,7 @@ Impact:
 
 ## ADR-0005: v1 Matrix Dataflow And Arithmetic
 
-Status: Accepted.
+Status: Superseded by ADR-0018.
 
 Date: 2026-06-26.
 
@@ -173,7 +173,7 @@ Context:
 
 Decision:
 
-- v1 uses output-stationary dataflow.
+- v1 originally used PE-local C accumulation.
 - A and B operands are signed INT8.
 - Partial sums and output C elements are signed INT32.
 - Accumulation uses two's-complement INT32 wraparound semantics.
@@ -182,15 +182,15 @@ Decision:
 
 Rationale:
 
-- Output-stationary dataflow is a direct match for a systolic array that keeps C
-  partial sums local to processing elements.
+- PE-local C accumulation was a direct initial match for a systolic array that
+  kept C partial sums local to processing elements.
 - Signed INT8 and signed INT32 allow exact hardware/software comparison.
 - Excluding post-processing keeps v1 focused and reserves that work for v2.
 
 Alternatives:
 
-- Weight-stationary or row-stationary dataflow. Rejected for v1 because they
-  would complicate the initial scratchpad and scheduler design.
+- Stationary-weight or row-stationary dataflow. Rejected for initial v1 because
+  they would complicate the initial scratchpad and scheduler design.
 - Saturating arithmetic. Rejected because INT32 wraparound is easier to match to
   hardware and C++ fixed-width integer behavior when implemented explicitly.
 - Accumulate onto existing C memory. Rejected because it requires extra reads and
@@ -487,7 +487,7 @@ Impact:
 
 ## ADR-0012: Phase 9 Integrated Tiled GEMM Scheduler
 
-Status: Accepted.
+Status: Accepted; dataflow details superseded in part by ADR-0018.
 
 Date: 2026-06-26.
 
@@ -502,9 +502,13 @@ Decision:
 
 - Phase 9 implements `npu_gemm_accelerator.sv` as a decoded-command consumer
   with a valid/ready command interface.
-- The accelerator uses one shared read DMA for A and B tile loads, one write DMA
-  for C writeback, local `16x16` A/B tile buffers, and the Phase 4 systolic
-  array.
+- The v1.0 accelerator used one shared read DMA for A and B tile loads, one
+  write DMA for C writeback, local `16x16` A/B tile buffers, and the Phase 4
+  systolic array.
+- ADR-0018 supersedes the active matrix datapath details: v1.1 keeps A tile
+  rows in `npu_gemm_tile_scratchpad.sv`, loads B rows directly into stationary
+  PE weight registers, streams psums through the array, and accumulates C
+  partial sums in the GEMM scheduler before writeback.
 - The scheduler iterates output tiles in M then N order and accumulates all K
   tiles before writing C.
 - C writeback emits only the active 16-byte chunks required by each output row
@@ -541,6 +545,8 @@ Impact:
   a time.
 - Future post-processing remains out of scope for v1 and must be added through
   roadmap and decision-log updates.
+- The active v1.1 dataflow, array boundary contract, and B-weight-stationary
+  buffer ownership are governed by ADR-0018.
 
 ## ADR-0013: Phase 10 C Driver ABI Sharing And Validation
 
@@ -617,9 +623,10 @@ Decision:
   a documented expected error code.
 - Integrated GEMM hardening covers reset while work is in flight, read response
   error injection, and write response error injection.
-- `v1_lint` aggregates all v1 RTL lint targets.
-- `v1_regression` and the `regression` presets run the full v1 verification
-  suite.
+- `lint` aggregates all RTL lint targets without encoding an architecture
+  version in the build target name.
+- The regression preset runs the full v1 verification suite. Build/test preset
+  separation is governed by ADR-0020.
 
 Rationale:
 
@@ -644,7 +651,7 @@ Impact:
 
 ## ADR-0015: v1 Product Top And Review Hardening Corrections
 
-Status: Accepted.
+Status: Accepted; matrix datapath details superseded in part by ADR-0018.
 
 Date: 2026-06-27.
 
@@ -666,11 +673,15 @@ Decision:
 - Treat `npu_control_regs.sv` as the architectural performance-counter owner:
   `PERF_CYCLES` counts descriptor-in-flight cycles and `PERF_BUSY_CYCLES`
   counts backend-active cycles.
-- Define the systolic-array boundary contract as A-left/B-top propagation with
-  explicit boundary-valid signals, and run a full 47-cycle wavefront for each
-  `16x16x16` tile.
-- Add `npu_gemm_tile_scratchpad.sv` as the integrated GEMM A/B tile storage
-  module instead of keeping A/B tile arrays local to the scheduler.
+- Define the original v1 systolic-array boundary contract as A-left/B-top
+  propagation with explicit boundary-valid signals, and run a full 47-cycle
+  wavefront for each `16x16x16` tile.
+- ADR-0018 supersedes that boundary contract for v1.1 with B-stationary PE
+  weights, A wavefront injection by K lane, top-to-bottom psum propagation, and
+  streamed C partial outputs.
+- Add `npu_gemm_tile_scratchpad.sv` as the integrated GEMM tile datapath module.
+  In v1.1 it stores A tile rows and generates masks/A/psum timing; B tile rows
+  load directly into PE weight registers.
 - Extend `npu_pkg.sv` with ABI register, descriptor, opcode, and flag constants,
   and add `tools/check_abi_consistency.py` to compare RTL constants against the
   public C headers in CTest.
@@ -685,7 +696,8 @@ Rationale:
   semantics that distinguish total descriptor latency from backend activity.
 - A boundary-fed systolic contract matches the documented matrix-engine
   architecture and catches propagation/tail-mask errors that a broadcast MAC
-  grid would hide.
+  grid would hide. ADR-0018 updates the active boundary semantics for the
+  B-weight-stationary array.
 - An explicit scratchpad module keeps tile storage inside the datapath
   ownership boundary and allows future ping-pong or banking improvements
   without changing GEMM command semantics.
@@ -709,6 +721,8 @@ Impact:
   together.
 - Future matrix-engine changes must preserve or explicitly revise the
   boundary-valid systolic contract.
+- Active v1.1 matrix dataflow and scratchpad ownership must follow ADR-0018
+  rather than the superseded v1.0 A-left/B-top wording above.
 
 ## ADR-0016: AXI Error Drain And Terminal Epoch Restart Semantics
 
@@ -829,6 +843,209 @@ Impact:
   `HOLON_NPU_*` constants.
 - The existing `v1` git tag remains unchanged and is not moved or recreated.
 
+## ADR-0018: v1.1 B-Weight-Stationary Matrix Engine And ABI 2.0
+
+Status: Accepted.
+
+Date: 2026-06-28.
+
+Context:
+
+- The initial v1 matrix engine kept C partial sums inside each PE.
+- The v1.1 architecture goal is to make B tile values stationary in the array
+  so the matrix core better represents an inference-style weight-stationary
+  datapath.
+- The project has no compatibility requirement for ABI 1.0 descriptors or
+  capability names.
+
+Decision:
+
+- v1.1 uses B-weight-stationary dataflow.
+- Each PE stores one signed INT8 B weight and computes
+  `psum_out = psum_in + A * B_weight`.
+- A values stream across N columns; zero psums enter from the top and stream
+  down K lanes.
+- C partial sums leave the bottom of the array and accumulate in a C tile buffer
+  before writeback.
+- The matrix RTL is replaced in place; no runtime-selectable dataflow mode is
+  added.
+- ABI major version is raised to 2, descriptor `version` must be `2`, and
+  `ABI_VERSION` resets to `0x00020000`.
+- Public array capability naming changes from M/N rows and columns to
+  `ARRAY_K` and `ARRAY_N`.
+
+Rationale:
+
+- B-stationary storage matches the project direction better than PE-local C
+  storage while keeping the external GEMM operation unchanged.
+- Raising the ABI major version is clearer than carrying compatibility behavior
+  that the project does not need.
+- Replacing the existing modules keeps verification focused on one
+  implementation and avoids untested dual-mode RTL.
+- `ARRAY_K` describes the physical stationary-weight lanes more accurately than
+  an M-row name.
+
+Alternatives:
+
+- Preserve ABI 1.0 and hide the dataflow change. Rejected because public
+  capability semantics changed.
+- Add a runtime dataflow selector. Rejected because it adds an unneeded
+  validation and testing matrix.
+- Keep the old public `ARRAY_M` capability name. Rejected because it would make
+  the ABI misleading for the stationary-weight array.
+
+Impact:
+
+- Firmware must build ABI 2.0 descriptors with `version=2`.
+- ABI 1.0 descriptors are rejected with `ERR_INVALID_DESC_VERSION`.
+- ABI 2.0 documents the existing C edge-store behavior: inactive INT32 lanes
+  inside the final written 16-byte beat are written as zero.
+- Tests must validate PE weight loading, psum propagation, C accumulator
+  writeback, and exact INT32 GEMM results.
+- Future matrix changes must update architecture, interface, ABI checker,
+  public headers, RTL constants, and verification docs together.
+
+## ADR-0019: Interface-Native Product RTL And Test-Only Flattened Wrappers
+
+Status: Accepted.
+
+Date: 2026-06-29.
+
+Context:
+
+- The common valid-ready, AXI-Lite, and AXI4 SystemVerilog interfaces were
+  defined before all product RTL paths used them.
+- C++/Verilator tests need stable flattened top-level ports because generated
+  C++ models expose scalar/vector fields rather than ergonomic SystemVerilog
+  interface handles.
+- Allowing product RTL to keep flattened bus bundles internally makes the
+  interfaces misleading and weakens module contracts.
+
+Decision:
+
+- Product/internal RTL uses SystemVerilog interfaces and modports for
+  valid-ready, AXI-Lite, and AXI4 protocol boundaries.
+- `npu_fifo`, `npu_skid_buffer`, `npu_register_slice`, DMA cores, control core,
+  command processor, GEMM core, and `npu_top_core` are interface-native.
+- Flattened `*_test_wrapper.sv` modules are allowed only for C++/Verilator test
+  harness access.
+- Test wrappers live in their own files and are included only by test/lint
+  source sets.
+- `npu_top.sv` remains the public product pin boundary. It converts external
+  SoC pins to interfaces once and then instantiates `npu_top_core`; it is not an
+  internal connection strategy.
+- Add `tools/check_rtl_interface_usage.py` to CTest and regression to enforce
+  the boundary.
+
+Rationale:
+
+- Interface-native cores make protocol direction, grouping, and ownership
+  explicit at module boundaries.
+- Keeping wrappers test-only prevents test convenience code from becoming an
+  accidental architectural contract.
+- Preserving flattened C++ harness ports avoids churn in behavioral tests while
+  still improving the RTL architecture.
+- A static checker catches source-set and instantiation regressions earlier than
+  manual review.
+
+Alternatives:
+
+- Delete all flattened wrappers and make C++ tests access Verilated interface
+  internals. Rejected because it would couple tests to generated implementation
+  details and reduce test readability.
+- Keep flattened bus bundles in core RTL. Rejected because it leaves the
+  interface definitions underused and weakens protocol hygiene.
+- Treat `npu_top` as just another test wrapper. Rejected because it is the
+  product SoC pin boundary and must remain the public RTL integration point.
+
+Impact:
+
+- No public C ABI, descriptor ABI, register offsets, capability fields, or error
+  codes change.
+- C++ tests keep their existing flattened access through explicitly named test
+  wrappers or the product `npu_top` pin boundary.
+- Product source sets exclude `*_test_wrapper.sv` files.
+- `rtl_interface_usage` runs in CTest and the regression gate.
+
+## ADR-0020: Minimal Ninja Presets And Native CMake/CTest Filtering
+
+Status: Accepted.
+
+Date: 2026-07-01.
+
+Context:
+
+- The former `debug` and `regression` test presets both targeted the same Debug
+  build tree and ran the same full CTest matrix.
+- The former `v1_regression` build target invoked CTest directly, coupling build
+  and test phases.
+- Full Verilator regression is slower in Debug builds, while local development
+  needs fast focused feedback.
+- An overly broad preset matrix makes the build system harder to read and
+  maintain than CMake's native target and CTest filtering commands.
+- Architecture-versioned build target names make generic engineering actions
+  look tied to a specific ABI or RTL generation.
+
+Decision:
+
+- Build presets compile only; CTest presets run tests.
+- Keep `debug` as the local Debug configure/build tree and make
+  `ctest --preset debug` a fast subset that excludes `lint` and `slow` tests.
+- Add a `regression` configure/build tree using `RelWithDebInfo`; full
+  regression runs through `ctest --preset regression`.
+- Use Ninja as the pinned generator for both presets.
+- Keep build presets minimal: `debug` and `regression`.
+- Keep test presets minimal: `debug`, `lint`, and `regression`.
+- Use CTest labels only for the coarse test classes needed by presets:
+  `fast`, `lint`, `slow`, and `static`.
+- Use CMake's native `--target` to build one specific test target.
+- Use CTest's native `-R` and `--verbose` to run or inspect one specific test.
+- Keep test parallelism explicit at call sites with `ctest -j`; do not hide it
+  in preset environment variables.
+- Rename the aggregate RTL lint build target to `lint`.
+
+Rationale:
+
+- Separating build and test phases keeps CMake presets predictable and makes CI
+  scheduling explicit.
+- RelWithDebInfo materially improves Verilated model runtime while preserving
+  enough debug information for CI failures.
+- Ninja gives a modern, fast, deterministic generator for local and CI builds.
+- Coarse labels keep preset behavior stable without turning labels into a second
+  directory hierarchy.
+- Native `--target` and `-R` commands are explicit, standard, and avoid
+  maintaining one preset per subsystem.
+- A generic `lint` target keeps build-system names independent of architecture
+  versions.
+
+Alternatives:
+
+- Keep `v1_regression` as a build target that runs CTest. Rejected because it
+  bypasses CTest preset configuration.
+- Use only name regexes for filtering. Rejected because labels express intent
+  more clearly.
+- Make Debug run the full matrix. Rejected because it defeats the local feedback
+  loop.
+- Add one build/test preset per subsystem. Rejected because it creates too much
+  command surface for little benefit; CMake targets and CTest regex filtering
+  already solve focused workflows.
+- Add custom verbose testbench logging for passing cases. Rejected because
+  routine pass logs add noise and maintenance cost; failures already print
+  diagnostics, and `ctest --verbose` exposes command-level execution details.
+- Keep architecture-versioned lint target names. Rejected because lint is an
+  engineering action, not an ABI generation.
+
+Impact:
+
+- CI and local release gates now explicitly run configure, build, test, lint,
+  regression configure, regression build, and regression test as separate steps.
+- `lint` remains as a convenience target, but `ctest --preset lint` is the
+  verification entry point.
+- Focused local workflows use examples such as
+  `cmake --build --preset debug --target npu_top_tb` and
+  `ctest --preset regression -R npu_top --verbose`.
+- No public C ABI, descriptor ABI, register map, or RTL behavior changes.
+
 ## Resolved Phase 2 Decisions
 
 - AXI-Lite register offsets, access modes, reset values, and side effects are
@@ -842,7 +1059,7 @@ Impact:
 - Error/status code values are frozen in `docs/INTERFACE.md`.
 - Software API names and return-level semantics are defined in
   `docs/INTERFACE.md`.
-- Output-stationary dataflow and INT8/INT32 arithmetic are recorded in ADR-0005.
+- B-weight-stationary dataflow and ABI 2.0 are recorded in ADR-0018.
 - Clock, reset, and valid-ready conventions are recorded in ADR-0007.
 - Scratchpad, tile-mask, and ping-pong flow conventions are recorded in
   ADR-0008.
@@ -858,3 +1075,7 @@ Impact:
   ADR-0016.
 - The formal HolonNPU project rename and public C API breaking rename are
   recorded in ADR-0017.
+- Interface-native product RTL and test-only flattened wrappers are recorded in
+  ADR-0019.
+- Minimal Ninja presets and native CMake/CTest filtering are recorded in
+  ADR-0020.

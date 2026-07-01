@@ -11,6 +11,7 @@ namespace {
 
 constexpr int kMaxM = 17;
 constexpr int kMaxN = 19;
+constexpr int kMaxK = 23;
 
 void eval(Vnpu_systolic_array_test_top& dut) {
     dut.eval();
@@ -29,11 +30,13 @@ void reset(Vnpu_systolic_array_test_top& dut) {
     dut.clk_i = 0;
     dut.rst_ni = 0;
     dut.clear_i = 0;
+    dut.weight_load_i = 0;
+    dut.weight_k_i = 0;
     dut.step_valid_i = 0;
     dut.active_m_i = 0;
     dut.active_n_i = 0;
     dut.active_k_i = 0;
-    dut.k_index_i = 0;
+    dut.compute_cycle_i = 0;
     dut.pattern_i = 0;
     dut.read_row_i = 0;
     dut.read_col_i = 0;
@@ -44,6 +47,7 @@ void reset(Vnpu_systolic_array_test_top& dut) {
 
 void clear_array(Vnpu_systolic_array_test_top& dut) {
     dut.clear_i = 1;
+    dut.weight_load_i = 0;
     dut.step_valid_i = 0;
     tick(dut);
     dut.clear_i = 0;
@@ -134,15 +138,25 @@ bool run_case(
     dut.active_n_i = static_cast<std::uint8_t>(n_dim);
     dut.active_k_i = static_cast<std::uint8_t>(k_dim);
     dut.pattern_i = static_cast<std::uint8_t>(pattern);
+
+    for (int k = 0; k < k_dim; ++k) {
+        dut.weight_load_i = 1;
+        dut.weight_k_i = static_cast<std::uint8_t>(k);
+        tick(dut);
+    }
+    dut.weight_load_i = 0;
+
     dut.step_valid_i = 1;
 
-    const int systolic_cycles = k_dim + m_dim + n_dim - 1;
+    const int systolic_cycles = kMaxM + kMaxK + kMaxN - 1;
     for (int cycle = 0; cycle < systolic_cycles; ++cycle) {
-        dut.k_index_i = static_cast<std::uint8_t>(cycle);
+        dut.compute_cycle_i = static_cast<std::uint8_t>(cycle);
         tick(dut);
     }
 
     dut.step_valid_i = 0;
+    dut.compute_cycle_i = 0;
+    tick(dut);
     eval(dut);
 
     bool ok = true;
