@@ -20,6 +20,8 @@ All notable project-level release changes are recorded here.
 - Added an RTL interface-usage checker to CTest and regression.
 - Split build and test presets, pinned Ninja, renamed the aggregate lint target
   to `lint`, and moved full regression to a RelWithDebInfo build tree.
+- Moved simulation-only SystemVerilog wrappers, test tops, and smoke tops under
+  `sim/rtl/` so `rtl/` contains only product/core RTL.
 
 ## v1 - 2026-06-27
 

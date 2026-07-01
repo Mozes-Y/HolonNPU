@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RTL_ROOT = REPO_ROOT / "rtl"
+SIM_RTL_ROOT = REPO_ROOT / "sim" / "rtl"
 CMAKE = REPO_ROOT / "CMakeLists.txt"
 
 ALLOWED_FLATTENED_MODULES = {
@@ -61,7 +62,27 @@ def fail(errors: list[str], message: str) -> None:
 
 
 def sv_files() -> list[Path]:
-    return sorted(RTL_ROOT.rglob("*.sv"))
+    files = list(RTL_ROOT.rglob("*.sv"))
+    if SIM_RTL_ROOT.exists():
+        files.extend(SIM_RTL_ROOT.rglob("*.sv"))
+    return sorted(files)
+
+
+def is_core_rtl(path: str) -> bool:
+    return path.startswith("rtl/")
+
+
+def is_sim_harness(path: str) -> bool:
+    return path.startswith("sim/rtl/")
+
+
+def is_harness_file(path: str) -> bool:
+    name = Path(path).name
+    return (
+        name.endswith("_test_wrapper.sv")
+        or name.endswith("_test_top.sv")
+        or name.endswith("_smoke_top.sv")
+    )
 
 
 def rel(path: Path) -> str:
@@ -109,6 +130,11 @@ def main() -> int:
     wrapper_ref = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*_test_wrapper\b")
 
     for path, text in files.items():
+        if is_core_rtl(path) and is_harness_file(path):
+            fail(errors, f"{path} is a test-only RTL harness under rtl/")
+        if is_sim_harness(path) and not is_harness_file(path):
+            fail(errors, f"{path} is under sim/rtl but is not named as a test harness")
+
         for module_name, module_text in extract_modules(text):
             is_test_wrapper = module_name.endswith("_test_wrapper")
             is_test_top = module_name.endswith("_test_top")
@@ -136,13 +162,14 @@ def main() -> int:
     cmake = read(CMAKE)
     for set_name in PRODUCT_SOURCE_SETS:
         body = cmake_set_body(set_name, cmake)
-        if "_test_wrapper.sv" in body:
-            fail(errors, f"{set_name} includes a *_test_wrapper.sv source")
+        if "sim/rtl/" in body:
+            fail(errors, f"{set_name} includes a sim/rtl test harness source")
+        for suffix in ("_test_wrapper.sv", "_test_top.sv", "_smoke_top.sv"):
+            if suffix in body:
+                fail(errors, f"{set_name} includes a {suffix} source")
 
-    wrapper_sources = sorted(
-        path for path in files if path.endswith("_test_wrapper.sv")
-    )
-    for path in wrapper_sources:
+    harness_sources = sorted(path for path in files if is_sim_harness(path))
+    for path in harness_sources:
         occurrences = [
             name
             for name in re.findall(r"set\((NPU_[A-Za-z0-9_]+)\n(.*?)\n\)", cmake, re.S)

@@ -681,6 +681,44 @@ Primary risks:
 - Test parallelism is explicit at call sites with `ctest -j`, not hidden in
   presets.
 
+### Phase 15: Test-Only RTL Harness Separation
+
+Goal: keep product RTL directories free of Verilator/C++ harness files and make
+simulation-only SystemVerilog ownership explicit.
+
+Allowed edit scope:
+
+- File layout, CMake source sets, RTL interface-usage guardrails, and
+  architecture/verification documentation.
+
+Deliverables:
+
+- `rtl/` contains only product/core RTL and common protocol definitions.
+- `sim/rtl/<subsystem>/` contains all `*_test_wrapper.sv`, `*_test_top.sv`, and
+  smoke top harnesses.
+- CMake product source sets reference only product RTL.
+- Verilator test/lint source sets explicitly reference `sim/rtl/` harnesses.
+- `tools/check_rtl_interface_usage.py` enforces the ownership boundary.
+
+Acceptance criteria:
+
+- `find rtl -name '*test*' -o -name '*smoke_top.sv'` finds no test harnesses.
+- `find sim/rtl -type f | sort` lists all simulation-only SV harnesses.
+- `python3 tools/check_rtl_interface_usage.py` passes.
+- Debug, lint, and regression CTest presets pass with unchanged test names.
+- No public C ABI, descriptor ABI, register map, RTL behavior, CI entry, or
+  preset changes.
+
+Dependencies:
+
+- Phase 13 interface-native core boundary.
+- Phase 14 minimal build/test preset system.
+
+Primary risks:
+
+- Accidentally moving product RTL into `sim/rtl/`.
+- Accidentally allowing product CMake source sets to reference harness files.
+
 ## Current Phase
 
 The active phase is the latest incomplete phase recorded in `docs/PROGRESS.md`.

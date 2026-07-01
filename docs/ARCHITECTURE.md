@@ -127,8 +127,9 @@ Phase 7 implementation:
   `ERR_AXI_WRITE`.
 - Both DMA engines reject unaligned base addresses, zero byte counts, and byte
   counts that are not multiples of 16 before issuing AXI traffic.
-- `npu_read_dma_test_top.sv` and `npu_write_dma_test_top.sv` expose 128-bit data
-  as two 64-bit halves for C++ memory-model tests.
+- `sim/rtl/dma/npu_read_dma_test_top.sv` and
+  `sim/rtl/dma/npu_write_dma_test_top.sv` expose 128-bit data as two 64-bit
+  halves for C++ memory-model tests.
 
 Phase 9 integration:
 
@@ -357,14 +358,17 @@ Phase 3 provides reusable infrastructure only:
 
 Core boundary convention:
 
+- `rtl/` contains product/core RTL and common protocol definitions.
+- `sim/rtl/` contains simulation-only SystemVerilog harnesses used by
+  Verilator/C++ tests.
 - Product/internal RTL connects bus-like protocols through SystemVerilog
   interfaces and modports, not ad hoc flattened signal bundles.
 - `npu_top.sv` is the only product pin-boundary adapter. It is not used as an
   internal connection scheme.
 - Flattened `*_test_wrapper.sv` modules exist only for Verilator/C++ testbench
-  access and are not part of the product RTL architecture.
+  access under `sim/rtl/` and are not part of the product RTL architecture.
 - `tools/check_rtl_interface_usage.py` enforces interface usage and prevents
-  test wrappers from entering product source sets.
+  test harnesses from entering `rtl/` or product source sets.
 
 Valid-ready convention:
 

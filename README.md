@@ -50,12 +50,15 @@ and GCC 15.3.0.
 ```text
 docs/       Roadmap, architecture, ABI, verification, progress, and ADRs.
 include/    Public C ABI headers for registers and descriptors.
-rtl/        SystemVerilog RTL.
-sim/        Verilator C++26 testbenches.
+rtl/        Product/core SystemVerilog RTL.
+sim/        Verilator C++26 testbenches and simulation-only SV harnesses.
 sw/         Minimal C driver.
 tests/      Host-side driver tests.
 tools/      Project verification utilities.
 ```
+
+SystemVerilog files under `sim/rtl/` are Verilator/C++ harnesses only. They are
+not product RTL and must not be used as internal architecture boundaries.
 
 Start with `docs/GETTING_STARTED.md` if you want a guided Chinese walkthrough
 of the architecture, code layout, local build flow, testbenches, and GitHub

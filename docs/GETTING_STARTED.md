@@ -388,7 +388,7 @@ npu_axi4_if.sv
 - AXI4 DMA 和顶层仲裁使用 `npu_axi4_if` 的 read/write modport。
 
 只有 C++/Verilator 测试便利层使用 flattened `*_test_wrapper.sv`。这些
-wrapper 不属于核心架构，产品 RTL 内部不能实例化它们。
+wrapper 集中放在 `sim/rtl/`，不属于核心架构，产品 RTL 内部不能实例化它们。
 
 ### npu_pkg.sv
 
@@ -523,8 +523,12 @@ rtl/dma/
 ```text
 npu_axi4_read_dma.sv
 npu_axi4_write_dma.sv
-npu_read_dma_test_top.sv
-npu_write_dma_test_top.sv
+```
+
+测试专用 SV harness 位于：
+
+```text
+sim/rtl/dma/
 ```
 
 ### Read DMA
@@ -576,7 +580,12 @@ rtl/matrix/
 ```text
 npu_pe_i8.sv
 npu_systolic_array.sv
-npu_systolic_array_test_top.sv
+```
+
+测试专用 SV harness 位于：
+
+```text
+sim/rtl/matrix/
 ```
 
 ### PE
@@ -635,7 +644,12 @@ npu_i8_tile_buffer.sv
 npu_c_accum_buffer.sv
 npu_gemm_tile_scratchpad.sv
 npu_ping_pong_ctrl.sv
-npu_tiling_datapath_test_top.sv
+```
+
+测试专用 SV harness 位于：
+
+```text
+sim/rtl/datapath/
 ```
 
 这些模块负责：
@@ -1432,8 +1446,8 @@ python3 tools/check_rtl_interface_usage.py
 - `rtl/common/npu_pkg.sv` 和 `include/*.h` 必须保持 ABI 一致。
 - `npu_top.sv` 是 SoC 集成入口和产品 pin boundary；其内部实例化
   interface-native `npu_top_core`。
-- `*_test_wrapper.sv` 只服务 C++/Verilator 测试，不能作为产品 RTL 内部连接
-  层。
+- `sim/rtl/` 下的 `*_test_wrapper.sv`、`*_test_top.sv` 和 smoke top 只服务
+  C++/Verilator 测试，不能作为产品 RTL 内部连接层。
 - `sim/top_tb.cpp` 是最重要的系统级行为参考。
 
 如果你不确定某个改动是否合理，先回答三个问题：

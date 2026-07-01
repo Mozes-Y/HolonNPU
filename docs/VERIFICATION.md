@@ -99,7 +99,8 @@ Phase 3 verification must confirm:
 - `tools/check_rtl_interface_usage.py` confirms that `npu_vr_if`,
   `npu_axi_lite_if`, and `npu_axi4_if` are used by product RTL cores, that core
   modules do not expose flattened AXI/valid-ready bus groups, and that
-  `*_test_wrapper.sv` files stay out of product source sets.
+  simulation-only SV harnesses live under `sim/rtl/` instead of product source
+  sets or `rtl/`.
 - C++ tests instantiate the common smoke top through Verilator.
 - Package constants match the frozen ABI values from `docs/INTERFACE.md`.
 - FIFO tests cover reset, push, full backpressure, rejected push, ordered pop,
@@ -113,7 +114,8 @@ Phase 3 verification must confirm:
 
 Phase 4 verification must confirm:
 
-- Verilator lint passes for the PE, parameterized array, and array test wrapper.
+- Verilator lint passes for the PE, parameterized array, and array simulation
+  harness.
 - PE tests cover reset, B weight loading, masked compute, psum pass-through,
   positive operands, negative operands, zero multiplication, and INT32
   wraparound boundary behavior.
@@ -166,7 +168,8 @@ Phase 6 verification must confirm:
 
 Phase 7 verification must confirm:
 
-- Verilator lint passes for read DMA, write DMA, and the DMA test wrappers.
+- Verilator lint passes for read DMA, write DMA, and the DMA simulation
+  harnesses.
 - C++ memory-model tests exercise single-burst read and write transfers.
 - C++ memory-model tests exercise multi-burst read and write transfers that
   cross a 256-byte burst boundary.
@@ -183,7 +186,8 @@ Phase 7 verification must confirm:
 
 Phase 8 verification must confirm:
 
-- Verilator lint passes for the command processor and command test wrapper.
+- Verilator lint passes for the command processor and command simulation
+  harness.
 - A valid descriptor fetches as one 128-byte AXI4 read and issues exactly one
   decoded GEMM command.
 - Decoded M, N, K, A/B/C base addresses, row strides, and descriptor flags match
@@ -267,7 +271,7 @@ Phase 11 verification must confirm:
 - ABI consistency checking compares RTL package constants against public C
   headers during CTest.
 - RTL interface-usage checking runs during CTest and regression to keep the
-  core interface-native and wrappers test-only.
+  core interface-native and `sim/rtl/` harnesses test-only.
 
 ## v1 Release Checklist
 

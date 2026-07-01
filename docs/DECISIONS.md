@@ -964,7 +964,8 @@ Impact:
   codes change.
 - C++ tests keep their existing flattened access through explicitly named test
   wrappers or the product `npu_top` pin boundary.
-- Product source sets exclude `*_test_wrapper.sv` files.
+- Product source sets exclude `*_test_wrapper.sv` files; ADR-0021 later moves
+  all simulation-only SV harnesses under `sim/rtl/`.
 - `rtl_interface_usage` runs in CTest and the regression gate.
 
 ## ADR-0020: Minimal Ninja Presets And Native CMake/CTest Filtering
@@ -1046,6 +1047,45 @@ Impact:
   `ctest --preset regression -R npu_top --verbose`.
 - No public C ABI, descriptor ABI, register map, or RTL behavior changes.
 
+## ADR-0021: Simulation-Only RTL Harness Directory
+
+Status: Accepted.
+
+Date: 2026-07-01.
+
+Context:
+
+- Interface-native RTL introduced flattened wrappers and test tops that exist
+  only to make Verilator/C++ tests ergonomic.
+- Keeping those files beside product RTL makes subsystem directories harder to
+  scan and weakens the visual boundary between architecture and test harness.
+- The project already uses `sim/` for Verilator C++ testbenches, so
+  simulation-only SV harnesses belong with that verification layer.
+
+Decision:
+
+- `rtl/` contains only product/core RTL and common protocol definitions.
+- `sim/rtl/<subsystem>/` contains all simulation-only SystemVerilog harnesses,
+  including `*_test_wrapper.sv`, `*_test_top.sv`, and smoke tops.
+- Product CMake source sets must not reference `sim/rtl/`.
+- Verilator test and lint source sets may reference `sim/rtl/` harness files.
+- `tools/check_rtl_interface_usage.py` fails if test harnesses appear under
+  `rtl/` or if product source sets reference simulation-only harnesses.
+
+Rationale:
+
+- Separating ownership keeps RTL subsystem directories focused on synthesizable
+  product design.
+- Keeping SV harnesses near `sim/*.cpp` makes the Verilator boundary obvious.
+- Static guardrails catch accidental reintroduction of test-only RTL into
+  product source sets.
+
+Impact:
+
+- No public C ABI, descriptor ABI, register map, RTL behavior, test target name,
+  CTest name, CI workflow, or preset changes.
+- Existing C++ tests continue to use the same Verilated module names.
+
 ## Resolved Phase 2 Decisions
 
 - AXI-Lite register offsets, access modes, reset values, and side effects are
@@ -1079,3 +1119,4 @@ Impact:
   ADR-0019.
 - Minimal Ninja presets and native CMake/CTest filtering are recorded in
   ADR-0020.
+- Simulation-only RTL harness directory ownership is recorded in ADR-0021.

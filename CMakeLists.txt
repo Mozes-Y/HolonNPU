@@ -15,12 +15,15 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 set(NPU_VERILATOR_ARGS -Wall --output-split 100000000 --output-split-cfuncs 100000000)
 
+set(NPU_SMOKE_TEST_SOURCES
+  sim/rtl/common/npu_smoke_top.sv
+)
+
 set(NPU_COMMON_MODULE_SOURCES
   rtl/common/npu_pkg.sv
   rtl/common/npu_fifo.sv
   rtl/common/npu_skid_buffer.sv
   rtl/common/npu_register_slice.sv
-  rtl/common/npu_common_smoke_top.sv
 )
 
 set(NPU_COMMON_INTERFACE_SOURCES
@@ -29,9 +32,14 @@ set(NPU_COMMON_INTERFACE_SOURCES
   rtl/common/npu_axi4_if.sv
 )
 
-set(NPU_COMMON_LINT_SOURCES
+set(NPU_COMMON_TEST_SOURCES
   ${NPU_COMMON_INTERFACE_SOURCES}
   ${NPU_COMMON_MODULE_SOURCES}
+  sim/rtl/common/npu_common_smoke_top.sv
+)
+
+set(NPU_COMMON_LINT_SOURCES
+  ${NPU_COMMON_TEST_SOURCES}
 )
 
 set(NPU_MATRIX_MODULE_SOURCES
@@ -41,10 +49,10 @@ set(NPU_MATRIX_MODULE_SOURCES
 
 set(NPU_MATRIX_TEST_SOURCES
   ${NPU_MATRIX_MODULE_SOURCES}
-  rtl/matrix/npu_systolic_array_test_top.sv
+  sim/rtl/matrix/npu_systolic_array_test_top.sv
 )
 
-set(NPU_DATAPATH_SOURCES
+set(NPU_DATAPATH_MODULE_SOURCES
   ${NPU_MATRIX_MODULE_SOURCES}
   rtl/datapath/npu_tile_mask.sv
   rtl/datapath/npu_banked_scratchpad.sv
@@ -52,7 +60,11 @@ set(NPU_DATAPATH_SOURCES
   rtl/datapath/npu_c_accum_buffer.sv
   rtl/datapath/npu_gemm_tile_scratchpad.sv
   rtl/datapath/npu_ping_pong_ctrl.sv
-  rtl/datapath/npu_tiling_datapath_test_top.sv
+)
+
+set(NPU_DATAPATH_TEST_SOURCES
+  ${NPU_DATAPATH_MODULE_SOURCES}
+  sim/rtl/datapath/npu_tiling_datapath_test_top.sv
 )
 
 set(NPU_CONTROL_SOURCES
@@ -63,7 +75,7 @@ set(NPU_CONTROL_SOURCES
 
 set(NPU_CONTROL_TEST_SOURCES
   ${NPU_CONTROL_SOURCES}
-  rtl/control/npu_control_regs_test_wrapper.sv
+  sim/rtl/control/npu_control_regs_test_wrapper.sv
 )
 
 set(NPU_DMA_MODULE_SOURCES
@@ -75,22 +87,22 @@ set(NPU_DMA_MODULE_SOURCES
 
 set(NPU_READ_DMA_TEST_SOURCES
   ${NPU_DMA_MODULE_SOURCES}
-  rtl/dma/npu_axi4_read_dma_test_wrapper.sv
-  rtl/dma/npu_read_dma_test_top.sv
+  sim/rtl/dma/npu_axi4_read_dma_test_wrapper.sv
+  sim/rtl/dma/npu_read_dma_test_top.sv
 )
 
 set(NPU_WRITE_DMA_TEST_SOURCES
   ${NPU_DMA_MODULE_SOURCES}
-  rtl/dma/npu_axi4_write_dma_test_wrapper.sv
-  rtl/dma/npu_write_dma_test_top.sv
+  sim/rtl/dma/npu_axi4_write_dma_test_wrapper.sv
+  sim/rtl/dma/npu_write_dma_test_top.sv
 )
 
 set(NPU_DMA_LINT_SOURCES
   ${NPU_DMA_MODULE_SOURCES}
-  rtl/dma/npu_axi4_read_dma_test_wrapper.sv
-  rtl/dma/npu_axi4_write_dma_test_wrapper.sv
-  rtl/dma/npu_read_dma_test_top.sv
-  rtl/dma/npu_write_dma_test_top.sv
+  sim/rtl/dma/npu_axi4_read_dma_test_wrapper.sv
+  sim/rtl/dma/npu_axi4_write_dma_test_wrapper.sv
+  sim/rtl/dma/npu_read_dma_test_top.sv
+  sim/rtl/dma/npu_write_dma_test_top.sv
 )
 
 set(NPU_COMMAND_SOURCES
@@ -100,7 +112,7 @@ set(NPU_COMMAND_SOURCES
 
 set(NPU_COMMAND_TEST_SOURCES
   ${NPU_COMMAND_SOURCES}
-  rtl/command/npu_command_processor_test_top.sv
+  sim/rtl/command/npu_command_processor_test_top.sv
 )
 
 set(NPU_GEMM_SOURCES
@@ -112,7 +124,7 @@ set(NPU_GEMM_SOURCES
 
 set(NPU_GEMM_TEST_SOURCES
   ${NPU_GEMM_SOURCES}
-  rtl/integration/npu_gemm_accelerator_test_wrapper.sv
+  sim/rtl/integration/npu_gemm_accelerator_test_wrapper.sv
 )
 
 set(NPU_TOP_SOURCES
@@ -240,7 +252,7 @@ holon_npu_add_verilated_test(
   TARGET npu_smoke_tb
   TEST npu_smoke
   CPP sim/smoke_tb.cpp
-  SOURCES rtl/npu_smoke_top.sv
+  SOURCES ${NPU_SMOKE_TEST_SOURCES}
   TOP npu_smoke_top
   LABELS fast
 )
@@ -249,7 +261,7 @@ holon_npu_add_verilated_test(
   TARGET npu_common_tb
   TEST npu_common
   CPP sim/common_tb.cpp
-  SOURCES ${NPU_COMMON_INTERFACE_SOURCES} ${NPU_COMMON_MODULE_SOURCES}
+  SOURCES ${NPU_COMMON_TEST_SOURCES}
   TOP npu_common_smoke_top
   PREFIX Vnpu_common_smoke_top
   LABELS fast
@@ -290,7 +302,7 @@ holon_npu_add_verilated_test(
   TARGET npu_tiling_tb
   TEST npu_tiling
   CPP sim/tiling_tb.cpp
-  SOURCES ${NPU_DATAPATH_SOURCES}
+  SOURCES ${NPU_DATAPATH_TEST_SOURCES}
   TOP npu_tiling_datapath_test_top
   PREFIX Vnpu_tiling_datapath_test_top
   LABELS fast
@@ -298,7 +310,7 @@ holon_npu_add_verilated_test(
 
 holon_npu_add_lint_test(
   TARGET datapath_rtl_lint
-  SOURCES ${NPU_DATAPATH_SOURCES}
+  SOURCES ${NPU_DATAPATH_TEST_SOURCES}
   TOP npu_tiling_datapath_test_top
 )
 

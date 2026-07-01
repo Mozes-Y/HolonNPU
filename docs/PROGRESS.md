@@ -5,13 +5,81 @@ and whenever a verification result changes the engineering plan.
 
 ## Current Status
 
-- Active phase: None; minimal Ninja build/test presets complete.
+- Active phase: None; test-only RTL harness separation complete.
 - Last updated: 2026-07-01.
-- Overall state: Phase 0 through Phase 14 complete; v1.1 source gate passed
+- Overall state: Phase 0 through Phase 15 complete; v1.1 source gate passed
   with ABI 2.0, B-weight-stationary matrix dataflow, interface-native product
   RTL cores, test-only flattened wrappers, product-level top integration,
   release-facing documentation, post-review consistency remediation, and
-  minimal Ninja build/test presets.
+  minimal Ninja build/test presets with simulation-only SV harnesses isolated
+  under `sim/rtl/`.
+
+## Phase 15: Test-Only RTL Harness Separation
+
+Status: Complete.
+
+Completed work:
+
+- Moved all Verilator/C++ SystemVerilog harness files out of `rtl/` and into
+  `sim/rtl/<subsystem>/`.
+- Kept `rtl/` focused on product/core RTL and common protocol definitions.
+- Updated CMake source sets so product source sets reference only `rtl/`, while
+  Verilator test/lint source sets explicitly reference `sim/rtl/` harnesses.
+- Strengthened `tools/check_rtl_interface_usage.py` so it fails when:
+  - test harnesses appear under `rtl/`;
+  - non-harness files appear under `sim/rtl/`;
+  - product CMake source sets reference `sim/rtl/` or harness suffixes.
+- Added ADR-0021 and updated architecture, verification, getting-started,
+  roadmap, README, changelog, and this progress log.
+
+Verification commands:
+
+- `find rtl -name '*test*' -o -name '*smoke_top.sv'`
+- `find sim/rtl -type f | sort`
+- `python3 tools/check_rtl_interface_usage.py`
+- `python3 tools/check_abi_consistency.py`
+- `cmake --preset debug`
+- `cmake --build --preset debug --parallel 2`
+- `cmake --build --preset debug --target lint --parallel 2`
+- `ctest --preset debug -j 2 --output-on-failure`
+- `ctest --preset lint -j 2 --output-on-failure`
+- `cmake --preset regression`
+- `cmake --build --preset regression --parallel 2`
+- `ctest --preset regression -j 2 --output-on-failure`
+- `cmake --build --preset debug --target npu_top_tb --parallel 2`
+- `ctest --preset regression -R npu_top --verbose`
+- `ctest --preset debug -R 'npu_read_dma|npu_write_dma' --verbose`
+- `git diff --check`
+
+Results:
+
+- `rtl/` test-harness scan produced no matches.
+- `sim/rtl/` listed 11 simulation-only SV harness files across common, matrix,
+  datapath, control, DMA, command, and integration.
+- RTL interface usage check passed.
+- ABI consistency check passed across 66 constants.
+- Debug configure and build passed.
+- Aggregate `lint` build target passed.
+- `ctest --preset debug -j 2 --output-on-failure` passed `12/12` tests.
+- `ctest --preset lint -j 2 --output-on-failure` passed `8/8` tests.
+- Regression configure and build passed.
+- `ctest --preset regression -j 2 --output-on-failure` passed `22/22` tests.
+- Focused top build reported no work to do after the full debug build.
+- Focused `npu_top` verbose CTest run passed.
+- Focused DMA verbose CTest run passed `2/2` tests.
+- Whitespace check passed.
+
+Known limitations:
+
+- None for the test-only RTL harness separation work.
+
+Remaining issues:
+
+- None for the test-only RTL harness separation work.
+
+Next step:
+
+- Commit the Phase 15 harness directory separation when ready.
 
 ## Phase 14: Build/Test Preset Separation
 
