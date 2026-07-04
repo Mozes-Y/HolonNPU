@@ -1,5 +1,6 @@
+// Generated from spec/holon_npu_abi.json by tools/gen_abi.py. Do not edit.
+/* verilator lint_off UNUSEDPARAM */
 package npu_pkg;
-
     localparam int unsigned NPU_ABI_MAJOR = 2;
     localparam int unsigned NPU_ABI_MINOR = 0;
 
@@ -12,7 +13,6 @@ package npu_pkg;
     localparam int unsigned NPU_INPUT_BITS = 8;
     localparam int unsigned NPU_ACC_BITS = 32;
 
-    /* verilator lint_off UNUSEDPARAM */
     localparam int unsigned NPU_OPCODE_GEMM_I8I8I32 = 1;
 
     localparam logic [31:0] NPU_DEVICE_ID_RESET = 32'h4E50_5501;
@@ -77,7 +77,6 @@ package npu_pkg;
     localparam int unsigned NPU_GEMM_CMD_B_STRIDE_LSB = 323;
     localparam int unsigned NPU_GEMM_CMD_C_STRIDE_LSB = 355;
     localparam int unsigned NPU_GEMM_CMD_W = 387;
-    /* verilator lint_on UNUSEDPARAM */
 
     typedef enum logic [3:0] {
         NPU_ERR_NONE                  = 4'd0,
@@ -96,3 +95,4 @@ package npu_pkg;
     } npu_error_e;
 
 endpackage
+/* verilator lint_on UNUSEDPARAM */

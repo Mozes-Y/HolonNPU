@@ -13,10 +13,45 @@ include(CTest)
 find_package(verilator REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-set(NPU_VERILATOR_ARGS -Wall --output-split 100000000 --output-split-cfuncs 100000000)
+option(HOLON_NPU_ENABLE_ASSERTIONS "Enable RTL assertions in Verilator builds" ON)
+option(HOLON_NPU_ENABLE_COVERAGE "Enable Verilator coverage instrumentation" OFF)
+
+set(HOLON_NPU_VERILATED_COV_SOURCE "${VERILATOR_ROOT}/include/verilated_cov.cpp")
+if(NOT EXISTS "${HOLON_NPU_VERILATED_COV_SOURCE}")
+  message(FATAL_ERROR "Cannot find Verilator coverage runtime: ${HOLON_NPU_VERILATED_COV_SOURCE}")
+endif()
+
+set(
+  NPU_VERILATOR_ARGS
+  -Wall
+  -Wno-SYNCASYNCNET
+  +incdir+${CMAKE_CURRENT_SOURCE_DIR}/rtl/common
+  --output-split 100000000
+  --output-split-cfuncs 100000000
+)
+
+if(HOLON_NPU_ENABLE_ASSERTIONS)
+  list(APPEND NPU_VERILATOR_ARGS -DHOLON_NPU_ASSERT_ON)
+endif()
+
+if(HOLON_NPU_ENABLE_COVERAGE)
+  list(
+    APPEND NPU_VERILATOR_ARGS
+    -DHOLON_NPU_COVER_ON
+    --coverage-line
+    --coverage-toggle
+    --coverage-fsm
+    --coverage-user
+  )
+endif()
 
 set(NPU_SMOKE_TEST_SOURCES
   sim/rtl/common/npu_smoke_top.sv
+)
+
+set(NPU_ASSERT_FAIL_TEST_SOURCES
+  rtl/common/npu_vr_if.sv
+  sim/rtl/common/npu_assert_fail_test_top.sv
 )
 
 set(NPU_COMMON_MODULE_SOURCES
@@ -161,17 +196,21 @@ function(holon_npu_test_labels test_name)
 endfunction()
 
 function(holon_npu_add_python_check)
-  cmake_parse_arguments(ARG "" "TARGET;TEST;SCRIPT" "LABELS" ${ARGN})
+  cmake_parse_arguments(ARG "" "TARGET;TEST;SCRIPT" "LABELS;ARGS" ${ARGN})
 
   add_test(
     NAME ${ARG_TEST}
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_SCRIPT}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_SCRIPT} ${ARG_ARGS}
   )
   holon_npu_test_labels(${ARG_TEST} ${ARG_LABELS})
+  set_tests_properties(
+    ${ARG_TEST}
+    PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
 
   add_custom_target(
     ${ARG_TARGET}
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_SCRIPT}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_SCRIPT} ${ARG_ARGS}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     VERBATIM
   )
@@ -180,8 +219,13 @@ endfunction()
 function(holon_npu_add_verilated_test)
   cmake_parse_arguments(ARG "" "TARGET;TEST;CPP;TOP;PREFIX" "SOURCES;LABELS;INCLUDE_DIRS" ${ARGN})
 
-  add_executable(${ARG_TARGET} ${ARG_CPP})
+  add_executable(
+    ${ARG_TARGET}
+    ${ARG_CPP}
+    sim/tb_coverage.cpp
+  )
   holon_npu_target_options(${ARG_TARGET})
+  target_include_directories(${ARG_TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sim)
 
   if(ARG_INCLUDE_DIRS)
     target_include_directories(${ARG_TARGET} PRIVATE ${ARG_INCLUDE_DIRS})
@@ -200,7 +244,16 @@ function(holon_npu_add_verilated_test)
     VERILATOR_ARGS ${NPU_VERILATOR_ARGS}
   )
 
-  add_test(NAME ${ARG_TEST} COMMAND ${ARG_TARGET})
+  if(NOT HOLON_NPU_ENABLE_COVERAGE)
+    target_sources(${ARG_TARGET} PRIVATE ${HOLON_NPU_VERILATED_COV_SOURCE})
+  endif()
+
+  set(test_command ${ARG_TARGET})
+  if(HOLON_NPU_ENABLE_COVERAGE)
+    list(APPEND test_command --tb-coverage-root=${CMAKE_BINARY_DIR}/coverage)
+  endif()
+
+  add_test(NAME ${ARG_TEST} COMMAND ${test_command})
   holon_npu_test_labels(${ARG_TEST} ${ARG_LABELS})
 endfunction()
 
@@ -209,14 +262,14 @@ function(holon_npu_add_lint_test)
 
   add_custom_target(
     ${ARG_TARGET}
-    COMMAND verilator --lint-only --sv -Wall ${ARG_SOURCES} --top-module ${ARG_TOP}
+    COMMAND verilator --lint-only --sv -Wall -Wno-SYNCASYNCNET +incdir+${CMAKE_CURRENT_SOURCE_DIR}/rtl/common ${ARG_SOURCES} --top-module ${ARG_TOP}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     VERBATIM
   )
 
   add_test(
     NAME ${ARG_TARGET}
-    COMMAND verilator --lint-only --sv -Wall ${ARG_SOURCES} --top-module ${ARG_TOP}
+    COMMAND verilator --lint-only --sv -Wall -Wno-SYNCASYNCNET +incdir+${CMAKE_CURRENT_SOURCE_DIR}/rtl/common ${ARG_SOURCES} --top-module ${ARG_TOP}
   )
   holon_npu_test_labels(${ARG_TARGET} lint)
   set_tests_properties(
@@ -235,9 +288,10 @@ target_include_directories(
 )
 
 holon_npu_add_python_check(
-  TARGET abi_consistency_check
-  TEST abi_consistency
-  SCRIPT tools/check_abi_consistency.py
+  TARGET abi_generate_check
+  TEST abi_generate_check
+  SCRIPT tools/gen_abi.py
+  ARGS --check
   LABELS fast static
 )
 
@@ -256,6 +310,18 @@ holon_npu_add_verilated_test(
   TOP npu_smoke_top
   LABELS fast
 )
+
+holon_npu_add_verilated_test(
+  TARGET npu_assert_fail_tb
+  TEST npu_assert_fail
+  CPP sim/assert_fail_tb.cpp
+  SOURCES ${NPU_ASSERT_FAIL_TEST_SOURCES}
+  TOP npu_assert_fail_test_top
+  PREFIX Vnpu_assert_fail_test_top
+  LABELS fast assertion
+)
+
+set_tests_properties(npu_assert_fail PROPERTIES WILL_FAIL TRUE)
 
 holon_npu_add_verilated_test(
   TARGET npu_common_tb
@@ -420,6 +486,23 @@ target_link_libraries(holon_npu_driver_test PRIVATE holon_npu_driver)
 
 add_test(NAME holon_npu_driver COMMAND holon_npu_driver_test)
 holon_npu_test_labels(holon_npu_driver fast)
+
+if(HOLON_NPU_ENABLE_COVERAGE)
+  holon_npu_add_python_check(
+    TARGET coverage_generate_check
+    TEST coverage_check
+    SCRIPT tools/check_coverage.py
+    ARGS --build-dir ${CMAKE_BINARY_DIR}
+    LABELS coverage
+  )
+
+  set_tests_properties(
+    coverage_check
+    PROPERTIES
+      DEPENDS
+        "npu_smoke;npu_common;npu_pe;npu_array;npu_tiling;npu_control;npu_read_dma;npu_write_dma;npu_command;npu_gemm;npu_top"
+  )
+endif()
 
 add_custom_target(
   lint

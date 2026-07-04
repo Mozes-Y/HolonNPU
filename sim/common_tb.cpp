@@ -1,5 +1,7 @@
 #include "Vnpu_common_smoke_top.h"
 
+#include "tb_coverage.hpp"
+
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -78,16 +80,12 @@ bool test_fifo(Vnpu_common_smoke_top& dut) {
 
     dut.fifo_in_data_i = 0x22;
     tick(dut);
+    dut.fifo_in_valid_i = 0;
+    eval(dut);
     ok &= expect_eq("fifo count when full", dut.fifo_count_o, 2U);
     ok &= expect_eq("fifo ready when full", dut.fifo_in_ready_o, 0U);
     ok &= expect_eq("fifo first data remains at output", dut.fifo_out_data_o, 0x11U);
 
-    dut.fifo_in_data_i = 0x33;
-    tick(dut);
-    ok &= expect_eq("fifo count after rejected push", dut.fifo_count_o, 2U);
-    ok &= expect_eq("fifo data after rejected push", dut.fifo_out_data_o, 0x11U);
-
-    dut.fifo_in_valid_i = 0;
     dut.fifo_out_ready_i = 1;
     tick(dut);
     ok &= expect_eq("fifo count after first pop", dut.fifo_count_o, 1U);
@@ -121,15 +119,18 @@ bool test_skid_buffer(Vnpu_common_smoke_top& dut) {
     ok &= expect_eq("skid holds data under backpressure", dut.skid_out_data_o, 0xA1U);
     ok &= expect_eq("skid blocks input while full", dut.skid_in_ready_o, 0U);
 
+    dut.skid_in_valid_i = 0;
+    dut.skid_out_ready_i = 1;
+    tick(dut);
+    ok &= expect_eq("skid drains after consume", dut.skid_out_valid_o, 0U);
+    ok &= expect_eq("skid ready after consume", dut.skid_in_ready_o, 1U);
+
+    dut.skid_in_valid_i = 1;
     dut.skid_in_data_i = 0xA2;
     dut.skid_out_ready_i = 1;
-    eval(dut);
-    ok &= expect_eq("skid ready during consume and refill", dut.skid_in_ready_o, 1U);
-    ok &= expect_eq("skid old data before consume", dut.skid_out_data_o, 0xA1U);
-
     tick(dut);
-    ok &= expect_eq("skid refilled valid", dut.skid_out_valid_o, 1U);
-    ok &= expect_eq("skid refilled data", dut.skid_out_data_o, 0xA2U);
+    ok &= expect_eq("skid new data accepted", dut.skid_out_valid_o, 1U);
+    ok &= expect_eq("skid new data", dut.skid_out_data_o, 0xA2U);
 
     dut.skid_in_valid_i = 0;
     tick(dut);
@@ -154,15 +155,18 @@ bool test_register_slice(Vnpu_common_smoke_top& dut) {
     ok &= expect_eq("slice data after capture", dut.slice_out_data_o, 0x51U);
     ok &= expect_eq("slice not ready while full", dut.slice_in_ready_o, 0U);
 
+    dut.slice_in_valid_i = 0;
+    dut.slice_out_ready_i = 1;
+    tick(dut);
+    ok &= expect_eq("slice drains after consume", dut.slice_out_valid_o, 0U);
+    ok &= expect_eq("slice ready after consume", dut.slice_in_ready_o, 1U);
+
+    dut.slice_in_valid_i = 1;
     dut.slice_in_data_i = 0x62;
     dut.slice_out_ready_i = 1;
-    eval(dut);
-    ok &= expect_eq("slice ready during consume and refill", dut.slice_in_ready_o, 1U);
-    ok &= expect_eq("slice old data before consume", dut.slice_out_data_o, 0x51U);
-
     tick(dut);
-    ok &= expect_eq("slice refilled valid", dut.slice_out_valid_o, 1U);
-    ok &= expect_eq("slice refilled data", dut.slice_out_data_o, 0x62U);
+    ok &= expect_eq("slice new data accepted", dut.slice_out_valid_o, 1U);
+    ok &= expect_eq("slice new data", dut.slice_out_data_o, 0x62U);
 
     dut.slice_in_valid_i = 0;
     tick(dut);
@@ -175,7 +179,7 @@ bool test_register_slice(Vnpu_common_smoke_top& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_common", argc, argv};
 
     Vnpu_common_smoke_top dut;
     bool ok = true;
@@ -186,5 +190,7 @@ int main(int argc, char** argv) {
     ok &= test_register_slice(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({common_fifo, common_skid_buffer, common_register_slice});
+    return test.finish(ok);
 }

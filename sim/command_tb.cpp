@@ -1,5 +1,7 @@
 #include "Vnpu_command_processor_test_top.h"
 
+#include "tb_coverage.hpp"
+
 #include "holon_npu_desc.h"
 #include "holon_npu_regs.h"
 
@@ -396,7 +398,7 @@ bool test_descriptor_fuzz(Vnpu_command_processor_test_top& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_command", argc, argv};
 
     Vnpu_command_processor_test_top dut;
     bool ok = true;
@@ -407,5 +409,8 @@ int main(int argc, char** argv) {
     ok &= test_descriptor_fuzz(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({descriptor_valid, descriptor_invalid_version, descriptor_invalid_size,
+                descriptor_invalid_flags, descriptor_reserved_nonzero, descriptor_fuzz});
+    return test.finish(ok);
 }

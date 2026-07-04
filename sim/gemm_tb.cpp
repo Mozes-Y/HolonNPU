@@ -1,5 +1,8 @@
 #include "Vnpu_gemm_accelerator.h"
 
+#include "gemm_case_gen.hpp"
+#include "tb_coverage.hpp"
+
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -41,6 +44,16 @@ struct GemmCase {
     std::uint32_t seed = 0;
     std::string name;
 };
+
+GemmCase to_gemm_case(const holon_npu_tb::GeneratedGemmCase& test_case) {
+    return GemmCase{
+        test_case.m,
+        test_case.n,
+        test_case.k,
+        test_case.seed,
+        test_case.name,
+    };
+}
 
 void eval(Vnpu_gemm_accelerator& dut) {
     dut.eval();
@@ -498,22 +511,26 @@ bool test_axi_write_error(Vnpu_gemm_accelerator& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_gemm", argc, argv};
 
     Vnpu_gemm_accelerator dut;
     bool ok = true;
 
-    ok &= run_case(dut, GemmCase{1, 1, 1, 1, "1x1x1"});
-    ok &= run_case(dut, GemmCase{16, 16, 16, 2, "16x16x16"});
-    ok &= run_case(dut, GemmCase{17, 19, 23, 3, "17x19x23"});
-    ok &= run_case(dut, GemmCase{64, 64, 64, 4, "64x64x64"});
-    ok &= run_case(dut, GemmCase{9, 7, 11, 101, "random-seed-101"});
-    ok &= run_case(dut, GemmCase{13, 5, 17, 202, "random-seed-202"});
-    ok &= run_case(dut, GemmCase{15, 18, 9, 303, "random-seed-303"});
+    for (const auto& test_case : holon_npu_tb::fixed_shape_anchors("")) {
+        ok &= run_case(dut, to_gemm_case(test_case));
+    }
+    for (const auto& test_case : holon_npu_tb::constrained_random_gemm_cases(0x1A2B, 64, "gemm-")) {
+        ok &= run_case(dut, to_gemm_case(test_case));
+    }
     ok &= test_reset_in_flight(dut);
     ok &= test_axi_read_error(dut);
     ok &= test_axi_write_error(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({gemm_shape_1, gemm_shape_lt16, gemm_shape_16, gemm_shape_16_tail,
+                gemm_shape_multi_tile, gemm_tail_m, gemm_tail_n, gemm_tail_k,
+                gemm_tail_mixed, gemm_shape_64, gemm_reset_in_flight,
+                gemm_axi_read_error, gemm_axi_write_error});
+    return test.finish(ok);
 }

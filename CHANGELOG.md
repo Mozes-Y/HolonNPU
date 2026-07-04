@@ -22,6 +22,21 @@ All notable project-level release changes are recorded here.
   to `lint`, and moved full regression to a RelWithDebInfo build tree.
 - Moved simulation-only SystemVerilog wrappers, test tops, and smoke tops under
   `sim/rtl/` so `rtl/` contains only product/core RTL.
+- Added `spec/holon_npu_abi.json` as the single ABI/register/descriptor source
+  and generated `npu_pkg.sv`, public C headers, and `docs/INTERFACE.md`.
+- Removed the redundant ABI checker wrapper and registered `gen_abi.py --check`
+  directly as the ABI generation check.
+- Added protocol-first assertions for valid-ready, AXI-Lite, AXI4, control,
+  DMA, command, GEMM, and top-level invariants.
+- Added an expected-fail assertion smoke test so CI proves assertions are
+  enabled.
+- Added a coverage preset, Verilator structural coverage collection, and a
+  functional coverage gate.
+- Refactored C++ coverage support into a stdlib-only typed test runtime with
+  `coverage_point` enum values, a constexpr registry, explicit CLI coverage
+  configuration, and direct Verilator raw coverage writing.
+- Added deterministic constrained-random GEMM/tile shape tests for the GEMM
+  accelerator and product top.
 
 ## v1 - 2026-06-27
 

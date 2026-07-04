@@ -18,6 +18,7 @@ concurrency:
 env:
   CMAKE_DEBUG_PRESET: debug
   CMAKE_REGRESSION_PRESET: regression
+  CMAKE_COVERAGE_PRESET: coverage
   CC: gcc-15
   CXX: g++-15
 
@@ -75,6 +76,15 @@ jobs:
       - name: Regression test
         run: ctest --preset "${CMAKE_REGRESSION_PRESET}" -j 2 --output-on-failure
 
+      - name: Configure coverage
+        run: cmake --preset "${CMAKE_COVERAGE_PRESET}"
+
+      - name: Build coverage
+        run: cmake --build --preset "${CMAKE_COVERAGE_PRESET}" --parallel 2
+
+      - name: Coverage test
+        run: ctest --preset "${CMAKE_COVERAGE_PRESET}" -j 2 --output-on-failure
+
       - name: Upload CTest logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -86,3 +96,13 @@ jobs:
             build/debug/CMakeFiles/CMakeConfigureLog.yaml
             build/regression/Testing/Temporary/LastTest.log
             build/regression/CMakeFiles/CMakeConfigureLog.yaml
+            build/coverage/Testing/Temporary/LastTest.log
+            build/coverage/CMakeFiles/CMakeConfigureLog.yaml
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-artifacts
+          if-no-files-found: ignore
+          path: build/coverage/coverage/

@@ -1,4 +1,6 @@
 /* verilator lint_off DECLFILENAME */
+`include "npu_assert.svh"
+
 module npu_top_core #(
     parameter int unsigned AXIL_ADDR_W = 12,
     parameter int unsigned AXIL_DATA_W = 32,
@@ -240,6 +242,17 @@ module npu_top_core #(
         .m_axi_read(gemm_axi),
         .m_axi_write(gemm_axi)
     );
+
+    `HOLON_NPU_ASSERT(top_read_owner_stable_until_rlast,
+        @(posedge clk_i) disable iff (!rst_ni || control_soft_reset)
+            (read_owner_q != READ_OWNER_NONE) && !read_last_fire
+            |=> read_owner_q == $past(read_owner_q))
+    `HOLON_NPU_ASSERT(top_read_response_has_single_owner,
+        @(posedge clk_i) disable iff (!rst_ni || control_soft_reset)
+            !(cmd_axi.rvalid && gemm_axi.rvalid))
+    `HOLON_NPU_ASSERT(top_no_unowned_read_response,
+        @(posedge clk_i) disable iff (!rst_ni || control_soft_reset)
+            (read_owner_q == READ_OWNER_NONE) |-> !cmd_axi.rvalid && !gemm_axi.rvalid)
 
 endmodule
 /* verilator lint_on DECLFILENAME */

@@ -683,8 +683,9 @@ Decision:
   In v1.1 it stores A tile rows and generates masks/A/psum timing; B tile rows
   load directly into PE weight registers.
 - Extend `npu_pkg.sv` with ABI register, descriptor, opcode, and flag constants,
-  and add `tools/check_abi_consistency.py` to compare RTL constants against the
-  public C headers in CTest.
+  and add the former `tools/check_abi_consistency.py` to compare RTL constants
+  against the public C headers in CTest. ADR-0022 later replaces this with
+  schema-generated ABI artifacts and direct generator check mode.
 
 Rationale:
 
@@ -716,7 +717,9 @@ Alternatives:
 
 Impact:
 
-- `ctest --preset debug` includes `npu_top` and `abi_consistency`.
+- At the time, `ctest --preset debug` included `npu_top` and
+  `abi_consistency`; ADR-0022 later renames the active ABI CTest to
+  `abi_generate_check`.
 - Future ABI edits must update `npu_pkg.sv`, public C headers, docs, and tests
   together.
 - Future matrix-engine changes must preserve or explicitly revise the
@@ -839,8 +842,9 @@ Impact:
   `holon_npu_desc.h`, and `holon_npu_driver.h`.
 - Firmware and host code must use `HOLON_NPU_*` macros and `holon_npu_*`
   public types/functions.
-- `tools/check_abi_consistency.py` compares RTL `NPU_*` constants against C
-  `HOLON_NPU_*` constants.
+- The former `tools/check_abi_consistency.py` compared RTL `NPU_*` constants
+  against C `HOLON_NPU_*` constants. ADR-0022 later replaces this with
+  schema-generated ABI artifacts and direct generator check mode.
 - The existing `v1` git tag remains unchanged and is not moved or recreated.
 
 ## ADR-0018: v1.1 B-Weight-Stationary Matrix Engine And ABI 2.0
@@ -1086,6 +1090,189 @@ Impact:
   CTest name, CI workflow, or preset changes.
 - Existing C++ tests continue to use the same Verilated module names.
 
+## ADR-0022: Schema-Generated ABI Artifacts
+
+Status: Accepted.
+
+Date: 2026-07-03.
+
+Context:
+
+- ABI values were maintained in `docs/INTERFACE.md`, `rtl/common/npu_pkg.sv`,
+  public C headers, tests, and a checker.
+- A checker can detect drift after the fact, but it does not remove the manual
+  synchronization work that creates drift.
+- Register maps and descriptor layouts become harder to maintain as capability
+  fields, status/error codes, and software APIs grow.
+
+Decision:
+
+- `spec/holon_npu_abi.json` is the single editable source for ABI version,
+  capabilities, register map, status bits, clear/IRQ masks, error codes,
+  descriptor fields, descriptor flags, opcode values, and command packing
+  constants.
+- `tools/gen_abi.py` generates `rtl/common/npu_pkg.sv`,
+  `include/holon_npu_regs.h`, `include/holon_npu_desc.h`, and
+  `docs/INTERFACE.md`.
+- Generated files are checked in for reviewability and for consumers that do
+  not run generators.
+- `tools/gen_abi.py --check` regenerates into a temporary directory and
+  byte-compares tracked outputs.
+- CMake registers `tools/gen_abi.py --check` directly as the
+  `abi_generate_check` CTest.
+
+Rationale:
+
+- A schema removes manual multi-file ABI editing.
+- Checked-in generated artifacts keep code review readable and preserve normal
+  downstream include/document consumption.
+- Byte comparison catches both stale generated files and accidental hand edits.
+- Calling the generator directly keeps the check path obvious and avoids a
+  redundant wrapper script.
+
+Alternatives:
+
+- Keep hand-maintained files plus a parser-based consistency checker. Rejected
+  because it still permits drift-prone edits.
+- Keep a wrapper script named `check_abi_consistency.py` that delegates to
+  `gen_abi.py --check`. Rejected because it hides the actual source of truth and
+  adds no behavior.
+- Generate files only at build time and do not check them in. Rejected because
+  it makes ABI changes less reviewable and complicates consumers that only need
+  headers/docs.
+- Use a non-stdlib schema stack. Rejected because the current ABI shape is
+  simple enough for Python stdlib and CI dependency minimization matters.
+
+Impact:
+
+- No ABI values, register offsets, descriptor layout, or public software
+  semantics change.
+- Generated files must not be edited manually.
+- Public ABI changes must update the schema first, regenerate outputs, and add
+  a decision record when they affect software-visible behavior.
+
+## ADR-0023: Protocol-First SystemVerilog Assertions
+
+Status: Accepted.
+
+Date: 2026-07-03.
+
+Context:
+
+- C++ testbenches were the primary verification mechanism.
+- External tests can validate end results, but they are less precise at catching
+  protocol violations such as unstable valid-ready or AXI payloads under
+  backpressure.
+- AXI-Lite, AXI4, DMA, command issue, and GEMM scheduler paths contain many
+  handshake boundaries where local invariants are the fastest failure signal.
+
+Decision:
+
+- Add `rtl/common/npu_assert.svh` with project assertion and cover macros.
+- Enable assertions by default in debug, regression, and coverage builds with
+  `HOLON_NPU_ASSERT_ON`.
+- Add interface-level stability assertions to `npu_vr_if`, `npu_axi_lite_if`,
+  and `npu_axi4_if`.
+- Add local invariants in control, DMA, command, GEMM, and top modules for
+  status legality, IRQ consistency, burst policy, terminal-state exclusivity,
+  invalid descriptor suppression, scheduler legality, no premature writeback,
+  and read-arbiter owner stability.
+- Add a `WILL_FAIL` assertion smoke test so CI proves assertions are active.
+
+Rationale:
+
+- Assertions make protocol contracts executable where the contracts live.
+- Interface-level assertions protect every user of a bus-like protocol without
+  duplicating checks in each testbench.
+- Local design invariants shorten debug loops by failing at the violating block
+  instead of at a later golden-model mismatch.
+- The expected-fail smoke test prevents silent loss of assertion compilation.
+
+Alternatives:
+
+- Keep relying on C++ tests. Rejected because result checking alone is too late
+  for handshake-heavy RTL.
+- Enable assertions only in a special preset. Rejected because debug/regression
+  should catch protocol bugs by default.
+- Put all assertions in test harnesses. Rejected because protocol contracts
+  belong with the interfaces and product RTL that implement them.
+
+Impact:
+
+- No public ABI or feature semantics change.
+- Some testbenches had to obey stricter valid-ready source rules because the
+  assertions correctly enforce product protocol behavior.
+- Future RTL modules that add bus-like boundaries should use the existing
+  assertion macros and interface contracts.
+
+## ADR-0024: Functional Coverage Gate With Structural Coverage Artifacts
+
+Status: Accepted.
+
+Date: 2026-07-03.
+
+Context:
+
+- Verification docs described coverage goals, but the build did not collect or
+  gate coverage.
+- Verilator can collect line, toggle, FSM, and user coverage, but structural
+  percentage thresholds are not yet calibrated for this early RTL.
+- The project still needs a hard gate proving important functional scenarios
+  were exercised, especially tile shapes and error paths.
+
+Decision:
+
+- Add one dedicated `coverage` configure/build/test preset using
+  `RelWithDebInfo` and `HOLON_NPU_ENABLE_COVERAGE=ON`.
+- Coverage builds pass Verilator line, toggle, FSM, and user coverage options.
+- C++ testbenches use `holon_npu_tb::test_run` to parse test-only CLI options,
+  call Verilator argument setup, record typed functional coverage, and return a
+  uniform exit code.
+- Functional coverage points are an `enum class` with a `constexpr` C++ registry
+  as the source of truth.
+- CTest passes `--tb-coverage-root` explicitly in coverage builds.
+- The runtime writes raw coverage data plus per-test required/hit manifests
+  under `build/coverage/coverage/`.
+- The typed C++ runtime writes Verilator raw coverage directly; CMake no longer
+  selects separate no-op and Verilator backend translation units.
+- `tools/check_coverage.py` merges Verilator coverage, emits report artifacts,
+  and compares required/hit manifests without hardcoding the coverage point
+  list in Python.
+- Initial release gating enforces functional coverpoints only. Structural
+  coverage reports are generated for inspection without percentage thresholds.
+
+Rationale:
+
+- Coverage instrumentation changes generated Verilated models, so it deserves
+  a separate build tree rather than overloading debug or regression.
+- Strongly typed functional coverpoints make the release gate clear and
+  reviewable without stringly typed testbench calls.
+- A C++ registry keeps coverage point ownership close to the test code while
+  still giving the Python checker generated manifests to compare.
+- Explicit CLI configuration is more inspectable than environment-variable
+  side channels.
+- Keeping raw coverage writing inside the runtime removes a tiny link-time
+  backend seam while keeping testbench source independent of build mode.
+- Delaying structural thresholds avoids arbitrary numbers while still producing
+  data needed to set meaningful thresholds later.
+
+Alternatives:
+
+- Add coverage to every build. Rejected because it slows normal development and
+  changes generated model characteristics.
+- Gate line/toggle/FSM percentages immediately. Rejected until the design has
+  enough history to set defensible thresholds.
+- Keep coverage as documentation only. Rejected because ungated goals do not
+  protect the project.
+
+Impact:
+
+- CI and local release gates add configure/build/test steps for `coverage`.
+- `CMakePresets.json` gains the only currently accepted extra preset family
+  beyond debug/lint/regression because coverage needs instrumentation.
+- No public ABI, register map, descriptor layout, or RTL feature semantics
+  change.
+
 ## Resolved Phase 2 Decisions
 
 - AXI-Lite register offsets, access modes, reset values, and side effects are
@@ -1120,3 +1307,6 @@ Impact:
 - Minimal Ninja presets and native CMake/CTest filtering are recorded in
   ADR-0020.
 - Simulation-only RTL harness directory ownership is recorded in ADR-0021.
+- Schema-generated ABI artifacts are recorded in ADR-0022.
+- Protocol-first SystemVerilog assertions are recorded in ADR-0023.
+- Functional coverage gating is recorded in ADR-0024.

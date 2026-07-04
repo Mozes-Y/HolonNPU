@@ -5,10 +5,29 @@ implement. Interfaces and ABI details are frozen in `docs/INTERFACE.md`.
 
 ## Scope
 
-v1.1 is a descriptor-driven INT8 GEMM accelerator controlled by a RISC-V CPU. The
+v1.3 is a descriptor-driven INT8 GEMM accelerator controlled by a RISC-V CPU. The
 CPU programs the device through AXI-Lite registers. The NPU fetches one GEMM
 descriptor and matrix data over AXI4, computes with a systolic matrix engine,
-and writes INT32 results back to system memory.
+and writes INT32 results back to system memory. v1.3 keeps ABI 2.0 values
+unchanged while making the ABI generated from a schema and adding assertions and
+coverage gates around the existing architecture.
+
+## ABI Source Of Truth
+
+The only editable ABI/register/descriptor source is:
+
+- `spec/holon_npu_abi.json`
+
+`tools/gen_abi.py` generates and checks:
+
+- `rtl/common/npu_pkg.sv`
+- `include/holon_npu_regs.h`
+- `include/holon_npu_desc.h`
+- `docs/INTERFACE.md`
+
+Generated files are checked in for reviewability, but hand edits are not
+allowed. Any public ABI change must update the schema first and regenerate all
+outputs.
 
 ## Top-Level Blocks
 
@@ -340,11 +359,28 @@ v1 convention:
 - All stateful modules must document reset values in RTL or the interface
   specification.
 
+## Assertions And Coverage Hooks
+
+v1.3 treats internal self-checking as part of the architecture contract:
+
+- `rtl/common/npu_assert.svh` defines the assertion and coverage macros.
+- `npu_vr_if`, `npu_axi_lite_if`, and `npu_axi4_if` assert stable payloads
+  while a source is valid and backpressured.
+- Control, DMA, command, GEMM, and top modules assert local invariants such as
+  legal terminal states, valid burst profiles, invalid descriptor suppression,
+  stage legality, and stable AXI read ownership.
+- Coverage builds enable Verilator structural coverage plus named functional
+  coverage points collected by C++ testbenches through the typed
+  `coverage_point` registry and `test_run` runtime.
+
+Assertions are enabled in normal debug, regression, and coverage builds. User
+coverage points are enabled only in the coverage build tree.
+
 ## Common RTL Infrastructure
 
 Phase 3 provides reusable infrastructure only:
 
-- `npu_pkg.sv`: ABI constants and common error enum values.
+- `npu_pkg.sv`: generated ABI constants and common error enum values.
 - `npu_vr_if.sv`: canonical valid-ready stream interface used by FIFO, skid
   buffer, register slice, DMA stream ports, command issue, GEMM, and top-level
   internal command plumbing.
@@ -408,8 +444,8 @@ Phase 9 integration:
   matrix engine RTL depends on them.
 - Later phases must not change register offsets or descriptor layout without a
   new decision record.
-- Shared RTL constants should be generated from or manually checked against
-  `docs/INTERFACE.md` until a common ABI generation flow exists.
+- ABI constants must be generated from `spec/holon_npu_abi.json`. Generated
+  RTL/C/doc outputs are byte-compared in CI.
 
 ## Open Items
 

@@ -1,0 +1,809 @@
+{
+  "schema_version": 1,
+  "project": "HolonNPU",
+  "architecture": "v1.3 B-weight-stationary INT8 GEMM",
+  "abi": {
+    "major": 2,
+    "minor": 0,
+    "version_reset": "0x00020000",
+    "rules": [
+      "All multi-byte fields are little-endian.",
+      "AXI-Lite data width is 32 bits.",
+      "AXI-Lite register offsets are byte offsets and must be 32-bit aligned.",
+      "System memory addresses in registers and descriptors are 64 bits.",
+      "One descriptor may be in flight.",
+      "Descriptor base addresses must be 16-byte aligned.",
+      "Tensor base addresses and row strides must be 16-byte aligned.",
+      "Reserved register bits read as zero unless otherwise stated.",
+      "Software must write zero to reserved fields and bits.",
+      "Hardware rejects nonzero reserved descriptor fields with ERR_RESERVED_NONZERO."
+    ]
+  },
+  "constants": {
+    "desc_size": 128,
+    "desc_align": 16,
+    "tensor_align": 16,
+    "array_k": 16,
+    "array_n": 16,
+    "input_bits": 8,
+    "acc_bits": 32,
+    "dimension_max": 65535
+  },
+  "opcodes": [
+    {
+      "name": "GEMM_I8I8I32",
+      "value": 1,
+      "description": "Signed INT8 GEMM with signed INT32 output."
+    }
+  ],
+  "capabilities": {
+    "device_id_reset": "0x4E505501",
+    "cap0_reset": "0x0000003F",
+    "cap1_reset": "0x08201010",
+    "cap0_fields": [
+      {
+        "bits": "[0]",
+        "name": "INT8_GEMM",
+        "reset": 1,
+        "description": "Signed INT8 GEMM supported."
+      },
+      {
+        "bits": "[1]",
+        "name": "INT32_OUTPUT",
+        "reset": 1,
+        "description": "Signed INT32 output supported."
+      },
+      {
+        "bits": "[2]",
+        "name": "DESC_DMA",
+        "reset": 1,
+        "description": "Descriptor fetch over AXI4 supported."
+      },
+      {
+        "bits": "[3]",
+        "name": "IRQ",
+        "reset": 1,
+        "description": "Interrupt output supported."
+      },
+      {
+        "bits": "[4]",
+        "name": "PERF_COUNTERS",
+        "reset": 1,
+        "description": "Performance counters supported."
+      },
+      {
+        "bits": "[5]",
+        "name": "SINGLE_QUEUE",
+        "reset": 1,
+        "description": "Single descriptor queue/in-flight model."
+      },
+      {
+        "bits": "[31:6]",
+        "name": "RESERVED",
+        "reset": 0,
+        "description": "Reserved."
+      }
+    ],
+    "cap1_fields": [
+      {
+        "bits": "[7:0]",
+        "name": "ARRAY_K",
+        "reset": 16,
+        "description": "Stationary B-weight/K lane count."
+      },
+      {
+        "bits": "[15:8]",
+        "name": "ARRAY_N",
+        "reset": 16,
+        "description": "Systolic-array column count."
+      },
+      {
+        "bits": "[23:16]",
+        "name": "ACC_BITS",
+        "reset": 32,
+        "description": "Accumulator/output bit width."
+      },
+      {
+        "bits": "[31:24]",
+        "name": "INPUT_BITS",
+        "reset": 8,
+        "description": "A/B operand bit width."
+      }
+    ]
+  },
+  "registers": [
+    {
+      "name": "DEVICE_ID",
+      "offset": "0x000",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x4E505501",
+      "description": "ASCII-like device ID, NPU plus v1 marker."
+    },
+    {
+      "name": "ABI_VERSION",
+      "offset": "0x004",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00020000",
+      "description": "Bits [31:16] major, [15:0] minor."
+    },
+    {
+      "name": "CAP0",
+      "offset": "0x008",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x0000003F",
+      "description": "Feature capability bits.",
+      "fields_ref": "cap0_fields"
+    },
+    {
+      "name": "CAP1",
+      "offset": "0x00C",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x08201010",
+      "description": "Array and arithmetic widths.",
+      "fields_ref": "cap1_fields"
+    },
+    {
+      "name": "CONTROL",
+      "offset": "0x010",
+      "width": 32,
+      "access": "WO",
+      "reset": "0x00000000",
+      "description": "Write-one pulse controls.",
+      "fields": [
+        {
+          "bits": "[0]",
+          "name": "SOFT_RESET",
+          "macro": "CONTROL_SOFT_RESET",
+          "value": "0x00000001",
+          "reset": 0,
+          "description": "Write 1 to reset internal control state and clear interrupts. Self-clearing pulse."
+        },
+        {
+          "bits": "[31:1]",
+          "name": "RESERVED",
+          "reset": 0,
+          "description": "Must be written as zero."
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "offset": "0x014",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000001",
+      "description": "Current state and sticky indicators.",
+      "fields": [
+        {
+          "bits": "[0]",
+          "name": "IDLE",
+          "macro": "STATUS_IDLE",
+          "value": "0x00000001",
+          "reset": 1,
+          "description": "No descriptor is active and no terminal state is pending."
+        },
+        {
+          "bits": "[1]",
+          "name": "BUSY",
+          "macro": "STATUS_BUSY",
+          "value": "0x00000002",
+          "reset": 0,
+          "description": "Descriptor fetch, compute, or writeback is active."
+        },
+        {
+          "bits": "[2]",
+          "name": "DONE",
+          "macro": "STATUS_DONE",
+          "value": "0x00000004",
+          "reset": 0,
+          "description": "Last descriptor completed successfully. Sticky until CLEAR.DONE."
+        },
+        {
+          "bits": "[3]",
+          "name": "ERROR",
+          "macro": "STATUS_ERROR",
+          "value": "0x00000008",
+          "reset": 0,
+          "description": "Last descriptor or illegal access failed. Sticky until CLEAR.ERROR."
+        },
+        {
+          "bits": "[4]",
+          "name": "IRQ_PENDING",
+          "macro": "STATUS_IRQ_PENDING",
+          "value": "0x00000010",
+          "reset": 0,
+          "description": "Any enabled interrupt status bit is set."
+        },
+        {
+          "bits": "[31:5]",
+          "name": "RESERVED",
+          "reset": 0,
+          "description": "Reserved."
+        }
+      ]
+    },
+    {
+      "name": "ERROR_CODE",
+      "offset": "0x018",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Last terminal error code."
+    },
+    {
+      "name": "IRQ_ENABLE",
+      "offset": "0x01C",
+      "width": 32,
+      "access": "RW",
+      "reset": "0x00000000",
+      "description": "Interrupt enable bits.",
+      "valid_mask_macro": "IRQ_VALID_MASK",
+      "valid_mask": "0x00000003",
+      "fields": [
+        {
+          "bits": "[0]",
+          "name": "DONE_IRQ_EN",
+          "macro": "IRQ_DONE",
+          "value": "0x00000001",
+          "reset": 0,
+          "description": "Enable done interrupt."
+        },
+        {
+          "bits": "[1]",
+          "name": "ERROR_IRQ_EN",
+          "macro": "IRQ_ERROR",
+          "value": "0x00000002",
+          "reset": 0,
+          "description": "Enable error interrupt."
+        },
+        {
+          "bits": "[31:2]",
+          "name": "RESERVED",
+          "reset": 0,
+          "description": "Must be written as zero."
+        }
+      ]
+    },
+    {
+      "name": "IRQ_STATUS",
+      "offset": "0x020",
+      "width": 32,
+      "access": "RW1C",
+      "reset": "0x00000000",
+      "description": "Sticky interrupt causes.",
+      "fields": [
+        {
+          "bits": "[0]",
+          "name": "DONE_IRQ",
+          "reset": 0,
+          "description": "Set when a descriptor completes and descriptor flag IRQ_ON_DONE is set."
+        },
+        {
+          "bits": "[1]",
+          "name": "ERROR_IRQ",
+          "reset": 0,
+          "description": "Set when an error occurs and descriptor flag IRQ_ON_ERROR is set, or when the error happens before flags are available."
+        },
+        {
+          "bits": "[31:2]",
+          "name": "RESERVED",
+          "reset": 0,
+          "description": "Reserved."
+        }
+      ]
+    },
+    {
+      "name": "DOORBELL",
+      "offset": "0x024",
+      "width": 32,
+      "access": "WO",
+      "reset": "0x00000000",
+      "description": "Write START=1 to submit descriptor.",
+      "fields": [
+        {
+          "bits": "[0]",
+          "name": "START",
+          "macro": "DOORBELL_START",
+          "value": "0x00000001",
+          "reset": 0,
+          "description": "Write 1 to start fetching descriptor at DESC_ADDR."
+        },
+        {
+          "bits": "[31:1]",
+          "name": "RESERVED",
+          "reset": 0,
+          "description": "Must be written as zero."
+        }
+      ]
+    },
+    {
+      "name": "DESC_ADDR_LO",
+      "offset": "0x028",
+      "width": 32,
+      "access": "RW",
+      "reset": "0x00000000",
+      "description": "Descriptor base address bits [31:0]."
+    },
+    {
+      "name": "DESC_ADDR_HI",
+      "offset": "0x02C",
+      "width": 32,
+      "access": "RW",
+      "reset": "0x00000000",
+      "description": "Descriptor base address bits [63:32]."
+    },
+    {
+      "name": "CLEAR",
+      "offset": "0x030",
+      "width": 32,
+      "access": "WO",
+      "reset": "0x00000000",
+      "description": "Write-one pulse clear controls.",
+      "valid_mask_macro": "CLEAR_VALID_MASK",
+      "valid_mask": "0x00000007",
+      "fields": [
+        {
+          "bits": "[0]",
+          "name": "DONE",
+          "macro": "CLEAR_DONE",
+          "value": "0x00000001",
+          "reset": 0,
+          "description": "Write 1 to clear STATUS.DONE and IRQ_STATUS.DONE_IRQ."
+        },
+        {
+          "bits": "[1]",
+          "name": "ERROR",
+          "macro": "CLEAR_ERROR",
+          "value": "0x00000002",
+          "reset": 0,
+          "description": "Write 1 to clear STATUS.ERROR, ERROR_CODE, and IRQ_STATUS.ERROR_IRQ."
+        },
+        {
+          "bits": "[2]",
+          "name": "PERF",
+          "macro": "CLEAR_PERF",
+          "value": "0x00000004",
+          "reset": 0,
+          "description": "Write 1 to clear performance counters."
+        },
+        {
+          "bits": "[31:3]",
+          "name": "RESERVED",
+          "reset": 0,
+          "description": "Must be written as zero."
+        }
+      ]
+    },
+    {
+      "name": "RESERVED_034",
+      "offset": "0x034",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Reserved."
+    },
+    {
+      "name": "RESERVED_038",
+      "offset": "0x038",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Reserved."
+    },
+    {
+      "name": "RESERVED_03C",
+      "offset": "0x03C",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Reserved."
+    },
+    {
+      "name": "PERF_CYCLES_LO",
+      "offset": "0x040",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Descriptor-in-flight cycles low word."
+    },
+    {
+      "name": "PERF_CYCLES_HI",
+      "offset": "0x044",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Descriptor-in-flight cycles high word."
+    },
+    {
+      "name": "PERF_BUSY_LO",
+      "doc_name": "PERF_BUSY_CYCLES_LO",
+      "offset": "0x048",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Backend-busy cycles low word."
+    },
+    {
+      "name": "PERF_BUSY_HI",
+      "doc_name": "PERF_BUSY_CYCLES_HI",
+      "offset": "0x04C",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Backend-busy cycles high word."
+    },
+    {
+      "name": "PERF_DESC_COUNT",
+      "offset": "0x050",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Completed descriptor count."
+    },
+    {
+      "name": "PERF_ERROR_COUNT",
+      "offset": "0x054",
+      "width": 32,
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Terminal error count."
+    }
+  ],
+  "errors": [
+    {
+      "name": "NONE",
+      "value": 0,
+      "description": "No error."
+    },
+    {
+      "name": "INVALID_DESC_VERSION",
+      "value": 1,
+      "description": "Descriptor version is not 2."
+    },
+    {
+      "name": "INVALID_OPCODE",
+      "value": 2,
+      "description": "Descriptor opcode is not HOLON_NPU_OPCODE_GEMM_I8I8I32."
+    },
+    {
+      "name": "INVALID_DESC_SIZE",
+      "value": 3,
+      "description": "Descriptor size_bytes is not 128."
+    },
+    {
+      "name": "INVALID_FLAGS",
+      "value": 4,
+      "description": "Descriptor flags contain unsupported bits."
+    },
+    {
+      "name": "UNSUPPORTED_ALIGNMENT",
+      "value": 5,
+      "description": "Descriptor, tensor base, or row stride alignment is unsupported."
+    },
+    {
+      "name": "AXI_READ",
+      "value": 6,
+      "description": "AXI read response was not OKAY or EXOKAY."
+    },
+    {
+      "name": "AXI_WRITE",
+      "value": 7,
+      "description": "AXI write response was not OKAY or EXOKAY."
+    },
+    {
+      "name": "INTERNAL_PROTOCOL",
+      "value": 8,
+      "description": "Internal valid-ready or scheduler invariant failed."
+    },
+    {
+      "name": "DOORBELL_BUSY",
+      "value": 9,
+      "description": "Doorbell write was attempted while busy. Used only if the implementation chooses to count the rejected write."
+    },
+    {
+      "name": "RESERVED_NONZERO",
+      "value": 10,
+      "description": "A reserved descriptor field was nonzero."
+    },
+    {
+      "name": "DIMENSION_ZERO",
+      "value": 11,
+      "description": "M, N, or K is zero."
+    },
+    {
+      "name": "DIMENSION_UNSUPPORTED",
+      "value": 12,
+      "description": "A dimension exceeds the v1.1 implementation limit."
+    }
+  ],
+  "descriptor": {
+    "name": "GEMM",
+    "size_bytes": 128,
+    "align_bytes": 16,
+    "struct_name": "holon_npu_gemm_desc",
+    "typedef_name": "holon_npu_gemm_desc_t",
+    "config_typedef_name": "holon_npu_gemm_config_t",
+    "required_version": 2,
+    "required_opcode": "GEMM_I8I8I32",
+    "flags_valid_mask": "0x00000007",
+    "flags": [
+      {
+        "bit": 0,
+        "name": "IRQ_ON_DONE",
+        "value": "0x00000001",
+        "description": "Set IRQ_STATUS.DONE_IRQ when command completes."
+      },
+      {
+        "bit": 1,
+        "name": "IRQ_ON_ERROR",
+        "value": "0x00000002",
+        "description": "Set IRQ_STATUS.ERROR_IRQ when command fails."
+      },
+      {
+        "bit": 2,
+        "name": "CLEAR_PERF_ON_START",
+        "value": "0x00000004",
+        "description": "Clear performance counters before command execution."
+      }
+    ],
+    "fields": [
+      {
+        "name": "size_bytes",
+        "macro_suffix": "SIZE_BYTES",
+        "offset": "0x00",
+        "width": 16,
+        "ctype": "uint16_t",
+        "required": "128",
+        "description": "Descriptor size in bytes."
+      },
+      {
+        "name": "version",
+        "macro_suffix": "VERSION",
+        "offset": "0x02",
+        "width": 8,
+        "ctype": "uint8_t",
+        "required": "2",
+        "description": "Descriptor ABI major version."
+      },
+      {
+        "name": "opcode",
+        "macro_suffix": "OPCODE",
+        "offset": "0x03",
+        "width": 8,
+        "ctype": "uint8_t",
+        "required": "1",
+        "description": "HOLON_NPU_OPCODE_GEMM_I8I8I32."
+      },
+      {
+        "name": "flags",
+        "macro_suffix": "FLAGS",
+        "offset": "0x04",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "See flag table",
+        "description": "Per-command options."
+      },
+      {
+        "name": "m",
+        "macro_suffix": "M",
+        "offset": "0x08",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "1..65535",
+        "description": "Rows of A and C."
+      },
+      {
+        "name": "n",
+        "macro_suffix": "N",
+        "offset": "0x0C",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "1..65535",
+        "description": "Columns of B and C."
+      },
+      {
+        "name": "k",
+        "macro_suffix": "K",
+        "offset": "0x10",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "1..65535",
+        "description": "Columns of A and rows of B."
+      },
+      {
+        "name": "reserved_14",
+        "macro_suffix": "RESERVED_14",
+        "offset": "0x14",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "a_addr",
+        "macro_suffix": "A_ADDR",
+        "offset": "0x18",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "16-byte aligned",
+        "description": "Base address of row-major signed INT8 A matrix."
+      },
+      {
+        "name": "b_addr",
+        "macro_suffix": "B_ADDR",
+        "offset": "0x20",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "16-byte aligned",
+        "description": "Base address of row-major signed INT8 B matrix."
+      },
+      {
+        "name": "c_addr",
+        "macro_suffix": "C_ADDR",
+        "offset": "0x28",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "16-byte aligned",
+        "description": "Base address of row-major signed INT32 C matrix."
+      },
+      {
+        "name": "a_row_stride_bytes",
+        "macro_suffix": "A_STRIDE",
+        "offset": "0x30",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "16-byte aligned",
+        "description": "Byte stride between A rows. Must be at least k."
+      },
+      {
+        "name": "b_row_stride_bytes",
+        "macro_suffix": "B_STRIDE",
+        "offset": "0x34",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "16-byte aligned",
+        "description": "Byte stride between B rows. Must be at least n."
+      },
+      {
+        "name": "c_row_stride_bytes",
+        "macro_suffix": "C_STRIDE",
+        "offset": "0x38",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "16-byte aligned",
+        "description": "Byte stride between C rows. Must be at least 4*n."
+      },
+      {
+        "name": "reserved_3c",
+        "macro_suffix": "RESERVED_3C",
+        "offset": "0x3C",
+        "width": 32,
+        "ctype": "uint32_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_40",
+        "macro_suffix": "RESERVED_TAIL",
+        "offset": "0x40",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_48",
+        "offset": "0x48",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_50",
+        "offset": "0x50",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_58",
+        "offset": "0x58",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_60",
+        "offset": "0x60",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_68",
+        "offset": "0x68",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_70",
+        "offset": "0x70",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_78",
+        "offset": "0x78",
+        "width": 64,
+        "ctype": "uint64_t",
+        "required": "0",
+        "description": "Reserved."
+      }
+    ]
+  },
+  "internal_command": {
+    "width": 387,
+    "fields": [
+      {
+        "name": "IRQ_ON_DONE_BIT",
+        "value": 0
+      },
+      {
+        "name": "IRQ_ON_ERROR_BIT",
+        "value": 1
+      },
+      {
+        "name": "CLEAR_PERF_BIT",
+        "value": 2
+      },
+      {
+        "name": "M_LSB",
+        "value": 3
+      },
+      {
+        "name": "N_LSB",
+        "value": 35
+      },
+      {
+        "name": "K_LSB",
+        "value": 67
+      },
+      {
+        "name": "A_ADDR_LSB",
+        "value": 99
+      },
+      {
+        "name": "B_ADDR_LSB",
+        "value": 163
+      },
+      {
+        "name": "C_ADDR_LSB",
+        "value": 227
+      },
+      {
+        "name": "A_STRIDE_LSB",
+        "value": 291
+      },
+      {
+        "name": "B_STRIDE_LSB",
+        "value": 323
+      },
+      {
+        "name": "C_STRIDE_LSB",
+        "value": 355
+      }
+    ]
+  }
+}

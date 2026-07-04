@@ -1,5 +1,7 @@
 #include "Vnpu_control_regs.h"
 
+#include "tb_coverage.hpp"
+
 #include "holon_npu_regs.h"
 
 #include <cstdint>
@@ -321,7 +323,7 @@ bool test_error_and_soft_reset(Vnpu_control_regs& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_control", argc, argv};
 
     Vnpu_control_regs dut;
     bool ok = true;
@@ -332,5 +334,7 @@ int main(int argc, char** argv) {
     ok &= test_error_and_soft_reset(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({axi_lite_aw_w_skew, control_done_irq, control_error_irq, control_soft_reset});
+    return test.finish(ok);
 }

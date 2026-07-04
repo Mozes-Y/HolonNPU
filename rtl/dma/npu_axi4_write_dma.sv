@@ -1,4 +1,6 @@
 /* verilator lint_off DECLFILENAME */
+`include "npu_assert.svh"
+
 module npu_axi4_write_dma_core #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128,
@@ -195,6 +197,23 @@ module npu_axi4_write_dma_core #(
             endcase
         end
     end
+
+    `HOLON_NPU_ASSERT(write_dma_terminal_states_exclusive,
+        @(posedge clk_i) disable iff (!rst_ni)
+            !(done_o && error_o))
+    `HOLON_NPU_ASSERT(write_dma_burst_profile_is_v1,
+        @(posedge clk_i) disable iff (!rst_ni)
+            m_axi.awvalid |->
+                (m_axi.awaddr[BEAT_SHIFT-1:0] == '0) &&
+                (m_axi.awsize == 3'(BEAT_SHIFT)) &&
+                (m_axi.awburst == AXI_BURST_INCR) &&
+                (m_axi.awlen <= 8'd15))
+    `HOLON_NPU_ASSERT(write_dma_one_write_outstanding,
+        @(posedge clk_i) disable iff (!rst_ni)
+            m_axi.awvalid |-> (state_q == STATE_AW))
+    `HOLON_NPU_ASSERT(write_dma_full_beat_strb,
+        @(posedge clk_i) disable iff (!rst_ni)
+            m_axi.wvalid |-> (m_axi.wstrb == {STRB_W{1'b1}}))
 
 endmodule
 /* verilator lint_on DECLFILENAME */

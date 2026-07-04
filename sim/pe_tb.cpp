@@ -1,5 +1,7 @@
 #include "Vnpu_pe_i8.h"
 
+#include "tb_coverage.hpp"
+
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -148,7 +150,7 @@ bool test_int32_wrap_boundary(Vnpu_pe_i8& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_pe", argc, argv};
 
     Vnpu_pe_i8 dut;
     bool ok = true;
@@ -158,5 +160,7 @@ int main(int argc, char** argv) {
     ok &= test_int32_wrap_boundary(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({pe_weight_load, pe_masked_weight, pe_negative_operands, pe_int32_wrap});
+    return test.finish(ok);
 }

@@ -1,23 +1,28 @@
 # HolonNPU
 
-`HolonNPU` is a roadmap-first SystemVerilog implementation of a v1.1 INT8 GEMM
+`HolonNPU` is a roadmap-first SystemVerilog implementation of a v1.3 INT8 GEMM
 accelerator intended for RISC-V SoC integration. The public hardware interface
 is an AXI-Lite control plane plus AXI4 master DMA. The matrix engine is a
 parameterized `16x16` B-weight-stationary systolic array with signed INT8
 inputs and signed INT32 outputs.
 
-The v1.1 scope is intentionally narrow: one descriptor in flight, one outstanding
-AXI4 burst per DMA engine, descriptor-driven GEMM, deterministic Verilator
-simulation, and a minimal C driver ABI.
+The v1.3 scope is intentionally narrow: one descriptor in flight, one
+outstanding AXI4 burst per DMA engine, descriptor-driven GEMM, deterministic
+Verilator simulation, protocol assertions, functional coverage gating, and a
+minimal C driver ABI.
 
 ## Status
 
-v1.1 implementation is complete against the project roadmap:
+v1.3 implementation is complete against the project roadmap:
 
 - SystemVerilog RTL for common infrastructure, control registers, DMA,
   descriptor command processing, tiled GEMM execution, and product top.
-- C++26 Verilator testbenches registered through CTest.
-- C driver and shared public ABI headers.
+- C++26 Verilator testbenches registered through CTest, including deterministic
+  constrained-random GEMM tile coverage.
+- Protocol-first SystemVerilog assertions for valid-ready, AXI-Lite, AXI4, DMA,
+  command, GEMM, and top-level invariants.
+- Functional coverage gate plus generated Verilator structural coverage reports.
+- C driver and generated public ABI headers.
 - Roadmap, architecture, interface, verification, progress, and decision
   documentation under `docs/`.
 
@@ -31,6 +36,10 @@ ctest --preset lint -j 2 --output-on-failure
 cmake --preset regression
 cmake --build --preset regression --parallel 2
 ctest --preset regression -j 2 --output-on-failure
+cmake --preset coverage
+cmake --build --preset coverage --parallel 2
+ctest --preset coverage -j 2 --output-on-failure
+python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
 ## Requirements
@@ -40,7 +49,7 @@ ctest --preset regression -j 2 --output-on-failure
 - Verilator.
 - C++26-capable compiler.
 - C11-capable compiler for the driver library.
-- Python 3 for ABI consistency checks.
+- Python 3 for ABI generation, static checks, and coverage checks.
 
 The current local verification environment used CMake 4.3.4, Verilator 5.048,
 and GCC 15.3.0.
@@ -52,6 +61,7 @@ docs/       Roadmap, architecture, ABI, verification, progress, and ADRs.
 include/    Public C ABI headers for registers and descriptors.
 rtl/        Product/core SystemVerilog RTL.
 sim/        Verilator C++26 testbenches and simulation-only SV harnesses.
+spec/       ABI/register/descriptor schema used to generate shared outputs.
 sw/         Minimal C driver.
 tests/      Host-side driver tests.
 tools/      Project verification utilities.
@@ -87,11 +97,19 @@ and ABI details.
 
 ## ABI Summary
 
-The v1.1 ABI 2.0 contract is frozen in `docs/INTERFACE.md` and mirrored by:
+The v1.3 ABI 2.0 contract is defined in one schema:
+
+- `spec/holon_npu_abi.json`
+
+The schema generates these checked-in outputs:
 
 - `rtl/common/npu_pkg.sv`
 - `include/holon_npu_regs.h`
 - `include/holon_npu_desc.h`
+- `docs/INTERFACE.md`
+
+Generated files are reviewable artifacts, but they must not be edited by hand.
+Change the schema and regenerate instead.
 
 Key properties:
 
@@ -110,10 +128,10 @@ Key properties:
 Run the ABI checker with:
 
 ```sh
-python3 tools/check_abi_consistency.py
+python3 tools/gen_abi.py --check
 ```
 
-It is also registered as the `abi_consistency` CTest.
+It is also registered as the `abi_generate_check` CTest.
 
 ## Build And Test
 
@@ -149,6 +167,15 @@ cmake --build --preset regression --parallel 2
 ctest --preset regression -j 2 --output-on-failure
 ```
 
+Build and run the coverage gate:
+
+```sh
+cmake --preset coverage
+cmake --build --preset coverage --parallel 2
+ctest --preset coverage -j 2 --output-on-failure
+python3 tools/check_coverage.py --build-dir build/coverage
+```
+
 Build and run one specific test:
 
 ```sh
@@ -161,8 +188,9 @@ focused test runs. The presets stay intentionally small; CMake targets and CTest
 filters handle the one-off cases.
 
 `CMakePresets.json` is intentionally retained only to pin the build directories,
-build types, Ninja generator, and the three stable test entry points. It is not
-used for subsystem shortcuts or version-specific build targets.
+build types, Ninja generator, and the stable debug/lint/regression/coverage test
+entry points. It is not used for subsystem shortcuts or version-specific build
+targets.
 
 ## Software Driver
 
@@ -191,9 +219,18 @@ The CTest suite covers:
 - AXI4 read/write DMA burst splitting, alignment rejection, and error handling.
 - Descriptor fetch, decode, validation, and deterministic descriptor fuzzing.
 - Integrated GEMM for `1x1x1`, `16x16x16`, `17x19x23`, and `64x64x64`.
+- Deterministic constrained-random GEMM tile shapes, including sub-16,
+  exact-16, M/N/K tails, mixed tails, multi-tile shapes, and 64-sized anchors.
 - Public product-top descriptor fetch, GEMM execution, IRQ/status, read error,
   write error, read-error recovery, and reset-in-flight recovery.
 - Host-side C driver API behavior.
+
+Assertions are enabled by default in debug, regression, and coverage builds.
+The `npu_assert_fail` CTest is marked `WILL_FAIL` so CI proves assertions are
+active. C++ testbenches use a typed `coverage_point` registry and RAII
+`test_run` runtime; coverage builds pass an explicit `--tb-coverage-root`
+argument and emit raw, merged, info, annotated, required/hit, and functional
+summary artifacts under `build/coverage/coverage/`.
 
 ## Known v1 Limits
 

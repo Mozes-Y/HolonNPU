@@ -1,5 +1,7 @@
 #include "Vnpu_tiling_datapath_test_top.h"
 
+#include "tb_coverage.hpp"
+
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -360,7 +362,7 @@ bool test_schedule(Vnpu_tiling_datapath_test_top& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_tiling", argc, argv};
 
     Vnpu_tiling_datapath_test_top dut;
     bool ok = true;
@@ -371,5 +373,7 @@ int main(int argc, char** argv) {
     ok &= test_schedule(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({tiling_masks, tiling_buffers, tiling_masked_tail, tiling_schedule});
+    return test.finish(ok);
 }

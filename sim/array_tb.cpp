@@ -1,5 +1,7 @@
 #include "Vnpu_systolic_array_test_top.h"
 
+#include "tb_coverage.hpp"
+
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -180,7 +182,7 @@ bool run_case(
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_array", argc, argv};
 
     Vnpu_systolic_array_test_top dut;
     bool ok = true;
@@ -190,5 +192,7 @@ int main(int argc, char** argv) {
     ok &= run_case(dut, 17, 19, 23, 2, "17x19x23");
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({array_shape_1, array_shape_16, array_shape_mixed_tail});
+    return test.finish(ok);
 }

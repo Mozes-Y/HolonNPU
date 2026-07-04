@@ -1,4 +1,7 @@
 /* verilator lint_off UNUSEDSIGNAL */
+/* verilator lint_off UNDRIVEN */
+`include "npu_assert.svh"
+
 interface npu_axi4_if #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128,
@@ -187,5 +190,36 @@ interface npu_axi4_if #(
         input  bready
     );
 
+    `HOLON_NPU_ASSERT(axi_aw_stable_until_ready,
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            awvalid && !awready |=>
+                awvalid && $stable(awid) && $stable(awaddr) &&
+                $stable(awlen) && $stable(awsize) && $stable(awburst))
+    `HOLON_NPU_ASSERT(axi_w_stable_until_ready,
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            wvalid && !wready |=>
+                wvalid && $stable(wdata) && $stable(wstrb) && $stable(wlast))
+    `HOLON_NPU_ASSERT(axi_b_stable_until_ready,
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            bvalid && !bready |=> bvalid && $stable(bid) && $stable(bresp))
+    `HOLON_NPU_ASSERT(axi_ar_stable_until_ready,
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            arvalid && !arready |=>
+                arvalid && $stable(arid) && $stable(araddr) &&
+                $stable(arlen) && $stable(arsize) && $stable(arburst))
+    `HOLON_NPU_ASSERT(axi_r_stable_until_ready,
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            rvalid && !rready |=>
+                rvalid && $stable(rid) && $stable(rdata) &&
+                $stable(rresp) && $stable(rlast))
+
+    `HOLON_NPU_COVER(axi_read_burst_seen,
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            arvalid && arready)
+    `HOLON_NPU_COVER(axi_write_burst_seen,
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            awvalid && awready)
+
 endinterface
+/* verilator lint_on UNDRIVEN */
 /* verilator lint_on UNUSEDSIGNAL */

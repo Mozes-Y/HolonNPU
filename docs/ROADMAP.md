@@ -41,10 +41,12 @@ Prohibited for v1:
 
 ## Product Goal
 
-v1.1 is a RISC-V controlled INT8 GEMM accelerator exposed through an
+v1.3 is a RISC-V controlled INT8 GEMM accelerator exposed through an
 `AXI-Lite` control plane and `AXI4` DMA data movement. The matrix core is a
 parameterized `16x16` B-weight-stationary systolic array with INT32
-accumulation.
+accumulation. v1.3 adds generated ABI artifacts, protocol assertions,
+functional coverage gating, and deterministic constrained-random tile
+verification without changing the ABI 2.0 values.
 
 The implementation stack is fixed:
 
@@ -88,6 +90,26 @@ Non-goals:
 
 - Compatibility with ABI 1.0 descriptors.
 - Runtime-selectable matrix dataflow.
+- Vector post-processing, BF16, FP8, multiple queues, or multi-context support.
+
+### v1.3: Verification And ABI Source Hardening
+
+Scope:
+
+- ABI/register/descriptor definitions come from one JSON schema.
+- RTL package, public C ABI headers, and interface documentation are generated
+  and byte-checked from that schema.
+- Protocol-first assertions cover valid-ready, AXI-Lite, AXI4, DMA, command,
+  GEMM, and top-level invariants.
+- Coverage builds collect Verilator structural coverage and enforce named
+  functional coverpoints.
+- GEMM and top-level tests include deterministic constrained-random tile shapes.
+
+Non-goals:
+
+- Public ABI value changes, register offset changes, descriptor layout changes,
+  or RTL feature semantics changes.
+- Structural coverage percentage thresholds.
 - Vector post-processing, BF16, FP8, multiple queues, or multi-context support.
 
 ### v2: RVV-Style Vector/Post Engine
@@ -528,7 +550,7 @@ Deliverables:
 - Reset-in-flight tests.
 - AXI error injection.
 - Descriptor fuzz tests.
-- Coverage/lint target.
+- Lint target and regression preset.
 - Regression preset.
 
 Acceptance criteria:
@@ -546,7 +568,8 @@ Dependencies:
 Primary risks:
 
 - Random tests are non-reproducible without seed logging.
-- Coverage may miss error state transitions.
+- Functional coverage may miss error state transitions if coverpoints are not
+  made explicit.
 
 ## v1.1 Phase Plan
 
@@ -649,8 +672,11 @@ Deliverables:
 
 - Separate Debug and RelWithDebInfo regression configure presets.
 - Ninja generator pinned in presets.
-- Build presets only for `debug` and `regression`.
-- Test presets only for `debug`, `lint`, and `regression`.
+- Build presets only for `debug` and `regression` at this phase; v1.3 later
+  adds the separate `coverage` build tree because Verilator coverage
+  instrumentation cannot share the normal debug/regression trees.
+- Test presets only for `debug`, `lint`, and `regression` at this phase; v1.3
+  later adds `coverage` for the same instrumentation reason.
 - Minimal CTest labels: `fast`, `lint`, `slow`, and `static`.
 - Focused builds use CMake's native `--target`; focused test runs use CTest's
   native `-R` and `--verbose`.
@@ -718,6 +744,60 @@ Primary risks:
 
 - Accidentally moving product RTL into `sim/rtl/`.
 - Accidentally allowing product CMake source sets to reference harness files.
+
+## v1.3 Phase Plan
+
+### Phase 16: Verification And ABI Single Source Hardening
+
+Goal: remove manually synchronized ABI definitions and add internal
+self-checking verification mechanisms that catch protocol and coverage gaps
+early.
+
+Allowed edit scope:
+
+- ABI schema, generator, generated ABI outputs, and ABI check tooling.
+- SVA assertion macros and local protocol/design invariants.
+- Coverage preset, typed C++ test runtime, and coverage checker.
+- Deterministic constrained-random GEMM/top test generation.
+- CI, roadmap, architecture, verification, decision, progress, and getting
+  started documentation.
+
+Deliverables:
+
+- `spec/holon_npu_abi.json` as the sole ABI/register/descriptor schema.
+- `tools/gen_abi.py` generating `npu_pkg.sv`, public C headers, and
+  `docs/INTERFACE.md`.
+- `tools/gen_abi.py --check` registered directly as the ABI generation CTest.
+- `rtl/common/npu_assert.svh` plus assertions in protocol interfaces and key
+  control/DMA/command/GEMM/top modules.
+- Expected-fail assertion smoke test proving assertions are active.
+- `coverage` configure/build/test preset, typed C++ `test_run` runtime,
+  `coverage_point` registry, and `tools/check_coverage.py`.
+- 64 GEMM accelerator constrained-random tile cases and 16 product-top
+  constrained-random tile cases.
+
+Acceptance criteria:
+
+- `python3 -m json.tool spec/holon_npu_abi.json` passes.
+- `python3 tools/gen_abi.py --check` passes.
+- `python3 tools/check_rtl_interface_usage.py` passes.
+- Debug, lint, regression, and coverage CTest presets pass.
+- `python3 tools/check_coverage.py --build-dir build/coverage` reports all
+  required functional coverage points hit.
+- No public ABI value, register offset, descriptor layout, or RTL feature
+  semantic changes are introduced.
+
+Dependencies:
+
+- Phase 15 test-only RTL harness separation.
+
+Primary risks:
+
+- Generated outputs can drift if schema changes are not checked in CI.
+- Assertions can reveal latent testbench protocol violations as well as design
+  bugs.
+- Coverage artifacts require a separate build tree and can slow CI if expanded
+  without discipline.
 
 ## Current Phase
 

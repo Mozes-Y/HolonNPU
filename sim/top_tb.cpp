@@ -1,5 +1,8 @@
 #include "Vnpu_top.h"
 
+#include "gemm_case_gen.hpp"
+#include "tb_coverage.hpp"
+
 #include "holon_npu_desc.h"
 #include "holon_npu_regs.h"
 
@@ -39,6 +42,16 @@ struct GemmCase {
     std::uint32_t seed = 0;
     std::string name;
 };
+
+GemmCase to_gemm_case(const holon_npu_tb::GeneratedGemmCase& test_case) {
+    return GemmCase{
+        test_case.m,
+        test_case.n,
+        test_case.k,
+        test_case.seed,
+        test_case.name,
+    };
+}
 
 void eval(Vnpu_top& dut) {
     dut.eval();
@@ -824,7 +837,7 @@ bool test_top_soft_reset_in_flight(Vnpu_top& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_top", argc, argv};
 
     Vnpu_top dut;
     bool ok = true;
@@ -833,6 +846,9 @@ int main(int argc, char** argv) {
     ok &= run_top_gemm_case(dut, GemmCase{16, 16, 16, 18, "top-16x16x16"});
     ok &= run_top_gemm_case(dut, GemmCase{17, 19, 23, 22, "top-17x19x23"});
     ok &= run_top_gemm_case(dut, GemmCase{64, 64, 64, 64, "top-64x64x64"});
+    for (const auto& test_case : holon_npu_tb::constrained_random_gemm_cases(0xBEEF, 16, "top-")) {
+        ok &= run_top_gemm_case(dut, to_gemm_case(test_case));
+    }
     ok &= test_c_final_chunk_padding_zeroed(dut);
     ok &= test_invalid_descriptor_reaches_control(dut);
     ok &= test_top_axil_write_skew(dut);
@@ -842,5 +858,9 @@ int main(int argc, char** argv) {
     ok &= test_top_soft_reset_in_flight(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({top_gemm_fixed, top_gemm_constrained_random, top_status_done,
+                top_status_error, top_axil_write_skew, top_descriptor_read_error,
+                top_gemm_read_error, top_gemm_write_error, top_soft_reset_in_flight});
+    return test.finish(ok);
 }

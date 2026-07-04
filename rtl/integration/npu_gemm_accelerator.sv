@@ -1,4 +1,6 @@
 /* verilator lint_off DECLFILENAME */
+`include "npu_assert.svh"
+
 module npu_gemm_accelerator_core #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128
@@ -124,6 +126,7 @@ module npu_gemm_accelerator_core #(
     logic write_dma_done;
     logic write_dma_error;
     logic [31:0] write_dma_error_code;
+    logic write_payload_valid_q;
     logic write_in_valid;
     logic write_in_ready;
     logic [DATA_W-1:0] write_in_data;
@@ -182,7 +185,7 @@ module npu_gemm_accelerator_core #(
     assign scratch_a_wr_valid = (state_q == STATE_LOAD_A_WAIT) && read_out_valid && read_out_last;
     assign scratch_b_wr_valid = (state_q == STATE_LOAD_B_WAIT) && read_out_valid && read_out_last;
 
-    assign write_in_valid = (state_q == STATE_STORE_WAIT);
+    assign write_in_valid = (state_q == STATE_STORE_WAIT) && write_payload_valid_q;
     assign write_in_data = pack_store_beat(store_row_q, store_chunk_q);
     assign array_clear = (state_q == STATE_TILE_CLEAR);
     assign array_step_valid = (state_q == STATE_COMPUTE);
@@ -447,6 +450,7 @@ module npu_gemm_accelerator_core #(
             read_addr_q <= '0;
             write_start_q <= 1'b0;
             write_addr_q <= '0;
+            write_payload_valid_q <= 1'b0;
             array_output_cycle_q <= 6'd0;
             array_output_valid_q <= 1'b0;
             for (int unsigned row = 0; row < TILE_M; row++) begin
@@ -457,6 +461,10 @@ module npu_gemm_accelerator_core #(
         end else begin
             read_start_q <= 1'b0;
             write_start_q <= 1'b0;
+
+            if (write_in_valid && write_in_ready) begin
+                write_payload_valid_q <= 1'b0;
+            end
 
             if (array_output_valid_q) begin
                 for (int unsigned col = 0; col < TILE_N; col++) begin
@@ -644,18 +652,20 @@ module npu_gemm_accelerator_core #(
                         store_row_q <= store_row_q + 5'd1;
                         store_chunk_q <= 3'd0;
                     end else begin
-                        write_addr_q <= c_chunk_addr(store_row_q, store_chunk_q);
-                        write_start_q <= 1'b1;
-                        state_q <= STATE_STORE_WAIT;
+                            write_addr_q <= c_chunk_addr(store_row_q, store_chunk_q);
+                            write_start_q <= 1'b1;
+                            write_payload_valid_q <= 1'b1;
+                            state_q <= STATE_STORE_WAIT;
+                        end
                     end
-                end
 
                 STATE_STORE_WAIT: begin
                     if (write_dma_error) begin
                         state_q <= STATE_ERR;
                         error_code_q <= write_dma_error_code;
                         perf_error_count_q <= perf_error_count_q + 32'd1;
-                    end else if (write_dma_done && !write_start_q) begin
+                        write_payload_valid_q <= 1'b0;
+                    end else if (write_dma_done && !write_start_q && !write_payload_valid_q) begin
                         if ((store_chunk_q + 3'd1) >= store_chunk_count) begin
                             store_row_q <= store_row_q + 5'd1;
                             store_chunk_q <= 3'd0;
@@ -691,6 +701,27 @@ module npu_gemm_accelerator_core #(
             endcase
         end
     end
+
+    `HOLON_NPU_ASSERT(gemm_terminal_states_exclusive,
+        @(posedge clk_i) disable iff (!rst_ni)
+            !(done_o && error_o))
+    `HOLON_NPU_ASSERT(gemm_stage_is_legal,
+        @(posedge clk_i) disable iff (!rst_ni)
+            (stage_o == STAGE_IDLE) || (stage_o == STAGE_LOAD_A) ||
+            (stage_o == STAGE_LOAD_B) || (stage_o == STAGE_COMPUTE) ||
+            (stage_o == STAGE_STORE) || (stage_o == STAGE_DONE) ||
+            (stage_o == STAGE_ERROR))
+    `HOLON_NPU_ASSERT(gemm_tile_counters_in_bounds,
+        @(posedge clk_i) disable iff (!rst_ni)
+            (load_row_q <= 5'd16) && (load_k_q <= 5'd16) &&
+            (compute_k_q <= 6'(SYSTOLIC_CYCLES - 1)) &&
+            (store_row_q <= 5'd16) && (store_chunk_q <= 3'd4))
+    `HOLON_NPU_ASSERT(gemm_store_stream_only_in_store_wait,
+        @(posedge clk_i) disable iff (!rst_ni)
+            write_in_valid |-> (state_q == STATE_STORE_WAIT))
+    `HOLON_NPU_ASSERT(gemm_no_writeback_before_k_tiles_complete,
+        @(posedge clk_i) disable iff (!rst_ni)
+            (state_q == STATE_STORE_PREP) |-> ((k_base_q + 32'd16) >= k_q))
 
 endmodule
 /* verilator lint_on DECLFILENAME */

@@ -1,5 +1,7 @@
 #include "Vnpu_read_dma_test_top.h"
 
+#include "tb_coverage.hpp"
+
 #include <cstdint>
 #include <deque>
 #include <iostream>
@@ -301,7 +303,7 @@ bool test_axi_error(Vnpu_read_dma_test_top& dut) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
+    holon_npu_tb::test_run test{"npu_read_dma", argc, argv};
 
     Vnpu_read_dma_test_top dut;
     bool ok = true;
@@ -312,5 +314,8 @@ int main(int argc, char** argv) {
     ok &= test_axi_error(dut);
 
     dut.final();
-    return ok ? 0 : 1;
+    using enum holon_npu_tb::coverage_point;
+    test.cover({dma_read_single_burst, dma_read_multi_burst, dma_read_alignment_error,
+                dma_read_axi_error});
+    return test.finish(ok);
 }

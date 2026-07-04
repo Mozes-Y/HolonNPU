@@ -11,6 +11,13 @@ commands and tests as implementation grows.
 - Testbench language: C++26.
 - Test runner: CTest.
 - Wave debug: Verilator VCD/FST support when enabled by build options.
+- Assertions: SystemVerilog immediate/concurrent assertions under
+  `HOLON_NPU_ASSERT_ON`, enabled by default through CMake.
+- Coverage: Verilator line, toggle, FSM, and user coverage in the dedicated
+  `coverage` preset, plus a functional coverage gate checked by
+  `tools/check_coverage.py`.
+- ABI generation: `spec/holon_npu_abi.json` is the source for generated RTL,
+  C, and interface documentation artifacts.
 
 ## Global Verification Rules
 
@@ -19,6 +26,11 @@ commands and tests as implementation grows.
 - Golden models must use exact signed integer arithmetic for v1.
 - Tests must fail loudly on protocol errors, mismatched results, unexpected
   warnings, and timeout.
+- Protocol assertions must be enabled in normal debug and regression builds.
+- Functional coverage points must be deterministic and named in
+  `tools/check_coverage.py` before they become a release gate.
+- ABI/register/descriptor definitions must change through
+  `spec/holon_npu_abi.json`; generated outputs must not be edited manually.
 - Phase completion requires command results in `docs/PROGRESS.md`.
 
 ## Phase Test Matrix
@@ -36,19 +48,91 @@ commands and tests as implementation grows.
 | 8 | Descriptor fetch/decode/failure tests. |
 | 9 | End-to-end GEMM deterministic and randomized tests. |
 | 10 | Driver build and host-side API tests. |
-| 11 | Regression, reset-in-flight, descriptor fuzz, lint, and coverage checks. |
+| 11 | Regression, reset-in-flight, descriptor fuzz, lint, and hardening checks. |
+| v1.3 | Generated ABI source, protocol assertions, coverage gate, and constrained-random tile tests. |
 
 ## Coverage Goals
 
-v1 functional coverage targets:
+v1.3 functional coverage targets:
 
 - Status transitions: idle, busy, done, and error.
 - Descriptor validation: valid, bad version, bad opcode, bad size, bad flags.
-- GEMM dimensions: `1x1`, `16x16`, non-multiple edge case, and `64x64`.
+- GEMM dimensions: `1x1`, sub-16, exact `16x16x16`, M-tail, N-tail, K-tail,
+  mixed-tail, multi-tile, non-multiple edge case, and `64x64x64`.
 - Operand classes: positive, negative, zero, min/max INT8, and mixed signs.
 - DMA behavior: single burst, multiple bursts, cross-tile access, read error,
   and write error.
 - Reset behavior: reset at idle and reset while work is in flight.
+
+Coverage execution:
+
+```sh
+cmake --preset coverage
+cmake --build --preset coverage --parallel 2
+ctest --preset coverage -j 2 --output-on-failure
+python3 tools/check_coverage.py --build-dir build/coverage
+```
+
+The hard gate is currently named functional coverage. Verilator line, toggle,
+FSM, and user coverage reports are generated under `build/coverage/coverage/`
+for inspection, but structural percentage thresholds are not enforced yet.
+
+C++ testbenches use `holon_npu_tb::test_run` as an RAII-style test runtime.
+Functional coverage points are `enum class coverage_point` values defined in a
+`constexpr` C++ registry, not string literals scattered across tests. CTest
+passes `--tb-coverage-root` explicitly in coverage builds; the runtime writes
+per-test required/hit manifests and Verilator raw coverage data from one C++
+runtime implementation.
+
+## Assertion Strategy
+
+`rtl/common/npu_assert.svh` defines project assertion and coverage macros.
+Assertions are active when `HOLON_NPU_ASSERT_ON` is defined. Functional cover
+properties are active when `HOLON_NPU_COVER_ON` is defined, which is limited to
+coverage builds.
+
+Required assertion scope:
+
+- `npu_vr_if`: valid/data stability while a source is backpressured.
+- `npu_axi_lite_if`: AW, W, B, AR, and R payload stability while
+  `VALID && !READY`.
+- `npu_axi4_if`: AW, W, B, AR, and R payload stability while
+  `VALID && !READY`.
+- Control: legal status state, IRQ output consistency, and busy-doorbell
+  rejection.
+- DMA: aligned 128-bit INCR burst profile, at most one outstanding transfer,
+  terminal-state exclusivity, error drain behavior, and write response
+  termination.
+- Command: invalid descriptors must never issue a GEMM command.
+- GEMM/top: stage legality, tile counter bounds, no premature writeback, and
+  stable top read-arbiter ownership until `RLAST`.
+
+`npu_assert_fail` is an expected-fail CTest. Its purpose is to prove that the
+assertion machinery is actually compiled and active in CI.
+
+## ABI Generation Gate
+
+The ABI schema lives at `spec/holon_npu_abi.json`. The generator is:
+
+```sh
+python3 tools/gen_abi.py
+```
+
+The check mode regenerates into a temporary directory and byte-compares the
+tracked outputs:
+
+```sh
+python3 tools/gen_abi.py --check
+```
+
+Generated outputs:
+
+- `rtl/common/npu_pkg.sv`
+- `include/holon_npu_regs.h`
+- `include/holon_npu_desc.h`
+- `docs/INTERFACE.md`
+
+CTest registers this as `abi_generate_check`.
 
 ## Debug Workflow
 
@@ -257,6 +341,8 @@ Phase 10 verification must confirm:
 Phase 11 verification must confirm:
 
 - Randomized GEMM tests remain deterministic and record their seeds.
+- GEMM accelerator tests run 64 deterministic constrained-random tile cases.
+- Product top tests run 16 deterministic constrained-random tile cases.
 - Reset-in-flight testing resets active GEMM execution and verifies recovery
   with a later command.
 - AXI read and write error injection reaches terminal error states with
@@ -268,10 +354,14 @@ Phase 11 verification must confirm:
 - A single `lint` build target aggregates all RTL lint targets.
 - Regression build and test presets run the full v1 verification suite.
 - Known limitations are documented in `docs/PROGRESS.md`.
-- ABI consistency checking compares RTL package constants against public C
-  headers during CTest.
+- ABI consistency checking byte-compares generated RTL package, public C
+  headers, and interface documentation against `spec/holon_npu_abi.json`.
 - RTL interface-usage checking runs during CTest and regression to keep the
   core interface-native and `sim/rtl/` harnesses test-only.
+- Protocol assertions are enabled and the expected-fail assertion smoke test is
+  registered.
+- Coverage preset generates structural reports and passes the functional
+  coverage gate.
 
 ## v1 Release Checklist
 
@@ -289,6 +379,11 @@ The v1 release gate passes only when:
 - `cmake --build --preset regression --parallel 2` builds optimized regression
   targets without running tests as part of the build step.
 - `ctest --preset regression -j 2` passes the full test matrix.
+- `cmake --preset coverage` configures a coverage-instrumented tree.
+- `cmake --build --preset coverage --parallel 2` builds coverage targets.
+- `ctest --preset coverage -j 2` passes coverage-instrumented simulation.
+- `python3 tools/check_coverage.py --build-dir build/coverage` reports all
+  required functional coverage points hit.
 - The source/document marker scan finds no unfinished placeholder entries in
   checked source and documentation paths.
 - Root release documentation includes `README.md`, `CHANGELOG.md`, and an

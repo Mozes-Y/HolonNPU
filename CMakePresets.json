@@ -23,6 +23,16 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
+    },
+    {
+      "name": "coverage",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "HOLON_NPU_ENABLE_COVERAGE": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -33,6 +43,10 @@
     {
       "name": "regression",
       "configurePreset": "regression"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
     }
   ],
   "testPresets": [
@@ -57,6 +71,10 @@
     {
       "name": "regression",
       "configurePreset": "regression"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
     }
   ]
 }

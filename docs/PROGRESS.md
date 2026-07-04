@@ -1491,3 +1491,93 @@ Results:
 Remaining issues:
 
 - None for the CI workflow and getting-started documentation update.
+
+## v1.3 Verification And ABI Single Source Hardening
+
+Status: Complete.
+
+Completed work:
+
+- Added `spec/holon_npu_abi.json` as the single editable ABI/register/descriptor
+  source.
+- Added `tools/gen_abi.py` and generated `rtl/common/npu_pkg.sv`,
+  `include/holon_npu_regs.h`, `include/holon_npu_desc.h`, and
+  `docs/INTERFACE.md` from the schema.
+- Replaced ABI consistency checking with direct generator check mode and
+  registered `tools/gen_abi.py --check` as the `abi_generate_check` CTest.
+- Added `rtl/common/npu_assert.svh` and protocol/design assertions for
+  valid-ready, AXI-Lite, AXI4, control, DMA, command, GEMM, and top-level read
+  arbitration invariants.
+- Added expected-fail `npu_assert_fail` CTest to prove assertions are active.
+- Added a dedicated `coverage` preset, Verilator structural coverage
+  instrumentation, typed C++ coverage-point registry, RAII-style `test_run`
+  runtime, per-test required/hit manifests, and `tools/check_coverage.py`.
+- Refactored C++ coverage configuration to use explicit `--tb-coverage-root`
+  CLI arguments and a single typed runtime that writes Verilator raw coverage
+  directly.
+- Added deterministic constrained-random GEMM/tile shape generation shared by
+  `npu_gemm_tb` and `npu_top_tb`.
+- Collapsed coverage raw-data writing into the typed C++ runtime and removed
+  the two previous coverage-writer translation units.
+- Fixed a valid-ready protocol violation exposed by the new assertions in the
+  GEMM writeback stream path by holding write payload valid/data stable while
+  the write DMA is backpressured.
+- Updated CI to run the coverage gate and upload coverage artifacts.
+- Updated roadmap, architecture, verification, decision, getting-started,
+  README, changelog, and progress documentation for v1.3.
+
+Verification commands:
+
+- `python3 -m json.tool spec/holon_npu_abi.json`
+- `python3 tools/gen_abi.py --check`
+- `python3 tools/check_rtl_interface_usage.py`
+- `cmake --preset debug`
+- `cmake --build --preset debug --parallel 2`
+- `ctest --preset debug -j 2 --output-on-failure`
+- `cmake --build --preset debug --target lint --parallel 2`
+- `ctest --preset lint -j 2 --output-on-failure`
+- `cmake --preset regression`
+- `cmake --build --preset regression --parallel 2`
+- `ctest --preset regression -j 2 --output-on-failure`
+- `cmake --preset coverage`
+- `cmake --build --preset coverage --parallel 2`
+- `ctest --preset coverage -j 2 --output-on-failure`
+- `python3 tools/check_coverage.py --build-dir build/coverage`
+
+Results:
+
+- ABI JSON parsed successfully.
+- Generated ABI check passed and byte-compared all tracked generated outputs.
+- RTL interface-usage guard passed.
+- Debug configure and build completed successfully.
+- Debug CTest preset passed `13/13` tests with assertions enabled, including
+  the expected-fail assertion smoke test.
+- Lint aggregate target passed, and lint CTest preset passed `8/8` tests.
+- Regression configure, optimized build, and full CTest preset passed `23/23`
+  tests.
+- Coverage configure/build/test passed `24/24` tests.
+- `tools/check_coverage.py` reported `11` raw coverage files and all `55`
+  required functional coverage points hit.
+
+Known limitations:
+
+- Structural line/toggle/FSM coverage reports are generated but do not yet have
+  percentage thresholds.
+- v1 still intentionally supports one descriptor in flight and one outstanding
+  AXI4 read/write burst per DMA engine.
+- v1 still requires 16-byte aligned descriptor, tensor base, and row-stride
+  values.
+- v1 still implements signed INT8 GEMM with signed INT32 output only; vector
+  post-processing, BF16, FP8, graph scheduling, convolution, full softmax,
+  LayerNorm, GELU, multiple queues, multiple contexts, and address translation
+  remain outside v1 scope.
+
+Remaining issues:
+
+- None known for v1.3 verification and ABI source hardening.
+
+Next step:
+
+- Future public ABI changes must start from `spec/holon_npu_abi.json`, update
+  decision records when software-visible behavior changes, regenerate outputs,
+  and keep the v1.3 verification gate passing.
