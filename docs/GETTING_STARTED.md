@@ -920,6 +920,7 @@ cmake --preset debug
 - `Debug` 和 `RelWithDebInfo` 构建类型。
 - `Ninja` generator。
 - `debug`、`lint`、`regression`、`coverage` 四个 CTest 入口。
+- 每个 CTest preset 默认使用保守并发 `jobs=2`；命令行 `-j N` 可以覆盖。
 
 不要把子系统快捷命令或架构版本信息放进 preset。单项构建用 `--target`，单项测试用
 `ctest -R`。
@@ -972,10 +973,12 @@ python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
 coverage 使用独立的 `RelWithDebInfo` 构建目录 `build/coverage`，因为 Verilator
-的 line/toggle/FSM/user coverage 插桩会改变生成模型和编译参数。当前硬门槛是命名
-functional coverpoint 必须全部命中；结构覆盖率报告会生成但暂不设百分比阈值。
-CTest 会显式传入 `--tb-coverage-root`，C++ test runtime 会在该目录下写 raw
-coverage、required manifest 和 hit manifest。
+的 coverage 插桩会改变生成模型和编译参数。coverage preset 通过 Verilator
+CMake `COVERAGE` 路径启用结构/user coverage；C++ test runtime 始终以普通
+C++ 代码拥有 raw coverage 写入逻辑，不使用预处理器宏切换行为。当前硬门槛是
+命名 functional coverpoint 必须全部命中；结构覆盖率报告会生成但暂不设百分比
+阈值。CTest 会显式传入 `--tb-coverage-root`，C++ test runtime 会在该目录下写
+raw coverage、required manifest 和 hit manifest。
 
 ## 8.7 单独跑某类测试
 
@@ -1030,9 +1033,9 @@ sim/
   GEMM/tile shape。
 - `sim/tb_coverage.hpp` / `sim/tb_coverage.cpp`：C++26 typed test runtime，
   提供 `test_run`、`coverage_point` enum、constexpr coverage registry 和
-  Verilator raw coverage 写入。
+  Verilator raw coverage 写入；coverage 插桩由 coverage preset 控制。
 - `sim/assert_fail_tb.cpp`：预期失败的 assertion smoke test，用来证明 assertion
-  真的处于开启状态。
+  真的处于开启状态。assertion 执行由 Verilator 原生 `--assert` 启用。
 
 ## 9.1 smoke_tb.cpp
 

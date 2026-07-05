@@ -1,5 +1,4 @@
 /* verilator lint_off DECLFILENAME */
-`include "npu_assert.svh"
 
 module npu_control_regs_core #(
     parameter int unsigned ADDR_W = 12,
@@ -387,17 +386,20 @@ module npu_control_regs_core #(
         end
     end
 
-    `HOLON_NPU_ASSERT(control_status_state_is_legal,
+    control_status_state_is_legal: assert property (
         @(posedge s_axil.aclk_i) disable iff (!s_axil.aresetn_i)
-            !(busy_q && (done_q || error_q)) && !(done_q && error_q))
-    `HOLON_NPU_ASSERT(control_irq_output_matches_state,
+            !(busy_q && (done_q || error_q)) && !(done_q && error_q)
+    );
+    control_irq_output_matches_state: assert property (
         @(posedge s_axil.aclk_i) disable iff (!s_axil.aresetn_i)
-            irq_o == |(irq_enable_q & irq_status_q))
-    `HOLON_NPU_ASSERT(control_doorbell_busy_is_rejected,
+            irq_o == |(irq_enable_q & irq_status_q)
+    );
+    control_doorbell_busy_is_rejected: assert property (
         @(posedge s_axil.aclk_i) disable iff (!s_axil.aresetn_i)
             write_fire && (write_addr == REG_DOORBELL) &&
             (write_strb == FULL_STRB) && (write_data == 32'h0000_0001) && busy_q
-            |=> bvalid_q && (bresp_q == AXI_RESP_SLVERR) && !command_start_q)
+            |=> bvalid_q && (bresp_q == AXI_RESP_SLVERR) && !command_start_q
+    );
 
 endmodule
 /* verilator lint_on DECLFILENAME */

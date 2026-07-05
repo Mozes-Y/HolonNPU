@@ -40,12 +40,13 @@ def as_int(value: int | str) -> int:
     return int(value, 10)
 
 
-def c_u32(value: int | str) -> str:
-    return f"UINT32_C(0x{as_int(value):08X})"
+def c_hex(value: int | str, width: int = 8) -> str:
+    return f"0x{as_int(value):0{width}X}u"
 
 
-def c_off(value: int | str) -> str:
-    return f"UINT32_C(0x{as_int(value):02X})"
+def c_const(type_name: str, name: str, value: int | str, width: int = 8, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"static constexpr {type_name} {name}{spacer}= {c_hex(value, width)};"
 
 
 def sv_u32(value: int | str) -> str:
@@ -163,53 +164,52 @@ def generated_regs_h(schema: dict[str, Any]) -> str:
 
     lines = [
         f"/* {BANNER} */",
-        "#ifndef HOLON_NPU_REGS_H",
-        "#define HOLON_NPU_REGS_H",
+        "#pragma once",
         "",
         "#include <stdint.h>",
         "",
-        f"#define HOLON_NPU_DEVICE_ID_RESET     {c_u32(caps['device_id_reset'])}",
-        f"#define HOLON_NPU_ABI_VERSION_RESET   {c_u32(abi['version_reset'])}",
-        f"#define HOLON_NPU_CAP0_RESET          {c_u32(caps['cap0_reset'])}",
-        f"#define HOLON_NPU_CAP1_RESET          {c_u32(caps['cap1_reset'])}",
+        c_const("uint32_t", "HOLON_NPU_DEVICE_ID_RESET", caps["device_id_reset"], pad=36),
+        c_const("uint32_t", "HOLON_NPU_ABI_VERSION_RESET", abi["version_reset"], pad=36),
+        c_const("uint32_t", "HOLON_NPU_CAP0_RESET", caps["cap0_reset"], pad=36),
+        c_const("uint32_t", "HOLON_NPU_CAP1_RESET", caps["cap1_reset"], pad=36),
         "",
-        f"#define HOLON_NPU_ABI_MAJOR           UINT32_C({abi['major']})",
-        f"#define HOLON_NPU_ABI_MINOR           UINT32_C({abi['minor']})",
-        f"#define HOLON_NPU_DESC_SIZE           UINT32_C({constants['desc_size']})",
-        f"#define HOLON_NPU_DESC_ALIGN          UINT32_C({constants['desc_align']})",
-        f"#define HOLON_NPU_TENSOR_ALIGN        UINT32_C({constants['tensor_align']})",
-        f"#define HOLON_NPU_ARRAY_K             UINT32_C({constants['array_k']})",
-        f"#define HOLON_NPU_ARRAY_N             UINT32_C({constants['array_n']})",
-        f"#define HOLON_NPU_INPUT_BITS          UINT32_C({constants['input_bits']})",
-        f"#define HOLON_NPU_ACC_BITS            UINT32_C({constants['acc_bits']})",
+        c_const("uint8_t", "HOLON_NPU_ABI_MAJOR", abi["major"], width=2, pad=36),
+        c_const("uint8_t", "HOLON_NPU_ABI_MINOR", abi["minor"], width=2, pad=36),
+        c_const("uint16_t", "HOLON_NPU_DESC_SIZE", constants["desc_size"], width=4, pad=36),
+        c_const("uint32_t", "HOLON_NPU_DESC_ALIGN", constants["desc_align"], pad=36),
+        c_const("uint32_t", "HOLON_NPU_TENSOR_ALIGN", constants["tensor_align"], pad=36),
+        c_const("uint16_t", "HOLON_NPU_ARRAY_K", constants["array_k"], width=4, pad=36),
+        c_const("uint16_t", "HOLON_NPU_ARRAY_N", constants["array_n"], width=4, pad=36),
+        c_const("uint16_t", "HOLON_NPU_INPUT_BITS", constants["input_bits"], width=4, pad=36),
+        c_const("uint16_t", "HOLON_NPU_ACC_BITS", constants["acc_bits"], width=4, pad=36),
         "",
     ]
 
     macro_width = max(len(f"HOLON_NPU_REG_{reg['name']}") for reg in non_reserved_regs)
     for reg in non_reserved_regs:
         name = f"HOLON_NPU_REG_{reg['name']}"
-        lines.append(f"#define {name:<{macro_width}} {c_off(reg['offset'])}")
+        lines.append(c_const("uint32_t", name, reg["offset"], width=2, pad=macro_width))
 
     field_macros: list[tuple[str, str]] = []
     for reg in schema["registers"]:
         for field in reg.get("fields", []):
             if "macro" in field:
-                field_macros.append((f"HOLON_NPU_{field['macro']}", c_u32(field["value"])))
+                field_macros.append((f"HOLON_NPU_{field['macro']}", field["value"]))
         if "valid_mask_macro" in reg:
-            field_macros.append((f"HOLON_NPU_{reg['valid_mask_macro']}", c_u32(reg["valid_mask"])))
+            field_macros.append((f"HOLON_NPU_{reg['valid_mask_macro']}", reg["valid_mask"]))
 
     lines.append("")
     field_width = max(len(name) for name, _ in field_macros)
     for name, value in field_macros:
-        lines.append(f"#define {name:<{field_width}} {value}")
+        lines.append(c_const("uint32_t", name, value, pad=field_width))
 
     lines.append("")
     err_width = max(len(f"HOLON_NPU_ERR_{err['name']}") for err in schema["errors"])
     for err in schema["errors"]:
         name = f"HOLON_NPU_ERR_{err['name']}"
-        lines.append(f"#define {name:<{err_width}} UINT32_C({err['value']})")
+        lines.append(c_const("uint32_t", name, err["value"], width=2, pad=err_width))
 
-    lines.extend(["", "#endif", ""])
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -220,33 +220,32 @@ def generated_desc_h(schema: dict[str, Any]) -> str:
 
     lines = [
         f"/* {BANNER} */",
-        "#ifndef HOLON_NPU_DESC_H",
-        "#define HOLON_NPU_DESC_H",
+        "#pragma once",
         "",
         "#include <stddef.h>",
         "#include <stdint.h>",
         "",
         '#include "holon_npu_regs.h"',
         "",
-        f"#define HOLON_NPU_OPCODE_{opcode['name']} UINT32_C({opcode['value']})",
+        c_const("uint8_t", f"HOLON_NPU_OPCODE_{opcode['name']}", opcode["value"], width=2),
         "",
     ]
 
-    flag_names = [(f"HOLON_NPU_DESC_FLAG_{flag['name']}", c_u32(flag["value"])) for flag in desc["flags"]]
-    flag_names.append(("HOLON_NPU_DESC_FLAG_VALID_MASK", c_u32(desc["flags_valid_mask"])))
+    flag_names = [(f"HOLON_NPU_DESC_FLAG_{flag['name']}", flag["value"]) for flag in desc["flags"]]
+    flag_names.append(("HOLON_NPU_DESC_FLAG_VALID_MASK", desc["flags_valid_mask"]))
     flag_width = max(len(name) for name, _ in flag_names)
     for name, value in flag_names:
-        lines.append(f"#define {name:<{flag_width}} {value}")
+        lines.append(c_const("uint32_t", name, value, pad=flag_width))
 
     lines.append("")
     offset_macros: list[tuple[str, str]] = []
     for field in desc["fields"]:
         suffix = field.get("macro_suffix")
         if suffix:
-            offset_macros.append((f"HOLON_NPU_DESC_OFF_{suffix}", c_off(field["offset"])))
+            offset_macros.append((f"HOLON_NPU_DESC_OFF_{suffix}", field["offset"]))
     off_width = max(len(name) for name, _ in offset_macros)
     for name, value in offset_macros:
-        lines.append(f"#define {name:<{off_width}} {value}")
+        lines.append(c_const("uint32_t", name, value, width=2, pad=off_width))
 
     lines.extend(["", f"typedef struct {desc['struct_name']} {{"])
     for field in desc["fields"]:
@@ -272,14 +271,8 @@ def generated_desc_h(schema: dict[str, Any]) -> str:
 
     lines.extend(
         [
-            "#if defined(__cplusplus)",
-            "#define HOLON_NPU_STATIC_ASSERT static_assert",
-            "#else",
-            "#define HOLON_NPU_STATIC_ASSERT _Static_assert",
-            "#endif",
-            "",
-            "HOLON_NPU_STATIC_ASSERT(sizeof(holon_npu_gemm_desc_t) == HOLON_NPU_DESC_SIZE,",
-            '                        "holon_npu_gemm_desc_t must be 128 bytes");',
+            "static_assert(sizeof(holon_npu_gemm_desc_t) == HOLON_NPU_DESC_SIZE,",
+            '              "holon_npu_gemm_desc_t must be 128 bytes");',
         ]
     )
 
@@ -290,20 +283,12 @@ def generated_desc_h(schema: dict[str, Any]) -> str:
         )
         lines.extend(
             [
-                f"HOLON_NPU_STATIC_ASSERT(offsetof(holon_npu_gemm_desc_t, {field['name']}) == {expected},",
-                f'                        "descriptor {field["name"]} offset mismatch");',
+                f"static_assert(offsetof(holon_npu_gemm_desc_t, {field['name']}) == {expected},",
+                f'              "descriptor {field["name"]} offset mismatch");',
             ]
         )
 
-    lines.extend(
-        [
-            "",
-            "#undef HOLON_NPU_STATIC_ASSERT",
-            "",
-            "#endif",
-            "",
-        ]
-    )
+    lines.append("")
     return "\n".join(lines)
 
 

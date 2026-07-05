@@ -1,5 +1,4 @@
 /* verilator lint_off DECLFILENAME */
-`include "npu_assert.svh"
 
 module npu_top_core #(
     parameter int unsigned AXIL_ADDR_W = 12,
@@ -243,16 +242,19 @@ module npu_top_core #(
         .m_axi_write(gemm_axi)
     );
 
-    `HOLON_NPU_ASSERT(top_read_owner_stable_until_rlast,
+    top_read_owner_stable_until_rlast: assert property (
         @(posedge clk_i) disable iff (!rst_ni || control_soft_reset)
             (read_owner_q != READ_OWNER_NONE) && !read_last_fire
-            |=> read_owner_q == $past(read_owner_q))
-    `HOLON_NPU_ASSERT(top_read_response_has_single_owner,
+            |=> read_owner_q == $past(read_owner_q)
+    );
+    top_read_response_has_single_owner: assert property (
         @(posedge clk_i) disable iff (!rst_ni || control_soft_reset)
-            !(cmd_axi.rvalid && gemm_axi.rvalid))
-    `HOLON_NPU_ASSERT(top_no_unowned_read_response,
+            !(cmd_axi.rvalid && gemm_axi.rvalid)
+    );
+    top_no_unowned_read_response: assert property (
         @(posedge clk_i) disable iff (!rst_ni || control_soft_reset)
-            (read_owner_q == READ_OWNER_NONE) |-> !cmd_axi.rvalid && !gemm_axi.rvalid)
+            (read_owner_q == READ_OWNER_NONE) |-> !cmd_axi.rvalid && !gemm_axi.rvalid
+    );
 
 endmodule
 /* verilator lint_on DECLFILENAME */

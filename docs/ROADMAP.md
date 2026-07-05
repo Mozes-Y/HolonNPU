@@ -756,7 +756,7 @@ early.
 Allowed edit scope:
 
 - ABI schema, generator, generated ABI outputs, and ABI check tooling.
-- SVA assertion macros and local protocol/design invariants.
+- Native SVA assertions/coverpoints and local protocol/design invariants.
 - Coverage preset, typed C++ test runtime, and coverage checker.
 - Deterministic constrained-random GEMM/top test generation.
 - CI, roadmap, architecture, verification, decision, progress, and getting

@@ -1168,9 +1168,10 @@ Context:
 
 Decision:
 
-- Add `rtl/common/npu_assert.svh` with project assertion and cover macros.
+- Add native named SystemVerilog `assert property` and `cover property`
+  declarations directly in interface and product RTL.
 - Enable assertions by default in debug, regression, and coverage builds with
-  `HOLON_NPU_ASSERT_ON`.
+  Verilator native `--assert`.
 - Add interface-level stability assertions to `npu_vr_if`, `npu_axi_lite_if`,
   and `npu_axi4_if`.
 - Add local invariants in control, DMA, command, GEMM, and top modules for
@@ -1202,8 +1203,8 @@ Impact:
 - No public ABI or feature semantics change.
 - Some testbenches had to obey stricter valid-ready source rules because the
   assertions correctly enforce product protocol behavior.
-- Future RTL modules that add bus-like boundaries should use the existing
-  assertion macros and interface contracts.
+- Future RTL modules that add bus-like boundaries should use native named SVA
+  assertions and interface contracts.
 
 ## ADR-0024: Functional Coverage Gate With Structural Coverage Artifacts
 
@@ -1224,7 +1225,8 @@ Decision:
 
 - Add one dedicated `coverage` configure/build/test preset using
   `RelWithDebInfo` and `HOLON_NPU_ENABLE_COVERAGE=ON`.
-- Coverage builds pass Verilator line, toggle, FSM, and user coverage options.
+- Coverage builds use Verilator CMake's native `COVERAGE` path, which compiles
+  the Verilator coverage runtime and enables structural/user coverage.
 - C++ testbenches use `holon_npu_tb::test_run` to parse test-only CLI options,
   call Verilator argument setup, record typed functional coverage, and return a
   uniform exit code.
@@ -1233,8 +1235,10 @@ Decision:
 - CTest passes `--tb-coverage-root` explicitly in coverage builds.
 - The runtime writes raw coverage data plus per-test required/hit manifests
   under `build/coverage/coverage/`.
-- The typed C++ runtime writes Verilator raw coverage directly; CMake no longer
-  selects separate no-op and Verilator backend translation units.
+- The typed C++ runtime writes Verilator raw coverage directly without
+  preprocessor feature branches. Non-coverage builds link the small Verilator
+  coverage runtime as a normal test-runtime dependency; coverage builds still
+  use Verilator CMake `COVERAGE` for structural/user instrumentation.
 - `tools/check_coverage.py` merges Verilator coverage, emits report artifacts,
   and compares required/hit manifests without hardcoding the coverage point
   list in Python.
@@ -1252,9 +1256,57 @@ Rationale:
 - Explicit CLI configuration is more inspectable than environment-variable
   side channels.
 - Keeping raw coverage writing inside the runtime removes a tiny link-time
-  backend seam while keeping testbench source independent of build mode.
+  backend seam and avoids C++ behavior macros.
 - Delaying structural thresholds avoids arbitrary numbers while still producing
   data needed to set meaningful thresholds later.
+
+## ADR-0026: C23 Macro-Free ABI Constants And Target-Centric CMake
+
+Status: Accepted.
+
+Date: 2026-07-05.
+
+Context:
+
+- The generated C ABI headers used preprocessor macros for public constants
+  because the project originally targeted C11.
+- C23 provides `static constexpr`, allowing typed header-only compile-time
+  constants without project-owned macro definitions.
+- The root CMake file still used global source-list variables for RTL groups,
+  which made ownership less explicit and forced static checks to parse legacy
+  source-set names.
+
+Decision:
+
+- Require C23 for the C driver and generated ABI headers while keeping C++26
+  for testbenches.
+- Generate public ABI/register/descriptor constants as `static constexpr`
+  typed C constants and keep `__cplusplus` linkage branches where needed.
+- Remove project-owned feature macros from C++, CMake, and RTL verification
+  paths; native Verilator flags and CMake target properties express build
+  behavior.
+- Refactor CMake around semantic source targets and `target_sources()`,
+  including `FILE_SET HEADERS` for public C/C++ header boundaries.
+- Split Verilator executable construction from CTest registration, and split
+  lint target construction from lint test registration.
+- Add `tools/check_macro_policy.py` to prevent project-owned behavior macros
+  from returning.
+
+Rationale:
+
+- C23 `static constexpr` keeps C ABI constants typed, compile-time, and
+  header-only without the preprocessor.
+- Target-centric CMake makes source ownership inspectable at the target that
+  consumes the files instead of in directory-level variables.
+- Separate helper responsibilities make future simulation targets easier to
+  extend without coupling build behavior to CTest registration.
+
+Impact:
+
+- C source compatibility changes: users must consume `HOLON_NPU_*` constants
+  as C23 constexpr objects, not macros.
+- ABI values, descriptor layout, register offsets, function names, CTest names,
+  and preset names remain unchanged.
 
 Alternatives:
 

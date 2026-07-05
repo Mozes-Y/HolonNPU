@@ -1,5 +1,4 @@
 /* verilator lint_off UNUSEDSIGNAL */
-`include "npu_assert.svh"
 
 interface npu_axi_lite_if #(
     parameter int unsigned ADDR_W = 12,
@@ -73,28 +72,35 @@ interface npu_axi_lite_if #(
         input  rready
     );
 
-    `HOLON_NPU_ASSERT(axil_aw_stable_until_ready,
+    axil_aw_stable_until_ready: assert property (
         @(posedge aclk_i) disable iff (!aresetn_i)
-            awvalid && !awready |=> awvalid && $stable(awaddr))
-    `HOLON_NPU_ASSERT(axil_w_stable_until_ready,
+            awvalid && !awready |=> awvalid && $stable(awaddr)
+    );
+    axil_w_stable_until_ready: assert property (
         @(posedge aclk_i) disable iff (!aresetn_i)
-            wvalid && !wready |=> wvalid && $stable(wdata) && $stable(wstrb))
-    `HOLON_NPU_ASSERT(axil_b_stable_until_ready,
+            wvalid && !wready |=> wvalid && $stable(wdata) && $stable(wstrb)
+    );
+    axil_b_stable_until_ready: assert property (
         @(posedge aclk_i) disable iff (!aresetn_i)
-            bvalid && !bready |=> bvalid && $stable(bresp))
-    `HOLON_NPU_ASSERT(axil_ar_stable_until_ready,
+            bvalid && !bready |=> bvalid && $stable(bresp)
+    );
+    axil_ar_stable_until_ready: assert property (
         @(posedge aclk_i) disable iff (!aresetn_i)
-            arvalid && !arready |=> arvalid && $stable(araddr))
-    `HOLON_NPU_ASSERT(axil_r_stable_until_ready,
+            arvalid && !arready |=> arvalid && $stable(araddr)
+    );
+    axil_r_stable_until_ready: assert property (
         @(posedge aclk_i) disable iff (!aresetn_i)
-            rvalid && !rready |=> rvalid && $stable(rdata) && $stable(rresp))
+            rvalid && !rready |=> rvalid && $stable(rdata) && $stable(rresp)
+    );
 
-    `HOLON_NPU_COVER(axil_write_response_seen,
+    axil_write_response_seen: cover property (
         @(posedge aclk_i) disable iff (!aresetn_i)
-            bvalid && bready)
-    `HOLON_NPU_COVER(axil_read_response_seen,
+            bvalid && bready
+    );
+    axil_read_response_seen: cover property (
         @(posedge aclk_i) disable iff (!aresetn_i)
-            rvalid && rready)
+            rvalid && rready
+    );
 
 endinterface
 /* verilator lint_on UNUSEDSIGNAL */

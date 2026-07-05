@@ -1581,3 +1581,109 @@ Next step:
 - Future public ABI changes must start from `spec/holon_npu_abi.json`, update
   decision records when software-visible behavior changes, regenerate outputs,
   and keep the v1.3 verification gate passing.
+
+## Build/Test Runtime Guardrail Fixes
+
+Status: Complete.
+
+Completed work:
+
+- Removed the unconditional CMake dependency on `verilated_cov.cpp` from
+  non-coverage configure paths.
+- Routed coverage builds through Verilator CMake `COVERAGE` support and kept
+  `VerilatedCov` includes/calls private to coverage-compiled test runtime code.
+- Enabled Verilator native `--assert` whenever project assertions are enabled,
+  so `npu_assert_fail` genuinely exercises runtime SVA behavior.
+- Added conservative `jobs=2` default execution parallelism to all CTest
+  presets while preserving command-line `-j` override behavior.
+
+Verification commands:
+
+- `python3 -m json.tool CMakePresets.json`
+- `cmake --list-presets=test`
+- `python3 tools/gen_abi.py --check`
+- `python3 tools/check_rtl_interface_usage.py`
+- `cmake --preset debug`
+- `cmake --build --preset debug --parallel 2`
+- `cmake --build --preset debug --target lint --parallel 2`
+- `ctest --preset debug --output-on-failure`
+- `ctest --preset lint --output-on-failure`
+- `cmake --preset regression`
+- `cmake --build --preset regression --parallel 2`
+- `ctest --preset regression --output-on-failure`
+- `cmake --preset coverage`
+- `cmake --build --preset coverage --parallel 2`
+- `ctest --preset coverage --output-on-failure`
+- `python3 tools/check_coverage.py --build-dir build/coverage`
+
+Results:
+
+- Preset JSON parsing passed and the active test presets remain `debug`,
+  `lint`, `regression`, and `coverage`.
+- Generated ABI and RTL interface-usage checks passed.
+- Debug configure/build passed; the debug Ninja graph has no `verilated_cov`
+  dependency.
+- Debug CTest passed `13/13`, including the expected-fail `npu_assert_fail`
+  assertion smoke test.
+- Lint CTest passed `8/8`.
+- Regression configure/build/test passed `23/23`.
+- Coverage configure/build/test passed `24/24`; coverage links through
+  Verilator CMake `COVERAGE` support.
+- Coverage checker passed with `11` raw files and all `55` required functional
+  points hit.
+
+## C23 Macro-Free ABI And Target-Centric CMake Modernization
+
+Status: Complete.
+
+Completed work:
+
+- Upgraded the C language baseline to C23 while keeping C++26.
+- Regenerated ABI C headers with `static constexpr` constants instead of
+  project-owned `HOLON_NPU_*` constant macros.
+- Removed the project assertion/coverage macro wrapper and replaced all RTL
+  verification hooks with native named `assert property` and `cover property`
+  declarations.
+- Removed the C++ test-runtime coverage feature macro; `VerilatedCov` is now a
+  normal test-runtime dependency, while coverage instrumentation remains
+  controlled by Verilator CMake `COVERAGE`.
+- Refactored CMake source ownership around semantic source targets,
+  `target_sources()`, `FILE_SET HEADERS`, and separate helpers for executable
+  construction versus CTest registration.
+- Added `tools/check_macro_policy.py` and registered it as a fast/static CTest
+  guard.
+
+Verification commands:
+
+- `python3 -m json.tool CMakePresets.json`
+- `cmake --list-presets`
+- `cmake --list-presets=build`
+- `cmake --list-presets=test`
+- `python3 tools/gen_abi.py --check`
+- `python3 tools/check_rtl_interface_usage.py`
+- `python3 tools/check_macro_policy.py`
+- `cmake --preset debug`
+- `cmake --build --preset debug --parallel 2`
+- `ctest --preset debug --output-on-failure`
+- `ctest --preset lint --output-on-failure`
+- `cmake --preset regression`
+- `cmake --build --preset regression --parallel 2`
+- `ctest --preset regression --output-on-failure`
+- `cmake --preset coverage`
+- `cmake --build --preset coverage --parallel 2`
+- `ctest --preset coverage --output-on-failure`
+- `python3 tools/check_coverage.py --build-dir build/coverage`
+
+Results:
+
+- Preset JSON parsing and preset listing passed.
+- Generated ABI check, RTL interface-usage check, macro-policy check, and
+  whitespace diff check passed.
+- Debug configure/build passed; debug CTest passed `14/14`, including the
+  expected-fail native SVA assertion smoke test.
+- The generic `lint` build target passed; lint CTest passed `8/8`.
+- Regression configure/build passed; regression CTest passed `24/24`.
+- Coverage configure/build passed; coverage CTest passed `25/25`, including
+  the coverage checker CTest entry.
+- Standalone coverage checker passed with `11` raw files and all `55` required
+  functional points hit.

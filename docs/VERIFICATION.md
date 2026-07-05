@@ -11,8 +11,8 @@ commands and tests as implementation grows.
 - Testbench language: C++26.
 - Test runner: CTest.
 - Wave debug: Verilator VCD/FST support when enabled by build options.
-- Assertions: SystemVerilog immediate/concurrent assertions under
-  `HOLON_NPU_ASSERT_ON`, enabled by default through CMake.
+- Assertions: native SystemVerilog immediate/concurrent assertions enabled by
+  Verilator `--assert`, which is on by default through CMake.
 - Coverage: Verilator line, toggle, FSM, and user coverage in the dedicated
   `coverage` preset, plus a functional coverage gate checked by
   `tools/check_coverage.py`.
@@ -27,8 +27,8 @@ commands and tests as implementation grows.
 - Tests must fail loudly on protocol errors, mismatched results, unexpected
   warnings, and timeout.
 - Protocol assertions must be enabled in normal debug and regression builds.
-- Functional coverage points must be deterministic and named in
-  `tools/check_coverage.py` before they become a release gate.
+- Functional coverage points must be deterministic and named in the C++
+  `coverage_point` registry before they become a release gate.
 - ABI/register/descriptor definitions must change through
   `spec/holon_npu_abi.json`; generated outputs must not be edited manually.
 - Phase completion requires command results in `docs/PROGRESS.md`.
@@ -82,14 +82,17 @@ Functional coverage points are `enum class coverage_point` values defined in a
 `constexpr` C++ registry, not string literals scattered across tests. CTest
 passes `--tb-coverage-root` explicitly in coverage builds; the runtime writes
 per-test required/hit manifests and Verilator raw coverage data from one C++
-runtime implementation.
+runtime implementation. Coverage builds use the Verilator CMake `COVERAGE`
+path for structural/user instrumentation; non-coverage builds still link the
+small Verilator coverage runtime because the typed C++ runtime owns the raw
+writer without preprocessor feature branches.
 
 ## Assertion Strategy
 
-`rtl/common/npu_assert.svh` defines project assertion and coverage macros.
-Assertions are active when `HOLON_NPU_ASSERT_ON` is defined. Functional cover
-properties are active when `HOLON_NPU_COVER_ON` is defined, which is limited to
-coverage builds.
+RTL uses native named `assert property` and `cover property` declarations. The
+source code does not wrap verification behavior in project macros. Assertions
+run when Verilator is invoked with native `--assert`; structural/user coverage
+is collected only in the coverage preset.
 
 Required assertion scope:
 

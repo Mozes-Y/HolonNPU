@@ -1,5 +1,4 @@
 /* verilator lint_off DECLFILENAME */
-`include "npu_assert.svh"
 
 module npu_gemm_accelerator_core #(
     parameter int unsigned ADDR_W = 64,
@@ -702,26 +701,31 @@ module npu_gemm_accelerator_core #(
         end
     end
 
-    `HOLON_NPU_ASSERT(gemm_terminal_states_exclusive,
+    gemm_terminal_states_exclusive: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            !(done_o && error_o))
-    `HOLON_NPU_ASSERT(gemm_stage_is_legal,
+            !(done_o && error_o)
+    );
+    gemm_stage_is_legal: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
             (stage_o == STAGE_IDLE) || (stage_o == STAGE_LOAD_A) ||
             (stage_o == STAGE_LOAD_B) || (stage_o == STAGE_COMPUTE) ||
             (stage_o == STAGE_STORE) || (stage_o == STAGE_DONE) ||
-            (stage_o == STAGE_ERROR))
-    `HOLON_NPU_ASSERT(gemm_tile_counters_in_bounds,
+            (stage_o == STAGE_ERROR)
+    );
+    gemm_tile_counters_in_bounds: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
             (load_row_q <= 5'd16) && (load_k_q <= 5'd16) &&
             (compute_k_q <= 6'(SYSTOLIC_CYCLES - 1)) &&
-            (store_row_q <= 5'd16) && (store_chunk_q <= 3'd4))
-    `HOLON_NPU_ASSERT(gemm_store_stream_only_in_store_wait,
+            (store_row_q <= 5'd16) && (store_chunk_q <= 3'd4)
+    );
+    gemm_store_stream_only_in_store_wait: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            write_in_valid |-> (state_q == STATE_STORE_WAIT))
-    `HOLON_NPU_ASSERT(gemm_no_writeback_before_k_tiles_complete,
+            write_in_valid |-> (state_q == STATE_STORE_WAIT)
+    );
+    gemm_no_writeback_before_k_tiles_complete: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            (state_q == STATE_STORE_PREP) |-> ((k_base_q + 32'd16) >= k_q))
+            (state_q == STATE_STORE_PREP) |-> ((k_base_q + 32'd16) >= k_q)
+    );
 
 endmodule
 /* verilator lint_on DECLFILENAME */

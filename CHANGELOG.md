@@ -35,6 +35,9 @@ All notable project-level release changes are recorded here.
 - Refactored C++ coverage support into a stdlib-only typed test runtime with
   `coverage_point` enum values, a constexpr registry, explicit CLI coverage
   configuration, and direct Verilator raw coverage writing.
+- Adopted C23 generated ABI constants, native macro-free SVA assertions and
+  coverpoints, target-centric CMake source ownership, and conservative default
+  CTest preset parallelism.
 - Added deterministic constrained-random GEMM/tile shape tests for the GEMM
   accelerator and product top.
 

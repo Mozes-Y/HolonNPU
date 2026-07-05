@@ -48,7 +48,7 @@ python3 tools/check_coverage.py --build-dir build/coverage
 - Ninja.
 - Verilator.
 - C++26-capable compiler.
-- C11-capable compiler for the driver library.
+- C23-capable compiler for the driver library and generated ABI headers.
 - Python 3 for ABI generation, static checks, and coverage checks.
 
 The current local verification environment used CMake 4.3.4, Verilator 5.048,
@@ -225,12 +225,13 @@ The CTest suite covers:
   write error, read-error recovery, and reset-in-flight recovery.
 - Host-side C driver API behavior.
 
-Assertions are enabled by default in debug, regression, and coverage builds.
-The `npu_assert_fail` CTest is marked `WILL_FAIL` so CI proves assertions are
+Assertions are native SystemVerilog properties enabled by default in debug,
+regression, and coverage builds with Verilator's `--assert` option. The
+`npu_assert_fail` CTest is marked `WILL_FAIL` so CI proves assertions are
 active. C++ testbenches use a typed `coverage_point` registry and RAII
-`test_run` runtime; coverage builds pass an explicit `--tb-coverage-root`
-argument and emit raw, merged, info, annotated, required/hit, and functional
-summary artifacts under `build/coverage/coverage/`.
+`test_run` runtime; coverage builds use Verilator CMake `COVERAGE`, pass
+`--tb-coverage-root`, and emit raw, merged, info, annotated, required/hit, and
+functional summary artifacts under `build/coverage/coverage/`.
 
 ## Known v1 Limits
 

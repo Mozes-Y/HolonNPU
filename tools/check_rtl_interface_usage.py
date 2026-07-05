@@ -23,13 +23,18 @@ ALLOWED_FLATTENED_MODULES = {
     "npu_write_dma_test_top",
 }
 
-PRODUCT_SOURCE_SETS = {
-    "NPU_CONTROL_SOURCES",
-    "NPU_DMA_MODULE_SOURCES",
-    "NPU_COMMAND_SOURCES",
-    "NPU_GEMM_SOURCES",
-    "NPU_TOP_SOURCES",
-    "NPU_INTEGRATION_SOURCES",
+PRODUCT_SOURCE_TARGETS = {
+    "holon_npu_rtl_common",
+    "holon_npu_rtl_control",
+    "holon_npu_rtl_command",
+    "holon_npu_rtl_datapath",
+    "holon_npu_rtl_dma",
+    "holon_npu_rtl_gemm",
+    "holon_npu_rtl_interfaces",
+    "holon_npu_rtl_matrix",
+    "holon_npu_rtl_pe",
+    "holon_npu_rtl_pkg",
+    "holon_npu_rtl_top",
 }
 
 EXPECTED_INTERFACE_USERS = {
@@ -104,11 +109,12 @@ def extract_modules(text: str) -> list[tuple[str, str]]:
     return modules
 
 
-def cmake_set_body(name: str, text: str) -> str:
-    match = re.search(rf"set\({re.escape(name)}\n(.*?)\n\)", text, re.S)
-    if match is None:
-        return ""
-    return match.group(1)
+def cmake_sv_source_target_bodies(text: str) -> dict[str, str]:
+    bodies: dict[str, str] = {}
+    pattern = re.compile(r"holon_npu_add_sv_source_target\(\s*([A-Za-z0-9_]+)(.*?)\n\)", re.S)
+    for match in pattern.finditer(text):
+        bodies[match.group(1)] = match.group(2)
+    return bodies
 
 
 def main() -> int:
@@ -160,26 +166,23 @@ def main() -> int:
                     )
 
     cmake = read(CMAKE)
-    for set_name in PRODUCT_SOURCE_SETS:
-        body = cmake_set_body(set_name, cmake)
+    source_targets = cmake_sv_source_target_bodies(cmake)
+
+    for target_name in PRODUCT_SOURCE_TARGETS:
+        body = source_targets.get(target_name, "")
         if "sim/rtl/" in body:
-            fail(errors, f"{set_name} includes a sim/rtl test harness source")
+            fail(errors, f"{target_name} includes a sim/rtl test harness source")
         for suffix in ("_test_wrapper.sv", "_test_top.sv", "_smoke_top.sv"):
             if suffix in body:
-                fail(errors, f"{set_name} includes a {suffix} source")
+                fail(errors, f"{target_name} includes a {suffix} source")
 
     harness_sources = sorted(path for path in files if is_sim_harness(path))
     for path in harness_sources:
-        occurrences = [
-            name
-            for name in re.findall(r"set\((NPU_[A-Za-z0-9_]+)\n(.*?)\n\)", cmake, re.S)
-            if path in name[1]
-        ]
-        set_names = [name for name, _ in occurrences]
-        if not set_names:
-            fail(errors, f"{path} is not referenced by any CMake source set")
-        if not any("_TEST_SOURCES" in name or "_LINT_SOURCES" in name for name in set_names):
-            fail(errors, f"{path} is not referenced by a test/lint CMake source set")
+        target_names = [name for name, body in source_targets.items() if path in body]
+        if not target_names:
+            fail(errors, f"{path} is not referenced by any CMake source target")
+        if not any(name.startswith("holon_npu_sim_") for name in target_names):
+            fail(errors, f"{path} is not referenced by a simulation CMake source target")
 
     if errors:
         print("RTL interface usage check failed:")

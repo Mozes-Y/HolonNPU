@@ -53,6 +53,9 @@
     {
       "name": "debug",
       "configurePreset": "debug",
+      "execution": {
+        "jobs": 2
+      },
       "filter": {
         "include": {
           "label": "fast"
@@ -62,6 +65,9 @@
     {
       "name": "lint",
       "configurePreset": "debug",
+      "execution": {
+        "jobs": 2
+      },
       "filter": {
         "include": {
           "label": "lint"
@@ -70,11 +76,17 @@
     },
     {
       "name": "regression",
-      "configurePreset": "regression"
+      "configurePreset": "regression",
+      "execution": {
+        "jobs": 2
+      }
     },
     {
       "name": "coverage",
-      "configurePreset": "coverage"
+      "configurePreset": "coverage",
+      "execution": {
+        "jobs": 2
+      }
     }
   ]
 }

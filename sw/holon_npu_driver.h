@@ -1,5 +1,4 @@
-#ifndef HOLON_NPU_DRIVER_H
-#define HOLON_NPU_DRIVER_H
+#pragma once
 
 #include <stdint.h>
 
@@ -63,6 +62,4 @@ holon_npu_result_t holon_npu_read_perf(const holon_npu_dev_t* dev, holon_npu_per
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

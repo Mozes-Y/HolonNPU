@@ -1,5 +1,3 @@
-`include "npu_assert.svh"
-
 module npu_command_processor #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128
@@ -346,17 +344,21 @@ module npu_command_processor #(
         end
     end
 
-    `HOLON_NPU_ASSERT(command_terminal_states_exclusive,
+    command_terminal_states_exclusive: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            !(done_o && error_o))
-    `HOLON_NPU_ASSERT(command_invalid_descriptor_never_issues,
+            !(done_o && error_o)
+    );
+    command_invalid_descriptor_never_issues: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            (state_q == STATE_CHECK) && validation_error |-> !command_o.valid)
-    `HOLON_NPU_ASSERT(command_issue_only_after_validation,
+            (state_q == STATE_CHECK) && validation_error |-> !command_o.valid
+    );
+    command_issue_only_after_validation: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            command_o.valid |-> (state_q == STATE_ISSUE) && !validation_error)
-    `HOLON_NPU_ASSERT(command_dma_last_mismatch_is_terminal_error,
+            command_o.valid |-> (state_q == STATE_ISSUE) && !validation_error
+    );
+    command_dma_last_mismatch_is_terminal_error: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            dma_last_mismatch |=> (state_q == STATE_ERR))
+            dma_last_mismatch |=> (state_q == STATE_ERR)
+    );
 
 endmodule

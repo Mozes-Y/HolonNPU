@@ -1,5 +1,4 @@
 /* verilator lint_off UNUSEDSIGNAL */
-`include "npu_assert.svh"
 
 interface npu_vr_if #(
     parameter int unsigned DATA_W = 32
@@ -36,15 +35,18 @@ interface npu_vr_if #(
         input data
     );
 
-    `HOLON_NPU_ASSERT(vr_valid_stable_until_ready,
+    vr_valid_stable_until_ready: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            valid && !ready |=> valid)
-    `HOLON_NPU_ASSERT(vr_data_stable_until_ready,
+            valid && !ready |=> valid
+    );
+    vr_data_stable_until_ready: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            valid && !ready |=> $stable(data))
-    `HOLON_NPU_COVER(vr_handshake_seen,
+            valid && !ready |=> $stable(data)
+    );
+    vr_handshake_seen: cover property (
         @(posedge clk_i) disable iff (!rst_ni)
-            valid && ready)
+            valid && ready
+    );
 
 endinterface
 /* verilator lint_on UNUSEDSIGNAL */

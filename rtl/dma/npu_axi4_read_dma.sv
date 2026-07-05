@@ -1,5 +1,4 @@
 /* verilator lint_off DECLFILENAME */
-`include "npu_assert.svh"
 
 module npu_axi4_read_dma_core #(
     parameter int unsigned ADDR_W = 64,
@@ -235,23 +234,27 @@ module npu_axi4_read_dma_core #(
         end
     end
 
-    `HOLON_NPU_ASSERT(read_dma_terminal_states_exclusive,
+    read_dma_terminal_states_exclusive: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            !(done_o && error_o))
-    `HOLON_NPU_ASSERT(read_dma_burst_profile_is_v1,
+            !(done_o && error_o)
+    );
+    read_dma_burst_profile_is_v1: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
             m_axi.arvalid |->
                 (m_axi.araddr[BEAT_SHIFT-1:0] == '0) &&
                 (m_axi.arsize == 3'(BEAT_SHIFT)) &&
                 (m_axi.arburst == AXI_BURST_INCR) &&
-                (m_axi.arlen <= 8'd15))
-    `HOLON_NPU_ASSERT(read_dma_one_read_outstanding,
+                (m_axi.arlen <= 8'd15)
+    );
+    read_dma_one_read_outstanding: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
-            m_axi.arvalid |-> (state_q == STATE_AR))
-    `HOLON_NPU_ASSERT(read_dma_drains_error_to_terminal,
+            m_axi.arvalid |-> (state_q == STATE_AR)
+    );
+    read_dma_drains_error_to_terminal: assert property (
         @(posedge clk_i) disable iff (!rst_ni)
             (state_q == STATE_DRAIN) && m_axi.rvalid && m_axi.rready && m_axi.rlast
-            |=> (state_q == STATE_ERR))
+            |=> (state_q == STATE_ERR)
+    );
 
 endmodule
 /* verilator lint_on DECLFILENAME */

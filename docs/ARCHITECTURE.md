@@ -363,7 +363,8 @@ v1 convention:
 
 v1.3 treats internal self-checking as part of the architecture contract:
 
-- `rtl/common/npu_assert.svh` defines the assertion and coverage macros.
+- RTL uses native named SystemVerilog `assert property` and `cover property`
+  declarations; project-owned macros must not control verification behavior.
 - `npu_vr_if`, `npu_axi_lite_if`, and `npu_axi4_if` assert stable payloads
   while a source is valid and backpressured.
 - Control, DMA, command, GEMM, and top modules assert local invariants such as
