@@ -361,3 +361,78 @@ Impact:
 - C source compatibility requires C23.
 - ABI values, register map, descriptor layout, and function names are
   unchanged.
+
+## ADR-0027: V2 Programmable NPU Tile
+
+Status: Accepted.
+
+Decision:
+
+- V2 is a programmable NPU tile, not a GEMM post-processing extension.
+- A replaceable frontend implementation runs Holon ISA programs and schedules
+  DMA, frontend-control work, vector work, and matrix work.
+- The V1 B-weight-stationary INT8 matrix engine is reused as compute IP, but
+  the V1 hardcoded descriptor scheduler is not the V2 control model.
+- V2 starts from ABI 3.0 program descriptors rather than extending the V1 GEMM
+  descriptor shape.
+
+Impact:
+
+- V2 implementation begins with frontend boundary, program descriptor, local
+  memory, engine issue fabric, and ISA planning.
+- Program binaries remain compatible across conforming frontend
+  implementations.
+- V1.5 remains the stable ABI 2.0 GEMM accelerator release.
+
+## ADR-0028: Holon-Owned Vector And Matrix ISA
+
+Status: Accepted.
+
+Decision:
+
+- Holon owns the complete V2 program ISA, including frontend-control,
+  predicate, vector, matrix, DMA, CSR/debug, synchronization, and system
+  instructions.
+- Holon vector and matrix instructions are not RVV-compatible encodings.
+- RVC is intentionally rejected for the NPU instruction stream so encoding and
+  decode space can be used by first-class vector, matrix, predicate, DMA, CSR,
+  and synchronization instruction classes.
+- Frontend implementations may borrow RV32-style microarchitecture ideas, but
+  RISC-V compatibility does not define the V2 program binary or constrain Holon
+  vector/matrix instruction encoding.
+- V2 keeps vector-length-agnostic semantics while using instruction formats
+  designed for NPU kernel expressiveness.
+
+Impact:
+
+- The ISA must be documented and eventually represented as machine-checkable
+  metadata before decoder RTL is implemented.
+- Frontend replacement is an implementation choice behind a stable Holon ISA
+  boundary.
+- RVV and RVC compatibility tests are not part of the V2 acceptance criteria.
+
+## ADR-0029: V2 Explicit Scratchpad/DMA Program Model
+
+Status: Accepted.
+
+Decision:
+
+- V2 uses explicit program/data local memory and AXI4 DMA.
+- The first V2 release does not introduce coherent caches, IOMMU integration,
+  multiple contexts, or multiple descriptor queues.
+- Host software submits a program descriptor with code, arguments, entry PC,
+  Holon ISA version requirements, program format, required capabilities, local
+  memory request, completion/status location, and lifecycle flags.
+- The first V2 release loads program code into local program memory and copies
+  argument data into data scratchpad before frontend execution starts.
+- Frontend firmware is responsible for explicit data movement and engine
+  synchronization.
+- DMA completion, local-memory visibility, and host cache-maintenance rules are
+  architectural contracts, not implementation side effects.
+
+Impact:
+
+- The ABI 3.0 schema must describe program descriptors, frontend lifecycle
+  registers, capabilities, and fault codes.
+- Verification must cover SPM bounds, DMA command faults, frontend lifecycle,
+  and program-level execution instead of only descriptor-driven GEMM.

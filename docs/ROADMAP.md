@@ -112,14 +112,31 @@ Non-goals:
 - Structural coverage percentage thresholds.
 - Vector post-processing, BF16, FP8, multiple queues, or multi-context support.
 
-### v2: RVV-Style Vector/Post Engine
+### v2: Programmable NPU Tile
 
 Scope:
 
-- Vector-length-agnostic lane design.
-- Bias, ReLU, requantization, transpose, reduce, and block softmax helper
-  operations.
-- Integration as a post-processing path after v1 GEMM writeback.
+- ABI 3.0 program descriptor model.
+- Replace the v1 hardcoded command/scheduler FSM with a programmable scalar
+  frontend that runs microprograms.
+- Define a pluggable frontend implementation boundary so the control engine can
+  be replaced without changing the Holon ISA or vector/matrix engines.
+- Define a Holon-owned vector/matrix ISA that is not RVV binary compatible and
+  does not reserve RVC encoding holes.
+- Treat the complete V2 program binary ISA as Holon-owned; frontend
+  implementations are replaceable microarchitectures, not ABI owners.
+- Add integer/quant vector/helper operations for masks, elementwise math,
+  shifts, clip/saturate, requantization, reductions, transpose, and tile moves.
+- Re-issue the v1 B-weight-stationary INT8 matrix engine through frontend
+  micro-ops instead of descriptor-specific RTL scheduling.
+- Use explicit scratchpad/local memory plus AXI4 DMA for all data movement.
+
+Non-goals:
+
+- BF16, FP8, cache coherence, IOMMU integration, multiple contexts, multiple
+  descriptor queues, graph scheduling, or multi-NPU tile scaling.
+- RVV binary compatibility or compressed RISC-V instruction compatibility for
+  the NPU vector/matrix instruction stream.
 
 ### v3: Transformer Extensions
 
@@ -147,6 +164,205 @@ Scope:
 - Multiple contexts.
 - IOMMU/address translation interface.
 - Multi-NPU tile expansion.
+
+## v2 Phase Plan
+
+### Phase V2.0: Architecture And Decision Freeze
+
+Goal: freeze the programmable NPU tile direction before ABI 3.0 or RTL work.
+
+Allowed edit scope:
+
+- Roadmap, architecture, interface planning, verification planning, and
+  decisions.
+- New V2 planning documents such as ISA and program-descriptor drafts.
+- No V1.5 ABI schema, generated files, RTL, or driver changes.
+
+Deliverables:
+
+- V2 architecture plan.
+- Holon-owned NPU ISA draft.
+- ABI 3.0 program descriptor draft.
+- Frontend lifecycle and fault model draft.
+- Local memory, DMA ordering, and synchronization draft.
+- Verification strategy for frontend, ISA, vector, DMA, and matrix micro-op
+  integration.
+- Decision records for programmable frontend, custom ISA ownership, and explicit
+  scratchpad/DMA memory model.
+
+Acceptance criteria:
+
+- `docs/ROADMAP.md` identifies V2 as a programmable NPU tile, not a post engine.
+- `docs/ARCHITECTURE.md` links the V2 architecture plan without claiming current
+  RTL implements it.
+- `docs/V2_ISA.md` states that RVC/RVV encoding constraints are rejected to give
+  first-class vector and matrix instructions clean opcode space.
+- `docs/V2_INTERFACE.md` describes the planned ABI 3.0 program descriptor and
+  lifecycle registers at a draft level.
+- V2 drafts define program compatibility fields, local-memory ordering,
+  frontend lifecycle transitions, and matrix micro-op architectural semantics.
+- `docs/DECISIONS.md` records the V2 architectural commitments.
+
+Dependencies:
+
+- v1.5 release baseline complete.
+
+Primary risks:
+
+- Letting RISC-V scalar compatibility constrain the NPU vector/matrix ISA.
+- Accidentally modifying V1.5 generated ABI artifacts before ABI 3.0 is
+  formally implemented.
+
+### Phase V2.1: ISA And ABI Schema
+
+Goal: convert the V2 architecture plan into schema-owned ABI 3.0 artifacts and
+machine-checkable ISA metadata.
+
+Allowed edit scope:
+
+- `spec/holon_npu_abi.json` and generator support for ABI 3.0.
+- ISA metadata/checker files.
+- Generated RTL/C/docs outputs.
+- Focused ABI and decoder tests.
+
+Deliverables:
+
+- Program descriptor fields in the ABI schema.
+- Frontend lifecycle, capability, fault, and debug registers.
+- Holon ISA encoding table with instruction classes for frontend control,
+  predicate, vector, matrix, DMA, CSR, and synchronization.
+- Program compatibility fields for Holon ISA version, program format, required
+  capabilities, and required operation classes.
+- Memory ordering and lifecycle fields required by the V2 interface draft.
+- Program-image local load and argument scratchpad-copy semantics before
+  frontend execution.
+- Generated ABI documentation and public C23 headers for ABI 3.0.
+- Static checker that verifies ISA encoding table uniqueness and reserved-space
+  policy.
+- C++ architectural simulator skeleton for decoder, local-memory, DMA-ordering,
+  vector-state, and matrix micro-op differential tests.
+
+Acceptance criteria:
+
+- `tools/gen_abi.py --check` passes with ABI 3.0 outputs.
+- ISA encoding checks reject duplicate or overlapping instruction classes.
+- Public headers expose program descriptor and capability constants without
+  project-owned C macros.
+- Program descriptor compatibility failures are testable before frontend
+  execution starts.
+- Frontend execution starts only after code and argument visibility rules are
+  satisfied.
+
+Dependencies:
+
+- Phase V2.0 complete.
+
+Primary risks:
+
+- Over-specifying instruction encodings before frontend and vector datapath
+  requirements are validated.
+- Mixing V1 GEMM descriptor compatibility into the new program descriptor model.
+
+### Phase V2.2: Frontend Boundary
+
+Goal: introduce the replaceable frontend implementation boundary and a minimal
+test frontend.
+
+Deliverables:
+
+- `npu_frontend_if` with program memory, local memory, CSR/fault, and engine
+  issue channels.
+- Reference test frontend capable of booting, issuing simple engine commands,
+  and reporting completion/fault.
+- Frontend lifecycle control through ABI 3.0 registers.
+- Precise halt/resume/reset/fault priority semantics.
+
+Acceptance criteria:
+
+- Program descriptor launches the test frontend.
+- Boot, halt, fault, IRQ, and debug snapshot paths are tested.
+- Product RTL remains interface-native; test-only wrappers remain under
+  `sim/rtl/`.
+
+### Phase V2.3: Scratchpad And DMA Command Fabric
+
+Goal: make local memory and DMA programmable resources under frontend control.
+
+Deliverables:
+
+- Program/data scratchpad arbitration.
+- Frontend-issued DMA command queues.
+- AXI4 DMA integration with existing protocol assertions.
+- SPM bounds and DMA fault reporting.
+
+Acceptance criteria:
+
+- Deterministic DMA programs move data between system memory and scratchpad.
+- Invalid SPM ranges and DMA response errors report documented frontend faults.
+- Functional coverage includes DMA command success, backpressure, and fault
+  paths.
+
+### Phase V2.4: Integer/Quant Vector And Helper Engine
+
+Goal: implement the first V2 vector/helper compute engine.
+
+Deliverables:
+
+- Vector register file and predicate/mask state.
+- VLA-style vector length configuration.
+- Integer elementwise, compare, select, shift, clip/saturate, requant,
+  reduction, transpose, and tile-move operations.
+- Frontend-control CSR, address generation, synchronization, and branch/control
+  support.
+- C++ golden model and deterministic constrained-random vector tests.
+
+Acceptance criteria:
+
+- Vector tests cover i8/u8/i16/u16/i32/u32, masks, tails, reductions, and
+  requant edge cases.
+- Program-level tests run vector kernels from a program descriptor.
+- Coverage gates include all required vector instruction classes.
+
+### Phase V2.5: Matrix Engine Re-Issue
+
+Goal: reuse the V1 matrix engine as a frontend-issued matrix resource.
+
+Deliverables:
+
+- Matrix micro-op issue interface.
+- Firmware-controlled tile traversal for INT8 GEMM.
+- Refactored matrix scheduler boundary so hardcoded descriptor-specific
+  scheduling is no longer the control model.
+- Matrix micro-op operands for local A/B/C addresses, active M/N/K shape, edge
+  masks, accumulator control, completion event, and fault result.
+
+Acceptance criteria:
+
+- GEMM launched through a V2 microprogram matches the V1 C++ golden model.
+- Matrix tests cover fixed and randomized tile shapes through the new issue
+  path.
+- The V1 systolic array dataflow remains B-weight-stationary.
+
+### Phase V2.6: Firmware, Driver, And Release Hardening
+
+Goal: provide a minimal V2 software stack and release-quality verification.
+
+Deliverables:
+
+- Program image layout and kernel ABI.
+- C23 submit/wait/status/error/perf driver APIs for program descriptors.
+- Example GEMM, activation, requant, reduce, and transpose kernels.
+- ISA decoder, frontend exception, SPM bounds, DMA fault, vector, matrix, and
+  integration coverage gates.
+
+Acceptance criteria:
+
+- Debug, lint, regression, and coverage presets pass.
+- Functional coverage includes frontend lifecycle, ISA decode, vector classes,
+  DMA faults, matrix issue, IRQ, and fault paths.
+- Program-level differential tests compare RTL-visible execution against the
+  C++ architectural simulator.
+- V2 known limits are documented before release.
 
 ## v1 Phase Plan
 

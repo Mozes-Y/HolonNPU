@@ -12,6 +12,15 @@ and writes INT32 results back to system memory. v1.5 keeps ABI 2.0 values
 unchanged while making the ABI generated from a schema and adding assertions and
 coverage gates around the existing architecture.
 
+V2 architecture planning is tracked separately in:
+
+- `docs/V2_ARCHITECTURE.md`
+- `docs/V2_ISA.md`
+- `docs/V2_INTERFACE.md`
+
+Those documents describe the planned programmable NPU tile. They are not claims
+about current V1.5 RTL behavior.
+
 ## ABI Source Of Truth
 
 The only editable ABI/register/descriptor source is:
@@ -317,18 +326,25 @@ Phase 10 implementation:
   address alignment, row-stride alignment, and minimum row strides before
   filling the descriptor.
 
-### Future Vector Engine
+### Planned V2 Programmable NPU Tile
 
-Responsibilities:
+V2 is not a small vector post-processing block attached after GEMM. It is
+planned as a programmable NPU tile:
 
-- Vector-length-agnostic post-processing after v1.
-- Candidate v2 operations include bias, ReLU, requantization, transpose,
-  reduction, and block softmax helpers.
+- a replaceable frontend implementation runs Holon programs;
+- Holon vector/matrix instructions use a project-owned ISA rather than RVV/RVC
+  compatibility encodings;
+- integer and quantized vector/helper operations become first-class execution
+  resources;
+- the V1 B-weight-stationary matrix engine is reused through frontend-issued
+  matrix micro-ops;
+- explicit scratchpad/local memory plus AXI4 DMA remains the memory model.
 
 Phase ownership:
 
-- Not part of v1.
-- No RTL implementation is allowed before roadmap and decision-log updates.
+- Not part of V1.5 RTL.
+- V2 implementation must begin from the roadmap, decision log, ABI schema, and
+  dedicated V2 documents.
 
 ## v1 Execution Flow
 
@@ -450,4 +466,6 @@ Phase 9 integration:
 
 ## Open Items
 
-- None for v1. Future work must enter through the roadmap and decision log.
+- None for v1.5.
+- V2 is now planned at the architecture level, but no V2 RTL or ABI 3.0 schema
+  implementation is present yet.

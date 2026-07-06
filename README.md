@@ -42,6 +42,23 @@ ctest --preset coverage -j 2 --output-on-failure
 python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
+## V2 Planning
+
+V2 is planned as a programmable NPU tile rather than a GEMM post-processing
+extension. The planned direction is ABI 3.0 program descriptors, a replaceable
+frontend implementation running a stable Holon-owned program ISA, integer/quant
+vector and helper engines, explicit scratchpad/DMA memory, and frontend-issued
+matrix micro-ops reusing the V1 matrix engine.
+
+Planning documents:
+
+- `docs/V2_ARCHITECTURE.md`
+- `docs/V2_ISA.md`
+- `docs/V2_INTERFACE.md`
+
+No V2 RTL or ABI 3.0 schema implementation is present in the v1.5 release
+baseline.
+
 ## Requirements
 
 - CMake 4.0 or newer.

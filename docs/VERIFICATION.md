@@ -124,3 +124,42 @@ Required functional coverage classes:
   reported but not thresholded.
 - Verilator is the active RTL verification backend.
 - The current product scope remains INT8 GEMM only.
+
+## V2 Verification Planning
+
+V2 verification must extend the current assertion, coverage, and deterministic
+random strategy to a programmable NPU tile. The V2 plan does not relax any V1.5
+gate; it adds new gate content once V2 RTL and ABI 3.0 exist.
+
+Required V2 verification classes:
+
+- ABI 3.0 program descriptor generation and byte-checking from schema.
+- Holon ISA encoding table uniqueness and reserved-space checks.
+- Generated decoder and disassembler metadata checks.
+- C++ architectural simulator for frontend state, decode, local memory, DMA
+  ordering, vector state, and matrix micro-ops.
+- Instruction decoder tests for frontend control, predicate, vector, matrix,
+  DMA, CSR, sync, and system classes.
+- Frontend lifecycle tests for boot, start, halt, resume, debug snapshot, done,
+  fault, reset, and IRQ.
+- Scratchpad bounds, DMA command, backpressure, and AXI response fault tests.
+- Vector/helper golden-model tests for integer, predicate, tail, reduction,
+  transpose, requant, clip, and saturation behavior.
+- Matrix micro-op tests proving V1 GEMM behavior through the V2 frontend-issued
+  path.
+- Program-level constrained-random tests that generate deterministic kernels,
+  record seeds, and compare RTL-visible behavior against the C++ architectural
+  simulator.
+
+Required V2 functional coverage classes:
+
+- program descriptor success and validation failures;
+- program compatibility failures for ISA version, program format, required
+  capabilities, and operation classes;
+- frontend lifecycle states and fault classes;
+- every implemented ISA instruction class;
+- predicate and vector-length tail behavior;
+- integer/quant vector operation groups;
+- DMA success, backpressure, and fault paths;
+- matrix issue, completion, and fault paths;
+- IRQ, halt, reset, and debug snapshot paths.

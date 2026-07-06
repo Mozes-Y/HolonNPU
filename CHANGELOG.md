@@ -2,6 +2,18 @@
 
 All notable project-level release changes are recorded here.
 
+## Unreleased
+
+### Added
+
+- Added V2 programmable NPU tile architecture planning.
+- Added a Holon-owned V2 ISA draft that rejects RVV/RVC encoding constraints
+  for the complete V2 program ISA.
+- Added a V2 ABI 3.0 program descriptor interface draft.
+- Added V2 roadmap phases and decision records for the replaceable frontend
+  implementation, explicit scratchpad/DMA memory model, and frontend-issued
+  matrix micro-op direction.
+
 ## v1.5 - 2026-07-06
 
 ### Changed
