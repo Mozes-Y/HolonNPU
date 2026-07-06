@@ -19,8 +19,21 @@ BANNED_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("Verilator project -D feature switch", re.compile(r"-DHOLON_NPU_")),
 )
 
+DOC_STALE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("removed assertion include reference", re.compile(r"\bnpu_assert\.svh\b")),
+    ("removed assertion wrapper reference", re.compile(r"\bHOLON_NPU_" r"ASSERT\b")),
+    ("removed coverage wrapper reference", re.compile(r"\bHOLON_NPU_" r"COVER\b")),
+    (
+        "removed assertion/cover macro wording",
+        re.compile(r"\bassertion/cover " r"macros\b", re.IGNORECASE),
+    ),
+)
+
 SCAN_ROOTS = (
     "CMakeLists.txt",
+    "README.md",
+    "CHANGELOG.md",
+    "docs",
     "include",
     "rtl",
     "sim",
@@ -39,6 +52,7 @@ TEXT_SUFFIXES = {
     ".h",
     ".hpp",
     ".py",
+    ".md",
     ".sv",
     ".svh",
     ".txt",
@@ -69,6 +83,11 @@ def main() -> int:
             for match in pattern.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
                 failures.append(f"{rel}:{line}: banned {description}: {match.group(0).strip()}")
+        if rel == "README.md" or rel.startswith("docs/") or rel == "CHANGELOG.md":
+            for description, pattern in DOC_STALE_PATTERNS:
+                for match in pattern.finditer(text):
+                    line = text.count("\n", 0, match.start()) + 1
+                    failures.append(f"{rel}:{line}: banned {description}: {match.group(0).strip()}")
 
     if failures:
         print("Macro policy check failed:", file=sys.stderr)

@@ -196,6 +196,7 @@ function(holon_npu_add_lint_test)
 endfunction()
 
 add_library(holon_npu_public_headers INTERFACE)
+target_compile_features(holon_npu_public_headers INTERFACE c_std_23)
 target_sources(
   holon_npu_public_headers
   INTERFACE

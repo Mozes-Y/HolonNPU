@@ -5,10 +5,10 @@ implement. Interfaces and ABI details are frozen in `docs/INTERFACE.md`.
 
 ## Scope
 
-v1.3 is a descriptor-driven INT8 GEMM accelerator controlled by a RISC-V CPU. The
+v1.5 is a descriptor-driven INT8 GEMM accelerator controlled by a RISC-V CPU. The
 CPU programs the device through AXI-Lite registers. The NPU fetches one GEMM
 descriptor and matrix data over AXI4, computes with a systolic matrix engine,
-and writes INT32 results back to system memory. v1.3 keeps ABI 2.0 values
+and writes INT32 results back to system memory. v1.5 keeps ABI 2.0 values
 unchanged while making the ABI generated from a schema and adding assertions and
 coverage gates around the existing architecture.
 
@@ -361,7 +361,7 @@ v1 convention:
 
 ## Assertions And Coverage Hooks
 
-v1.3 treats internal self-checking as part of the architecture contract:
+v1.5 treats internal self-checking as part of the architecture contract:
 
 - RTL uses native named SystemVerilog `assert property` and `cover property`
   declarations; project-owned macros must not control verification behavior.

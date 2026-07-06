@@ -41,10 +41,10 @@ Prohibited for v1:
 
 ## Product Goal
 
-v1.3 is a RISC-V controlled INT8 GEMM accelerator exposed through an
-`AXI-Lite` control plane and `AXI4` DMA data movement. The matrix core is a
-parameterized `16x16` B-weight-stationary systolic array with INT32
-accumulation. v1.3 adds generated ABI artifacts, protocol assertions,
+v1.5 is the final V1-generation RISC-V controlled INT8 GEMM accelerator exposed
+through an `AXI-Lite` control plane and `AXI4` DMA data movement. The matrix
+core is a parameterized `16x16` B-weight-stationary systolic array with INT32
+accumulation. It includes generated ABI artifacts, protocol assertions,
 functional coverage gating, and deterministic constrained-random tile
 verification without changing the ABI 2.0 values.
 
@@ -768,7 +768,7 @@ Deliverables:
 - `tools/gen_abi.py` generating `npu_pkg.sv`, public C headers, and
   `docs/INTERFACE.md`.
 - `tools/gen_abi.py --check` registered directly as the ABI generation CTest.
-- `rtl/common/npu_assert.svh` plus assertions in protocol interfaces and key
+- Native SVA assertions and coverpoints in protocol interfaces and key
   control/DMA/command/GEMM/top modules.
 - Expected-fail assertion smoke test proving assertions are active.
 - `coverage` configure/build/test preset, typed C++ `test_run` runtime,
@@ -801,4 +801,5 @@ Primary risks:
 
 ## Current Phase
 
-The active phase is the latest incomplete phase recorded in `docs/PROGRESS.md`.
+The current baseline is v1.5 final V1-generation complete. New feature work
+must add a new roadmap phase and decision entry before implementation.

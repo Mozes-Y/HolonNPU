@@ -233,7 +233,7 @@ C[m,n] = sum(k: 0..K-1) int32(A[m,k]) * int32(B[k,n])
 - C elements are signed INT32.
 - Accumulation uses signed INT32 wraparound semantics matching two's-complement hardware arithmetic.
 - A, B, and C are row-major.
-- HolonNPU v1.3 uses a B-weight-stationary systolic array with streaming partial sums.
+- HolonNPU v1.5 uses a B-weight-stationary systolic array with streaming partial sums.
 - v1 does not add bias, scaling, activation, transposition, saturation, or accumulation with an existing C matrix.
 - Non-multiple tile dimensions are valid; inactive M, N, and K lanes are masked.
 

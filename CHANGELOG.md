@@ -2,7 +2,7 @@
 
 All notable project-level release changes are recorded here.
 
-## Unreleased
+## v1.5 - 2026-07-06
 
 ### Changed
 
@@ -40,6 +40,8 @@ All notable project-level release changes are recorded here.
   CTest preset parallelism.
 - Added deterministic constrained-random GEMM/tile shape tests for the GEMM
   accelerator and product top.
+- Slimmed progress, decision, and verification documentation around the current
+  authoritative baseline and fixed stale post-review documentation references.
 
 ## v1 - 2026-06-27
 

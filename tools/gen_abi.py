@@ -13,13 +13,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "spec/holon_npu_abi.json"
 
-GENERATED_OUTPUTS = {
-    "rtl/common/npu_pkg.sv": "sv",
-    "include/holon_npu_regs.h": "regs_h",
-    "include/holon_npu_desc.h": "desc_h",
-    "docs/INTERFACE.md": "interface_md",
-}
-
 BANNER = "Generated from spec/holon_npu_abi.json by tools/gen_abi.py. Do not edit."
 
 
@@ -68,10 +61,6 @@ def md_offset(value: int | str) -> str:
 
 def md_desc_offset(value: int | str) -> str:
     return f"0x{as_int(value):02X}"
-
-
-def macro_name(prefix: str, name: str) -> str:
-    return f"{prefix}_{name}"
 
 
 def generated_sv(schema: dict[str, Any]) -> str:
@@ -492,7 +481,7 @@ def generated_interface_md(schema: dict[str, Any]) -> str:
             "- C elements are signed INT32.",
             "- Accumulation uses signed INT32 wraparound semantics matching two's-complement hardware arithmetic.",
             "- A, B, and C are row-major.",
-            "- HolonNPU v1.3 uses a B-weight-stationary systolic array with streaming partial sums.",
+            "- HolonNPU v1.5 uses a B-weight-stationary systolic array with streaming partial sums.",
             "- v1 does not add bias, scaling, activation, transposition, saturation, or accumulation with an existing C matrix.",
             "- Non-multiple tile dimensions are valid; inactive M, N, and K lanes are masked.",
             "",

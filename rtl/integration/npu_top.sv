@@ -91,9 +91,9 @@ module npu_top_core #(
     logic read_last_fire;
 
     initial begin
-        if (AXI_ADDR_W != 64) $fatal("HolonNPU v1.1 top requires 64-bit AXI addresses");
-        if (AXI_DATA_W != 128) $fatal("HolonNPU v1.1 top requires 128-bit AXI data");
-        if (AXIL_DATA_W != 32) $fatal("HolonNPU v1.1 control plane requires 32-bit AXI-Lite data");
+        if (AXI_ADDR_W != 64) $fatal("HolonNPU top requires 64-bit AXI addresses");
+        if (AXI_DATA_W != 128) $fatal("HolonNPU top requires 128-bit AXI data");
+        if (AXIL_DATA_W != 32) $fatal("HolonNPU control plane requires 32-bit AXI-Lite data");
     end
 
     assign read_select_cmd = (read_owner_q == READ_OWNER_NONE) && cmd_axi.arvalid;

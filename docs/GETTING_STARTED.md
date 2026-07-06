@@ -392,7 +392,6 @@ npu_register_slice.sv
 npu_vr_if.sv
 npu_axi_lite_if.sv
 npu_axi4_if.sv
-npu_assert.svh
 ```
 
 这些 interface 不是占位文件。产品 RTL 内部以它们作为协议边界：
@@ -404,8 +403,9 @@ npu_assert.svh
 只有 C++/Verilator 测试便利层使用 flattened `*_test_wrapper.sv`。这些
 wrapper 集中放在 `sim/rtl/`，不属于核心架构，产品 RTL 内部不能实例化它们。
 
-`npu_assert.svh` 提供项目统一的 assertion/cover 宏。debug、regression 和
-coverage 构建默认打开 assertions；coverage 构建额外打开 coverpoints。
+接口和关键 RTL 模块直接使用 native SVA `assert property` / `cover property`
+描述协议与本地不变量。debug、regression、coverage 和 lint 路径通过
+Verilator `--assert` 启用这些检查；coverage preset 额外收集结构和功能覆盖率。
 
 ### npu_pkg.sv
 
@@ -685,12 +685,11 @@ sim/rtl/datapath/
 rtl/datapath/npu_gemm_tile_scratchpad.sv
 ```
 
-在 v1.1 product top 中，`npu_gemm_tile_scratchpad.sv` 不再保存 B tile，也
-不作为 C accumulator。B tile row 由 GEMM scheduler 直接写入 PE 的
-stationary weight registers，C partial sums 在 `npu_gemm_accelerator.sv`
-内部累加后写回。`npu_i8_tile_buffer.sv`、`npu_c_accum_buffer.sv` 和
-`npu_ping_pong_ctrl.sv` 仍然作为 Phase 5 reusable infrastructure 被 lint 和
-tiling test 覆盖。
+在当前 product top 中，`npu_gemm_tile_scratchpad.sv` 不再保存 B tile，也不作为
+C accumulator。B tile row 由 GEMM scheduler 直接写入 PE 的 stationary weight
+registers，C partial sums 在 `npu_gemm_accelerator.sv` 内部累加后写回。
+`npu_i8_tile_buffer.sv`、`npu_c_accum_buffer.sv` 和 `npu_ping_pong_ctrl.sv`
+仍然作为 Phase 5 reusable infrastructure 被 lint 和 tiling test 覆盖。
 
 对应测试：
 

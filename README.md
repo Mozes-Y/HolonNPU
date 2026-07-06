@@ -1,19 +1,19 @@
 # HolonNPU
 
-`HolonNPU` is a roadmap-first SystemVerilog implementation of a v1.3 INT8 GEMM
-accelerator intended for RISC-V SoC integration. The public hardware interface
-is an AXI-Lite control plane plus AXI4 master DMA. The matrix engine is a
-parameterized `16x16` B-weight-stationary systolic array with signed INT8
+`HolonNPU` v1.5 is the final V1-generation SystemVerilog implementation of an
+INT8 GEMM accelerator intended for RISC-V SoC integration. The public hardware
+interface is an AXI-Lite control plane plus AXI4 master DMA. The matrix engine
+is a parameterized `16x16` B-weight-stationary systolic array with signed INT8
 inputs and signed INT32 outputs.
 
-The v1.3 scope is intentionally narrow: one descriptor in flight, one
+The v1.5 final V1 scope is intentionally narrow: one descriptor in flight, one
 outstanding AXI4 burst per DMA engine, descriptor-driven GEMM, deterministic
 Verilator simulation, protocol assertions, functional coverage gating, and a
 minimal C driver ABI.
 
 ## Status
 
-v1.3 implementation is complete against the project roadmap:
+v1.5 is complete against the V1 project roadmap:
 
 - SystemVerilog RTL for common infrastructure, control registers, DMA,
   descriptor command processing, tiled GEMM execution, and product top.
@@ -76,7 +76,7 @@ Actions CI.
 
 ## Architecture
 
-The v1.1 product top is `rtl/integration/npu_top.sv`.
+The current product top is `rtl/integration/npu_top.sv`.
 
 Major blocks:
 
@@ -97,7 +97,7 @@ and ABI details.
 
 ## ABI Summary
 
-The v1.3 ABI 2.0 contract is defined in one schema:
+The v1.5 ABI 2.0 contract is defined in one schema:
 
 - `spec/holon_npu_abi.json`
 
