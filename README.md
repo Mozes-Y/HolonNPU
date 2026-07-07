@@ -51,10 +51,10 @@ integer/quant vector and helper engines, explicit scratchpad/DMA memory, and
 frontend-issued matrix micro-ops reusing the V1 matrix engine.
 
 Current V2 implementation state: machine-checkable ISA/ABI metadata, generated
-program ABI artifacts, a C++26 architectural simulator, and the first ABI 3.0
-AXI-Lite lifecycle/control RTL skeleton are present. The V2 product top,
-frontend RTL, vector RTL, and matrix micro-op issue fabric are still under
-implementation.
+program ABI artifacts, a C++26 architectural simulator, ABI 3.0 AXI-Lite
+lifecycle/control RTL, and a descriptor-fetch/validation program loader RTL are
+present. The V2 product top, local program/argument load path, frontend RTL,
+vector RTL, and matrix micro-op issue fabric are still under implementation.
 
 Planning documents:
 
@@ -72,9 +72,9 @@ Machine-checkable V2 metadata now includes:
   `docs/V2_INTERFACE_REFERENCE.md`
 - C++26 architectural simulator foundation: `sim/model/`
 
-No V2 product top, frontend RTL, vector RTL, or matrix issue fabric is present
-yet; the current product top remains the V1.5 ABI 2.0 GEMM accelerator until
-the V2 loader/frontend phases land.
+No V2 product top, local memory loader, frontend RTL, vector RTL, or matrix
+issue fabric is present yet; the current product top remains the V1.5 ABI 2.0
+GEMM accelerator until the V2 loader/frontend phases land.
 
 ## Requirements
 

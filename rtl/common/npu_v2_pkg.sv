@@ -136,5 +136,26 @@ package npu_v2_pkg;
     localparam logic [31:0] NPU_V2_FAULT_AXI_WRITE                  = 32'h0000000D;
     localparam logic [31:0] NPU_V2_FAULT_EXPLICIT_PROGRAM_FAULT     = 32'h0000000E;
 
+    // V2 program descriptor offsets.
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_SIZE_BYTES         = 0;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_VERSION            = 2;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_PROGRAM_FORMAT     = 3;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_HOLON_ISA_MAJOR    = 4;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_HOLON_ISA_MINOR    = 6;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_REQUIRED_CAPS      = 8;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_REQUIRED_OP_CLASSES = 16;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_CODE_ADDR          = 24;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_CODE_SIZE          = 32;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_ENTRY_PC           = 36;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_ARG_ADDR           = 40;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_ARG_SIZE           = 48;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_LOCAL_MEM_BYTES    = 52;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_PROGRAM_MEM_BYTES  = 56;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_STACK_BYTES        = 60;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_COMPLETION_ADDR    = 64;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_FLAGS              = 72;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_RESERVED_4C        = 76;
+    localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_RESERVED_TAIL      = 80;
+
 endpackage
 /* verilator lint_on UNUSEDPARAM */

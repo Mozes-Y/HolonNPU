@@ -27,6 +27,9 @@ All notable project-level release changes are recorded here.
   clear/accumulate behavior, event emission, and issue faults.
 - Added generated V2 RTL ABI constants and the first ABI 3.0 AXI-Lite
   control/lifecycle RTL skeleton with focused Verilator tests.
+- Added the first V2 program loader RTL slice for AXI4 descriptor fetch,
+  ABI/ISA compatibility validation, descriptor field extraction, and focused
+  Verilator tests.
 
 ## v1.5 - 2026-07-06
 

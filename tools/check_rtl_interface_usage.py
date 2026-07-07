@@ -27,6 +27,7 @@ PRODUCT_SOURCE_TARGETS = {
     "holon_npu_rtl_common",
     "holon_npu_rtl_control",
     "holon_npu_rtl_v2_control",
+    "holon_npu_rtl_v2_loader",
     "holon_npu_rtl_v2_pkg",
     "holon_npu_rtl_command",
     "holon_npu_rtl_datapath",
@@ -51,6 +52,7 @@ EXPECTED_INTERFACE_USERS = {
         "rtl/integration/npu_top.sv",
     },
     "npu_axi4_if": {
+        "rtl/control/npu_v2_program_loader.sv",
         "rtl/dma/npu_axi4_read_dma.sv",
         "rtl/dma/npu_axi4_write_dma.sv",
         "rtl/command/npu_command_processor.sv",

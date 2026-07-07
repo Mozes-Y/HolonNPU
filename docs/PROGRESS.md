@@ -56,10 +56,14 @@ Detailed historical logs live in Git history and `CHANGELOG.md`.
 - V2.3 has started with an interface-native ABI 3.0 AXI-Lite control/lifecycle
   RTL skeleton in `rtl/control/npu_v2_control_regs.sv` plus simulation-only
   wrapper/test coverage under `sim/rtl/control/` and `sim/v2_control_tb.cpp`.
+- V2.3 now also includes an interface-native program descriptor
+  fetch/validation loader in `rtl/control/npu_v2_program_loader.sv`, generated
+  RTL descriptor offsets in `npu_v2_pkg.sv`, and focused Verilator coverage in
+  `sim/v2_loader_tb.cpp`.
 
 ## Latest Verification Matrix
 
-The latest completed V2 metadata/model/control gate passed with:
+The latest completed V2 metadata/model/control/loader gate passed with:
 
 | Area | Command | Result |
 | ---- | ------- | ------ |
@@ -81,13 +85,16 @@ The latest completed V2 metadata/model/control gate passed with:
 | V2 control build | `cmake --build --preset debug --target npu_v2_control_tb --parallel 2` | Passed |
 | V2 control test | `ctest --preset debug -R npu_v2_control --output-on-failure` | Passed `1/1`, including lifecycle, IRQ, halt/resume/debug-step, soft reset, and descriptor alignment fault |
 | V2 control lint | `cmake --build --preset debug --target v2_control_rtl_lint --parallel 2` | Passed |
-| Debug tests | `ctest --preset debug --output-on-failure` | Passed `20/20` |
-| Lint tests | `ctest --preset lint --output-on-failure` | Passed `9/9` |
+| V2 loader build | `cmake --build --preset debug --target npu_v2_loader_tb --parallel 2` | Passed |
+| V2 loader test | `ctest --preset debug -R npu_v2_loader --output-on-failure` | Passed `1/1`, including descriptor fetch, compatibility validation, alignment/bounds faults, and AXI read fault |
+| V2 loader lint | `cmake --build --preset debug --target v2_loader_rtl_lint --parallel 2` | Passed |
+| Debug tests | `ctest --preset debug --output-on-failure` | Passed `21/21` |
+| Lint tests | `ctest --preset lint --output-on-failure` | Passed `10/10` |
 | Regression build | `cmake --preset regression && cmake --build --preset regression --parallel 2` | Passed |
-| Regression tests | `ctest --preset regression --output-on-failure` | Passed `31/31` |
+| Regression tests | `ctest --preset regression --output-on-failure` | Passed `33/33` |
 | Coverage build | `cmake --preset coverage && cmake --build --preset coverage --parallel 2` | Passed |
-| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `32/32` |
-| Coverage gate | `python3 tools/check_coverage.py --build-dir build/coverage` | Passed: 12 raw files, 55 functional points |
+| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `34/34` |
+| Coverage gate | `python3 tools/check_coverage.py --build-dir build/coverage` | Passed: 13 raw files, 55 functional points |
 
 The latest completed V1.5 release gate passed with:
 
@@ -110,9 +117,10 @@ The latest completed V1.5 release gate passed with:
 
 ## Active Limitations
 
-- The V2 ABI 3.0 control/lifecycle RTL skeleton exists, but it is not yet
-  connected to a V2 product top, descriptor fetcher, program loader, frontend,
-  vector RTL, or matrix micro-op issue fabric.
+- The V2 ABI 3.0 control/lifecycle RTL and descriptor fetch/validation loader
+  exist, but they are not yet connected to a V2 product top, program
+  image/argument local-memory loader, frontend, vector RTL, or matrix micro-op
+  issue fabric.
 - GEMM only in the current product top; no V2 frontend RTL, vector RTL, BF16,
   FP8, graph scheduler, or post-processing engine is implemented. The V2 C++
   model is a simulator foundation, not product RTL.
@@ -127,8 +135,8 @@ The latest completed V1.5 release gate passed with:
 
 ## Next Engineering Step
 
-- Continue V2 Phase V2.3 by adding descriptor fetch/validation and program
-  image/argument loading behind the new ABI 3.0 control lifecycle.
+- Continue V2 Phase V2.3 by connecting the control block to the descriptor
+  loader and adding program image/argument loading behind the ABI 3.0 lifecycle.
 - Keep expanding the V2 C++ architectural simulator with additional vector
   operation classes and richer matrix edge cases so RTL can differential-test
   against it as soon as the frontend path lands.

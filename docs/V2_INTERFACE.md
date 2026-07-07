@@ -73,6 +73,12 @@ Compatibility check rules:
 - Compatibility failures are descriptor validation faults and must not start
   frontend execution.
 
+Current RTL implementation note: `npu_v2_program_loader_core` fetches the
+128-byte descriptor over AXI4, performs the compatibility/alignment/bounds
+checks above, and exposes validated descriptor fields to the future program
+image/argument loader. It does not yet copy program code or arguments into local
+memory.
+
 ## Control Plane Direction
 
 The V2 AXI-Lite control plane should preserve the V1 shape where useful but

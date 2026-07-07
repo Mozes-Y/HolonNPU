@@ -456,6 +456,9 @@ Decision:
 - `CONTROL` is a write-one command register; each accepted write may set at
   most one command bit, and multi-command writes return a slave error without
   partial execution.
+- The V2 program loader is a separate interface-native AXI4 read master that
+  fetches and validates the ABI 3.0 program descriptor, then exposes validated
+  fields to later program-image and argument-loading logic.
 - Flattened ports are allowed only in the simulation wrapper under `sim/rtl/`.
 
 Impact:
@@ -464,5 +467,6 @@ Impact:
   documentation.
 - V1.5 product top remains stable while V2 RTL modules are built and verified
   behind focused tests.
-- Later V2 descriptor fetch, program loader, frontend, vector, and matrix
-  issue modules must connect to the control block through stable RTL contracts.
+- Later V2 program-image loading, argument loading, frontend, vector, and matrix
+  issue modules must connect to the control/loader blocks through stable RTL
+  contracts.

@@ -162,6 +162,7 @@ def generated_header(schema: dict[str, Any]) -> str:
 def generated_sv_package(schema: dict[str, Any]) -> str:
     abi = schema["abi"]
     constants = schema["constants"]
+    descriptor = schema["descriptor"]
     registers = schema["registers"]
 
     register_offsets = [(f"NPU_V2_REG_{reg['name']}", reg["offset"]) for reg in registers]
@@ -185,6 +186,11 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
         for entry in schema["capabilities"]
     ]
     fault_constants = [(f"NPU_V2_FAULT_{fault['name']}", fault["value"]) for fault in schema["faults"]]
+    offset_constants = [
+        (f"NPU_V2_PROGRAM_DESC_OFF_{field['macro_suffix']}", field["offset"])
+        for field in descriptor["fields"]
+        if "macro_suffix" in field
+    ]
 
     lines = [
         f"// {BANNER}",
@@ -222,6 +228,12 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
         for name, value in consts:
             lines.append(sv_const_logic(bits, name, value, pad=pad))
         lines.append("")
+
+    lines.append("    // V2 program descriptor offsets.")
+    pad = max(len(name) for name, _ in offset_constants)
+    for name, value in offset_constants:
+        lines.append(sv_const_int(name, value, pad=pad))
+    lines.append("")
 
     lines.extend(["endpackage", "/* verilator lint_on UNUSEDPARAM */", ""])
     return "\n".join(lines)

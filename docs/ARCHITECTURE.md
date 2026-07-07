@@ -468,7 +468,7 @@ Phase 9 integration:
 ## Open Items
 
 - None for v1.5.
-- V2 architecture, ISA metadata, ABI 3.0 program metadata, C++ model, and the
-  first AXI-Lite control/lifecycle RTL skeleton are present. V2 product top,
-  descriptor loader, frontend, vector RTL, and matrix micro-op issue fabric
-  remain open.
+- V2 architecture, ISA metadata, ABI 3.0 program metadata, C++ model, AXI-Lite
+  control/lifecycle RTL, and descriptor fetch/validation loader RTL are
+  present. V2 product top, program image/argument local loading, frontend,
+  vector RTL, and matrix micro-op issue fabric remain open.

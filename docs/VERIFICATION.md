@@ -170,6 +170,10 @@ Active V2 RTL coverage today:
 - Descriptor-base alignment fault before frontend start.
 - AXI-Lite AW/W skew handling and rejection of invalid writes to RO/pulse
   registers.
+- Program descriptor fetch over AXI4, one-burst descriptor profile, descriptor
+  field extraction, ABI/ISA/program-format/capability/op-class validation,
+  flags/reserved-field rejection, alignment/bounds faults, and AXI read fault
+  handling in the V2 loader RTL.
 
 Required V2 verification classes before RTL release:
 
