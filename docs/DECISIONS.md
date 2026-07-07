@@ -436,3 +436,33 @@ Impact:
   registers, capabilities, and fault codes.
 - Verification must cover SPM bounds, DMA command faults, frontend lifecycle,
   and program-level execution instead of only descriptor-driven GEMM.
+
+## ADR-0030: V2 Schema-Generated RTL ABI Package And Control Skeleton
+
+Status: Accepted.
+
+Decision:
+
+- V2 RTL consumes ABI 3.0 constants from a generated SystemVerilog package
+  `rtl/common/npu_v2_pkg.sv`.
+- `spec/holon_npu_v2_abi.json` owns V2 register offsets, reset values,
+  lifecycle bits, control bits, IRQ bits, capability bits, operation-class
+  bits, and fault codes.
+- The first V2 RTL implementation slice is an interface-native AXI-Lite
+  control/lifecycle block, not a product-top swap.
+- The V2 control block exposes doorbell, descriptor base address, lifecycle
+  status, fault/debug state, IRQ enable/status/clear, halt/resume/debug-step,
+  soft reset, and performance-counter views.
+- `CONTROL` is a write-one command register; each accepted write may set at
+  most one command bit, and multi-command writes return a slave error without
+  partial execution.
+- Flattened ports are allowed only in the simulation wrapper under `sim/rtl/`.
+
+Impact:
+
+- V2 RTL does not hand-maintain ABI constants in parallel with the C headers and
+  documentation.
+- V1.5 product top remains stable while V2 RTL modules are built and verified
+  behind focused tests.
+- Later V2 descriptor fetch, program loader, frontend, vector, and matrix
+  issue modules must connect to the control block through stable RTL contracts.

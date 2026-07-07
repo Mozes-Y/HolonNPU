@@ -25,6 +25,8 @@ All notable project-level release changes are recorded here.
 - Added a reusable V2 C++ program builder for architectural simulator tests.
 - Added V2 simulator matrix micro-op architectural effects for INT8 GEMM
   clear/accumulate behavior, event emission, and issue faults.
+- Added generated V2 RTL ABI constants and the first ABI 3.0 AXI-Lite
+  control/lifecycle RTL skeleton with focused Verilator tests.
 
 ## v1.5 - 2026-07-06
 

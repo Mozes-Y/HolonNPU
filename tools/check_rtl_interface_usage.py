@@ -26,6 +26,8 @@ ALLOWED_FLATTENED_MODULES = {
 PRODUCT_SOURCE_TARGETS = {
     "holon_npu_rtl_common",
     "holon_npu_rtl_control",
+    "holon_npu_rtl_v2_control",
+    "holon_npu_rtl_v2_pkg",
     "holon_npu_rtl_command",
     "holon_npu_rtl_datapath",
     "holon_npu_rtl_dma",
@@ -57,6 +59,7 @@ EXPECTED_INTERFACE_USERS = {
     },
     "npu_axi_lite_if": {
         "rtl/control/npu_control_regs.sv",
+        "rtl/control/npu_v2_control_regs.sv",
         "rtl/integration/npu_top.sv",
     },
 }

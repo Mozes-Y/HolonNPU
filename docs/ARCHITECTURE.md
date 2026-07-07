@@ -461,11 +461,14 @@ Phase 9 integration:
   matrix engine RTL depends on them.
 - Later phases must not change register offsets or descriptor layout without a
   new decision record.
-- ABI constants must be generated from `spec/holon_npu_abi.json`. Generated
-  RTL/C/doc outputs are byte-compared in CI.
+- ABI constants must be generated from `spec/holon_npu_abi.json` for V1.5 and
+  `spec/holon_npu_v2_abi.json` for V2 work. Generated RTL/C/doc outputs are
+  byte-compared in CI.
 
 ## Open Items
 
 - None for v1.5.
-- V2 architecture, ISA metadata, and ABI 3.0 program metadata are present, but
-  no V2 RTL implementation is present yet.
+- V2 architecture, ISA metadata, ABI 3.0 program metadata, C++ model, and the
+  first AXI-Lite control/lifecycle RTL skeleton are present. V2 product top,
+  descriptor loader, frontend, vector RTL, and matrix micro-op issue fabric
+  remain open.

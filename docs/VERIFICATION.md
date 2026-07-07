@@ -133,9 +133,9 @@ Required functional coverage classes:
 
 ## V2 Verification Planning
 
-V2 verification must extend the current assertion, coverage, and deterministic
+V2 verification extends the current assertion, coverage, and deterministic
 random strategy to a programmable NPU tile. The V2 plan does not relax any V1.5
-gate; it adds new gate content once V2 RTL and ABI 3.0 exist.
+gate; it adds new gate content as V2 RTL and ABI 3.0 modules land.
 
 Active V2 model coverage today:
 
@@ -158,6 +158,18 @@ Active V2 model coverage today:
 - Matrix `i8*i8->i32` GEMM micro-op effects over local A/B/C operands,
   including clear/accumulate behavior, event emission, and issue faults.
 - Explicit program-fault and vector-configuration fault paths.
+
+Active V2 RTL coverage today:
+
+- ABI 3.0 AXI-Lite control/lifecycle reset values generated from
+  `spec/holon_npu_v2_abi.json`.
+- Doorbell acceptance into `LOADING`, loader transition to `RUNNING`, active
+  doorbell rejection, and aligned descriptor-address reporting.
+- Halt, precise halted state observation, debug-step pulse, resume, done, fault,
+  sticky IRQ, IRQ clear, terminal clear, and soft-reset behavior.
+- Descriptor-base alignment fault before frontend start.
+- AXI-Lite AW/W skew handling and rejection of invalid writes to RO/pulse
+  registers.
 
 Required V2 verification classes before RTL release:
 

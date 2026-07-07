@@ -63,6 +63,21 @@ static constexpr uint32_t HOLON_NPU_PROGRAM_FLAG_CLEAR_PERF_ON_START    = 0x0000
 static constexpr uint32_t HOLON_NPU_PROGRAM_FLAG_DEBUG_SNAPSHOT_ON_FAULT = 0x00000008u;
 static constexpr uint32_t HOLON_NPU_PROGRAM_FLAG_VALID_MASK             = 0x0000000Fu;
 
+/* V2 control bits. */
+static constexpr uint32_t HOLON_NPU_V2_CONTROL_SOFT_RESET    = 0x00000001u;
+static constexpr uint32_t HOLON_NPU_V2_CONTROL_CLEAR_TERMINAL = 0x00000002u;
+static constexpr uint32_t HOLON_NPU_V2_CONTROL_HALT          = 0x00000004u;
+static constexpr uint32_t HOLON_NPU_V2_CONTROL_RESUME        = 0x00000008u;
+static constexpr uint32_t HOLON_NPU_V2_CONTROL_DEBUG_STEP    = 0x00000010u;
+static constexpr uint32_t HOLON_NPU_V2_CONTROL_VALID_MASK    = 0x0000001Fu;
+
+/* V2 IRQ bits. */
+static constexpr uint32_t HOLON_NPU_V2_IRQ_DONE      = 0x00000001u;
+static constexpr uint32_t HOLON_NPU_V2_IRQ_FAULT     = 0x00000002u;
+static constexpr uint32_t HOLON_NPU_V2_IRQ_HALTED    = 0x00000004u;
+static constexpr uint32_t HOLON_NPU_V2_IRQ_DEBUG_STEP = 0x00000008u;
+static constexpr uint32_t HOLON_NPU_V2_IRQ_VALID_MASK = 0x0000000Fu;
+
 /* Required operation class bits. */
 static constexpr uint64_t HOLON_NPU_PROGRAM_OP_CLASS_FRONTEND_CONTROL = 0x0000000000000001u;
 static constexpr uint64_t HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE       = 0x0000000000000002u;

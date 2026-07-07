@@ -98,6 +98,27 @@ Any register offset reuse from V1 must be deliberate and recorded in the ABI
 schema. The V2 design should prefer clarity over compatibility with the V1 GEMM
 descriptor flow.
 
+The schema-owned `CONTROL` write-one bits are listed below. A `CONTROL` write
+may set at most one command bit; multi-command writes are rejected with a slave
+error and must not partially execute.
+
+| Bit | Name | Meaning |
+| --- | ---- | ------- |
+| 0 | `SOFT_RESET` | Cancel active work, clear sticky state, and return lifecycle to `IDLE`. |
+| 1 | `CLEAR_TERMINAL` | Clear sticky `DONE` or `FAULT` terminal state and return to `IDLE`. |
+| 2 | `HALT` | Request a precise frontend halt from `RUNNING`. |
+| 3 | `RESUME` | Resume frontend execution from `HALTED`. |
+| 4 | `DEBUG_STEP` | Request one debug step from `HALTED` if implemented. |
+
+The schema-owned IRQ cause bits are:
+
+| Bit | Name | Meaning |
+| --- | ---- | ------- |
+| 0 | `DONE` | Program completed successfully. |
+| 1 | `FAULT` | Descriptor, frontend, engine, memory, or DMA fault occurred. |
+| 2 | `HALTED` | Frontend reached a precise halted state. |
+| 3 | `DEBUG_STEP` | A debug-step request was accepted. |
+
 ## Frontend Lifecycle
 
 The ABI-visible lifecycle must be a single state machine:

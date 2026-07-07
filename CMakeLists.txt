@@ -231,6 +231,7 @@ target_compile_features(holon_npu_v2_model PUBLIC cxx_std_26)
 target_link_libraries(holon_npu_v2_model PUBLIC holon_npu_public_headers)
 
 holon_npu_add_sv_source_target(holon_npu_rtl_pkg rtl/common/npu_pkg.sv)
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_pkg rtl/common/npu_v2_pkg.sv)
 holon_npu_add_sv_source_target(
   holon_npu_rtl_interfaces
   rtl/common/npu_vr_if.sv
@@ -262,6 +263,9 @@ target_link_libraries(holon_npu_rtl_datapath INTERFACE holon_npu_rtl_matrix)
 
 holon_npu_add_sv_source_target(holon_npu_rtl_control rtl/control/npu_control_regs.sv)
 target_link_libraries(holon_npu_rtl_control INTERFACE holon_npu_rtl_pkg holon_npu_rtl_interfaces)
+
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_control rtl/control/npu_v2_control_regs.sv)
+target_link_libraries(holon_npu_rtl_v2_control INTERFACE holon_npu_rtl_v2_pkg holon_npu_rtl_interfaces)
 
 holon_npu_add_sv_source_target(
   holon_npu_rtl_dma
@@ -304,6 +308,9 @@ target_link_libraries(holon_npu_sim_tiling INTERFACE holon_npu_rtl_datapath)
 
 holon_npu_add_sv_source_target(holon_npu_sim_control sim/rtl/control/npu_control_regs_test_wrapper.sv)
 target_link_libraries(holon_npu_sim_control INTERFACE holon_npu_rtl_control)
+
+holon_npu_add_sv_source_target(holon_npu_sim_v2_control sim/rtl/control/npu_v2_control_regs_test_wrapper.sv)
+target_link_libraries(holon_npu_sim_v2_control INTERFACE holon_npu_rtl_v2_control)
 
 holon_npu_add_sv_source_target(
   holon_npu_sim_dma_read
@@ -478,6 +485,22 @@ holon_npu_add_lint_target(
 holon_npu_add_lint_test(TEST control_rtl_lint TARGET control_rtl_lint LABELS lint)
 
 holon_npu_add_verilated_executable(
+  TARGET npu_v2_control_tb
+  CPP sim/v2_control_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_control
+  TOP npu_v2_control_regs_test_wrapper
+  PREFIX Vnpu_v2_control_regs
+)
+holon_npu_add_ctest(TEST npu_v2_control TARGET npu_v2_control_tb VERILATED LABELS fast)
+
+holon_npu_add_lint_target(
+  TARGET v2_control_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_control
+  TOP npu_v2_control_regs_test_wrapper
+)
+holon_npu_add_lint_test(TEST v2_control_rtl_lint TARGET v2_control_rtl_lint LABELS lint)
+
+holon_npu_add_verilated_executable(
   TARGET npu_read_dma_tb
   CPP sim/read_dma_tb.cpp
   RTL_TARGETS holon_npu_sim_dma_read
@@ -582,7 +605,7 @@ if(HOLON_NPU_ENABLE_COVERAGE)
     coverage_check
     PROPERTIES
       DEPENDS
-        "npu_smoke;npu_common;npu_pe;npu_array;npu_tiling;npu_control;npu_read_dma;npu_write_dma;npu_command;npu_gemm;npu_top"
+        "npu_smoke;npu_common;npu_pe;npu_array;npu_tiling;npu_control;npu_v2_control;npu_read_dma;npu_write_dma;npu_command;npu_gemm;npu_top"
   )
 endif()
 

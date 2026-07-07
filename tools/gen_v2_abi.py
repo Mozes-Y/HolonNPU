@@ -23,6 +23,20 @@ def c_const(type_name: str, name: str, value: int | str, width: int = 8, pad: in
     return f"static constexpr {type_name} {name}{spacer}= {c_hex(value, width)};"
 
 
+def sv_hex(value: int | str, bits: int) -> str:
+    return f"{bits}'h{as_int(value):0{max(bits // 4, 1)}X}"
+
+
+def sv_const_logic(bits: int, name: str, value: int | str, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"    localparam logic [{bits - 1}:0] {name}{spacer}= {sv_hex(value, bits)};"
+
+
+def sv_const_int(name: str, value: int | str, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"    localparam int unsigned {name}{spacer}= {as_int(value)};"
+
+
 def md_hex(value: int | str, width: int = 8) -> str:
     return f"0x{as_int(value):0{width}X}"
 
@@ -59,6 +73,10 @@ def generated_header(schema: dict[str, Any]) -> str:
     ]
     flag_constants = [(f"HOLON_NPU_PROGRAM_FLAG_{flag['name']}", flag["value"]) for flag in schema["flags"]]
     flag_constants.append(("HOLON_NPU_PROGRAM_FLAG_VALID_MASK", schema["flags_valid_mask"]))
+    control_constants = [(f"HOLON_NPU_V2_CONTROL_{entry['name']}", entry["value"]) for entry in schema["control_bits"]]
+    control_constants.append(("HOLON_NPU_V2_CONTROL_VALID_MASK", schema["control_valid_mask"]))
+    irq_constants = [(f"HOLON_NPU_V2_IRQ_{entry['name']}", entry["value"]) for entry in schema["irq_bits"]]
+    irq_constants.append(("HOLON_NPU_V2_IRQ_VALID_MASK", schema["irq_valid_mask"]))
     op_class_constants = [
         (f"HOLON_NPU_PROGRAM_OP_CLASS_{entry['name']}", entry["value"])
         for entry in schema["op_classes"]
@@ -103,6 +121,8 @@ def generated_header(schema: dict[str, Any]) -> str:
         ("V2 register offsets", register_constants, "uint32_t", 3),
         ("V2 lifecycle status bits", lifecycle_constants, "uint32_t", 8),
         ("Program descriptor flags", flag_constants, "uint32_t", 8),
+        ("V2 control bits", control_constants, "uint32_t", 8),
+        ("V2 IRQ bits", irq_constants, "uint32_t", 8),
         ("Required operation class bits", op_class_constants, "uint64_t", 16),
         ("Capability bits", capability_constants, "uint64_t", 16),
         ("Fault codes", fault_constants, "uint32_t", 2),
@@ -136,6 +156,74 @@ def generated_header(schema: dict[str, Any]) -> str:
             )
 
     lines.append("")
+    return "\n".join(lines)
+
+
+def generated_sv_package(schema: dict[str, Any]) -> str:
+    abi = schema["abi"]
+    constants = schema["constants"]
+    registers = schema["registers"]
+
+    register_offsets = [(f"NPU_V2_REG_{reg['name']}", reg["offset"]) for reg in registers]
+    register_resets = [(f"NPU_V2_RESET_{reg['name']}", reg["reset"]) for reg in registers]
+    lifecycle_constants = [
+        (f"NPU_V2_STATUS_{state['name']}", state["value"])
+        for state in schema["lifecycle_states"]
+    ]
+    flag_constants = [(f"NPU_V2_PROGRAM_FLAG_{flag['name']}", flag["value"]) for flag in schema["flags"]]
+    flag_constants.append(("NPU_V2_PROGRAM_FLAG_VALID_MASK", schema["flags_valid_mask"]))
+    control_constants = [(f"NPU_V2_CONTROL_{entry['name']}", entry["value"]) for entry in schema["control_bits"]]
+    control_constants.append(("NPU_V2_CONTROL_VALID_MASK", schema["control_valid_mask"]))
+    irq_constants = [(f"NPU_V2_IRQ_{entry['name']}", entry["value"]) for entry in schema["irq_bits"]]
+    irq_constants.append(("NPU_V2_IRQ_VALID_MASK", schema["irq_valid_mask"]))
+    op_class_constants = [
+        (f"NPU_V2_OP_CLASS_{entry['name']}", entry["value"])
+        for entry in schema["op_classes"]
+    ]
+    capability_constants = [
+        (f"NPU_V2_CAP_{entry['name']}", entry["value"])
+        for entry in schema["capabilities"]
+    ]
+    fault_constants = [(f"NPU_V2_FAULT_{fault['name']}", fault["value"]) for fault in schema["faults"]]
+
+    lines = [
+        f"// {BANNER}",
+        "/* verilator lint_off UNUSEDPARAM */",
+        "package npu_v2_pkg;",
+        sv_const_int("NPU_V2_ABI_MAJOR", abi["major"], pad=34),
+        sv_const_int("NPU_V2_ABI_MINOR", abi["minor"], pad=34),
+        sv_const_logic(32, "NPU_V2_ABI_VERSION_RESET", abi["version_reset"], pad=34),
+        "",
+        sv_const_int("NPU_V2_PROGRAM_DESC_SIZE", constants["program_desc_size"], pad=38),
+        sv_const_int("NPU_V2_PROGRAM_DESC_ALIGN", constants["program_desc_align"], pad=38),
+        sv_const_int("NPU_V2_PROGRAM_IMAGE_ALIGN", constants["program_image_align"], pad=38),
+        sv_const_int("NPU_V2_PROGRAM_ARGUMENT_ALIGN", constants["argument_align"], pad=38),
+        sv_const_int("NPU_V2_PROGRAM_COMPLETION_ALIGN", constants["completion_align"], pad=38),
+        sv_const_int("NPU_V2_PROGRAM_FORMAT_HOLON_V2", constants["program_format_holon_v2"], pad=38),
+        sv_const_int("NPU_V2_PROGRAM_MEM_MAX_BYTES", constants["program_mem_max_bytes"], pad=38),
+        sv_const_int("NPU_V2_LOCAL_MEM_MAX_BYTES", constants["local_mem_max_bytes"], pad=38),
+        sv_const_int("NPU_V2_PROGRAM_STACK_MAX_BYTES", constants["stack_max_bytes"], pad=38),
+        "",
+    ]
+
+    for title, consts, bits in (
+        ("register offsets", register_offsets, 12),
+        ("register reset values", register_resets, 32),
+        ("lifecycle status bits", lifecycle_constants, 32),
+        ("program flags", flag_constants, 32),
+        ("control bits", control_constants, 32),
+        ("IRQ bits", irq_constants, 32),
+        ("operation classes", op_class_constants, 64),
+        ("capabilities", capability_constants, 64),
+        ("fault codes", fault_constants, 32),
+    ):
+        lines.append(f"    // V2 {title}.")
+        pad = max(len(name) for name, _ in consts)
+        for name, value in consts:
+            lines.append(sv_const_logic(bits, name, value, pad=pad))
+        lines.append("")
+
+    lines.extend(["endpackage", "/* verilator lint_on UNUSEDPARAM */", ""])
     return "\n".join(lines)
 
 
@@ -220,6 +308,23 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
         lines.append(f"| `{flag['name']}` | `{md_hex(flag['value'])}` | {flag['description']} |")
     lines.append(f"| `VALID_MASK` | `{md_hex(schema['flags_valid_mask'])}` | OR of all defined program flags. |")
 
+    for title, key, mask_key in (
+        ("Control Bits", "control_bits", "control_valid_mask"),
+        ("IRQ Bits", "irq_bits", "irq_valid_mask"),
+    ):
+        lines.extend(
+            [
+                "",
+                f"## {title}",
+                "",
+                "| Name | Value | Description |",
+                "| ---- | ----- | ----------- |",
+            ]
+        )
+        for entry in schema[key]:
+            lines.append(f"| `{entry['name']}` | `{md_hex(entry['value'])}` | {entry['description']} |")
+        lines.append(f"| `VALID_MASK` | `{md_hex(schema[mask_key])}` | OR of all defined {title.lower()}. |")
+
     for title, key in (
         ("Required Operation Classes", "op_classes"),
         ("Capability Bits", "capabilities"),
@@ -244,6 +349,7 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
 
 def render_all(schema: dict[str, Any]) -> dict[str, str]:
     return {
+        "rtl/common/npu_v2_pkg.sv": generated_sv_package(schema),
         "include/holon_npu_program.h": generated_header(schema),
         "docs/V2_INTERFACE_REFERENCE.md": generated_reference_md(schema),
     }

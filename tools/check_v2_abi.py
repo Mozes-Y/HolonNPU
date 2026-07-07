@@ -202,6 +202,21 @@ def check_schema(schema: dict[str, Any]) -> list[str]:
     if valid_mask != computed_mask:
         failures.append("flags_valid_mask must equal OR of all flag values")
 
+    for group_name, key, mask_key in (
+        ("control_bits", "control_bits", "control_valid_mask"),
+        ("irq_bits", "irq_bits", "irq_valid_mask"),
+    ):
+        entries = schema.get(key, [])
+        check_named_values(failures, group_name, entries, require_power_of_two=True)
+        computed_mask = 0
+        for entry in entries:
+            value = as_int(entry.get("value", 0))
+            computed_mask |= value
+            if "bit" in entry and value != (1 << as_int(entry["bit"])):
+                failures.append(f"{group_name}.{entry.get('name')}: bit does not match value")
+        if as_int(schema.get(mask_key, 0)) != computed_mask:
+            failures.append(f"{mask_key} must equal OR of all {group_name} values")
+
     check_named_values(failures, "op_classes", schema.get("op_classes", []), require_power_of_two=True)
     check_named_values(failures, "capabilities", schema.get("capabilities", []), require_power_of_two=True)
     check_named_values(

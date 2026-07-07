@@ -40,7 +40,7 @@ and regenerate outputs instead of editing this file by hand.
 | `0x020` | `LOCAL_MEM_BYTES` | `RO` | `0x00040000` | Maximum local data-scratchpad bytes. |
 | `0x024` | `VECTOR_CAP0` | `RO` | `0x08100100` | Vector baseline: [15:0] max VL, [23:16] lanes, [31:24] predicate registers. |
 | `0x028` | `MATRIX_CAP0` | `RO` | `0x08201010` | Matrix baseline: [7:0] ARRAY_K, [15:8] ARRAY_N, [23:16] ACC_BITS, [31:24] INPUT_BITS. |
-| `0x030` | `CONTROL` | `WO` | `0x00000000` | Write-one lifecycle control pulses. |
+| `0x030` | `CONTROL` | `WO` | `0x00000000` | Write-one lifecycle control pulses. At most one command bit may be set per write. |
 | `0x034` | `STATUS` | `RO` | `0x00000001` | Lifecycle state bits and sticky IRQ pending bit. |
 | `0x038` | `FAULT_CODE` | `RO` | `0x00000000` | Last terminal V2 fault code. |
 | `0x03C` | `DEBUG_PC` | `RO` | `0x00000000` | Frontend PC snapshot for halt, fault, or debug step. |
@@ -105,6 +105,27 @@ and regenerate outputs instead of editing this file by hand.
 | `CLEAR_PERF_ON_START` | `0x00000004` | Clear performance counters before program execution. |
 | `DEBUG_SNAPSHOT_ON_FAULT` | `0x00000008` | Capture frontend debug snapshot on fault. |
 | `VALID_MASK` | `0x0000000F` | OR of all defined program flags. |
+
+## Control Bits
+
+| Name | Value | Description |
+| ---- | ----- | ----------- |
+| `SOFT_RESET` | `0x00000001` | Cancel active work and return the V2 lifecycle to IDLE. |
+| `CLEAR_TERMINAL` | `0x00000002` | Clear sticky DONE or FAULT terminal state and return to IDLE. |
+| `HALT` | `0x00000004` | Request a precise frontend halt from RUNNING. |
+| `RESUME` | `0x00000008` | Resume frontend execution from HALTED. |
+| `DEBUG_STEP` | `0x00000010` | Request one precise debug step from HALTED if implemented. |
+| `VALID_MASK` | `0x0000001F` | OR of all defined control bits. |
+
+## IRQ Bits
+
+| Name | Value | Description |
+| ---- | ----- | ----------- |
+| `DONE` | `0x00000001` | Program completed successfully. |
+| `FAULT` | `0x00000002` | Program or descriptor fault occurred. |
+| `HALTED` | `0x00000004` | Frontend reached a precise halted state. |
+| `DEBUG_STEP` | `0x00000008` | A debug-step request was accepted. |
+| `VALID_MASK` | `0x0000000F` | OR of all defined irq bits. |
 
 ## Required Operation Classes
 

@@ -56,6 +56,66 @@
     }
   ],
   "flags_valid_mask": "0x0000000F",
+  "control_bits": [
+    {
+      "name": "SOFT_RESET",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Cancel active work and return the V2 lifecycle to IDLE."
+    },
+    {
+      "name": "CLEAR_TERMINAL",
+      "bit": 1,
+      "value": "0x00000002",
+      "description": "Clear sticky DONE or FAULT terminal state and return to IDLE."
+    },
+    {
+      "name": "HALT",
+      "bit": 2,
+      "value": "0x00000004",
+      "description": "Request a precise frontend halt from RUNNING."
+    },
+    {
+      "name": "RESUME",
+      "bit": 3,
+      "value": "0x00000008",
+      "description": "Resume frontend execution from HALTED."
+    },
+    {
+      "name": "DEBUG_STEP",
+      "bit": 4,
+      "value": "0x00000010",
+      "description": "Request one precise debug step from HALTED if implemented."
+    }
+  ],
+  "control_valid_mask": "0x0000001F",
+  "irq_bits": [
+    {
+      "name": "DONE",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Program completed successfully."
+    },
+    {
+      "name": "FAULT",
+      "bit": 1,
+      "value": "0x00000002",
+      "description": "Program or descriptor fault occurred."
+    },
+    {
+      "name": "HALTED",
+      "bit": 2,
+      "value": "0x00000004",
+      "description": "Frontend reached a precise halted state."
+    },
+    {
+      "name": "DEBUG_STEP",
+      "bit": 3,
+      "value": "0x00000008",
+      "description": "A debug-step request was accepted."
+    }
+  ],
+  "irq_valid_mask": "0x0000000F",
   "op_classes": [
     {
       "name": "FRONTEND_CONTROL",
@@ -255,7 +315,7 @@
       "offset": "0x030",
       "access": "WO",
       "reset": "0x00000000",
-      "description": "Write-one lifecycle control pulses."
+      "description": "Write-one lifecycle control pulses. At most one command bit may be set per write."
     },
     {
       "name": "STATUS",
