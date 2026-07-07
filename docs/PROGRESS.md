@@ -52,7 +52,8 @@ Detailed historical logs live in Git history and `CHANGELOG.md`.
   frontend PC/state/fault progression, local scratchpad, in-order DMA
   load/store events, predicate inactive-lane behavior, vector register state,
   `i32` vector load/store/add/sub/min/max/compare/shift, matrix
-  `i8*i8->i32` micro-op effects, and focused fault paths.
+  `i8*i8->i32` micro-op effects, deterministic random vector programs, and
+  focused fault paths.
 
 ## Latest Verification Matrix
 
@@ -74,7 +75,7 @@ The latest completed V2 metadata/model gate passed with:
 | Debug build | `cmake --preset debug && cmake --build --preset debug --parallel 2` | Passed |
 | Focused V2 ABI/ISA tests | `ctest --preset debug -R 'v2_abi\|isa\|holon_npu_driver' --output-on-failure` | Passed `5/5` |
 | V2 model build | `cmake --build --preset debug --target holon_npu_v2_model_test --parallel 2` | Passed |
-| V2 model test | `ctest --preset debug -R holon_npu_v2_model --output-on-failure` | Passed `1/1`, including ABI 3.0 descriptor loading, DMA events, predicate vector ALU compare/shift, and matrix micro-op effects |
+| V2 model test | `ctest --preset debug -R holon_npu_v2_model --output-on-failure` | Passed `1/1`, including ABI 3.0 descriptor loading, DMA events, predicate vector ALU compare/shift, deterministic random vector programs, and matrix micro-op effects |
 | Debug tests | `ctest --preset debug --output-on-failure` | Passed `19/19` |
 | Lint tests | `ctest --preset lint --output-on-failure` | Passed `8/8` |
 | Regression build | `cmake --preset regression && cmake --build --preset regression --parallel 2` | Passed |
@@ -119,8 +120,8 @@ The latest completed V1.5 release gate passed with:
 ## Next Engineering Step
 
 - Continue V2 Phase V2.2 by expanding the C++ architectural simulator with
-  deterministic random program generation, additional vector operation classes,
-  and richer matrix edge cases.
+  additional vector operation classes, richer matrix edge cases, and a reusable
+  assembler/program-builder layer.
 - V2 RTL control-plane work must not begin until the frontend implementation
   boundary, ISA metadata, program descriptor schema, lifecycle state machine,
   and memory ordering rules remain green under the static checks.

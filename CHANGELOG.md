@@ -20,6 +20,8 @@ All notable project-level release changes are recorded here.
 - Added the first V2 C++26 architectural simulator foundation with decode,
   local scratchpad, vector register state, vector arithmetic/compare/shift
   execution, and focused simulator tests.
+- Added deterministic constrained-random V2 vector program tests against C++
+  reference semantics.
 - Added V2 simulator matrix micro-op architectural effects for INT8 GEMM
   clear/accumulate behavior, event emission, and issue faults.
 

@@ -1,11 +1,15 @@
 #include "holon_npu_v2_model.hpp"
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <random>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -71,9 +75,46 @@ bool expect_vector_eq(
     return true;
 }
 
+std::int32_t reference_wrap_add(std::int32_t lhs, std::int32_t rhs) {
+    return std::bit_cast<std::int32_t>(
+        static_cast<std::uint32_t>(lhs) + static_cast<std::uint32_t>(rhs)
+    );
+}
+
+std::int32_t reference_wrap_sub(std::int32_t lhs, std::int32_t rhs) {
+    return std::bit_cast<std::int32_t>(
+        static_cast<std::uint32_t>(lhs) - static_cast<std::uint32_t>(rhs)
+    );
+}
+
+std::uint32_t reference_shift_count(std::int32_t value) {
+    return static_cast<std::uint32_t>(value) & 31U;
+}
+
+std::int32_t reference_shl(std::int32_t value, std::uint32_t count) {
+    return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value) << count);
+}
+
+std::int32_t reference_srl(std::int32_t value, std::uint32_t count) {
+    return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value) >> count);
+}
+
+std::int32_t reference_sra(std::int32_t value, std::uint32_t count) {
+    if (count == 0) {
+        return value;
+    }
+    const auto bits = static_cast<std::uint32_t>(value);
+    if (value >= 0) {
+        return std::bit_cast<std::int32_t>(bits >> count);
+    }
+    const auto sign_fill = ~std::uint32_t{0} << (32U - count);
+    return std::bit_cast<std::int32_t>((bits >> count) | sign_fill);
+}
+
 holon_npu_program_desc_t valid_program_desc(
     std::span<const std::uint32_t> program,
-    std::span<const std::byte> args
+    std::span<const std::byte> args,
+    std::uint32_t local_mem_bytes = 128
 ) {
     return holon_npu_program_desc_t{
         .size_bytes = HOLON_NPU_PROGRAM_DESC_SIZE,
@@ -92,7 +133,7 @@ holon_npu_program_desc_t valid_program_desc(
         .entry_pc = 0,
         .arg_addr = 0x2000,
         .arg_size_bytes = static_cast<std::uint32_t>(args.size()),
-        .local_mem_bytes = 128,
+        .local_mem_bytes = local_mem_bytes,
         .program_mem_bytes = static_cast<std::uint32_t>(program.size_bytes()),
         .stack_bytes = 0,
         .completion_addr = 0,
@@ -105,6 +146,66 @@ holon_npu_program_desc_t valid_program_desc(
         .reserved_70 = 0,
         .reserved_78 = 0,
     };
+}
+
+enum class random_vector_op : std::uint8_t {
+    add,
+    sub,
+    min,
+    max,
+    eq,
+    lt,
+    shl,
+    srl,
+    sra,
+};
+
+std::uint32_t encode_random_vector_op(random_vector_op op, std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    switch (op) {
+        case random_vector_op::add:
+            return encode_vector_add_i32(vd, vs1, vs2);
+        case random_vector_op::sub:
+            return encode_vector_sub_i32(vd, vs1, vs2);
+        case random_vector_op::min:
+            return encode_vector_min_i32(vd, vs1, vs2);
+        case random_vector_op::max:
+            return encode_vector_max_i32(vd, vs1, vs2);
+        case random_vector_op::eq:
+            return encode_vector_eq_i32(vd, vs1, vs2);
+        case random_vector_op::lt:
+            return encode_vector_lt_i32(vd, vs1, vs2);
+        case random_vector_op::shl:
+            return encode_vector_shl_i32(vd, vs1, vs2);
+        case random_vector_op::srl:
+            return encode_vector_srl_i32(vd, vs1, vs2);
+        case random_vector_op::sra:
+            return encode_vector_sra_i32(vd, vs1, vs2);
+    }
+    return encode_system_fault(model_error::illegal_instruction);
+}
+
+std::int32_t reference_random_vector_op(random_vector_op op, std::int32_t lhs, std::int32_t rhs) {
+    switch (op) {
+        case random_vector_op::add:
+            return reference_wrap_add(lhs, rhs);
+        case random_vector_op::sub:
+            return reference_wrap_sub(lhs, rhs);
+        case random_vector_op::min:
+            return std::min(lhs, rhs);
+        case random_vector_op::max:
+            return std::max(lhs, rhs);
+        case random_vector_op::eq:
+            return lhs == rhs ? 1 : 0;
+        case random_vector_op::lt:
+            return lhs < rhs ? 1 : 0;
+        case random_vector_op::shl:
+            return reference_shl(lhs, reference_shift_count(rhs));
+        case random_vector_op::srl:
+            return reference_srl(lhs, reference_shift_count(rhs));
+        case random_vector_op::sra:
+            return reference_sra(lhs, reference_shift_count(rhs));
+    }
+    return 0;
 }
 
 bool test_decode_and_disassemble() {
@@ -374,6 +475,79 @@ bool test_vector_i32_compare_shift_ops() {
     return ok;
 }
 
+bool test_random_vector_i32_programs() {
+    constexpr auto seed = std::uint64_t{0x48504C4F4E5632ULL};
+    constexpr auto lanes_max = std::size_t{16};
+    constexpr auto lhs_offset = std::uint16_t{0};
+    constexpr auto rhs_offset = std::uint16_t{64};
+    constexpr auto dst_offset = std::uint16_t{128};
+    constexpr auto local_mem_bytes = std::uint32_t{256};
+    constexpr std::array ops{
+        random_vector_op::add,
+        random_vector_op::sub,
+        random_vector_op::min,
+        random_vector_op::max,
+        random_vector_op::eq,
+        random_vector_op::lt,
+        random_vector_op::shl,
+        random_vector_op::srl,
+        random_vector_op::sra,
+    };
+
+    std::mt19937_64 rng(seed);
+    std::uniform_int_distribution<int> vl_dist(1, static_cast<int>(lanes_max));
+    std::uniform_int_distribution<int> op_dist(0, static_cast<int>(ops.size() - 1));
+    std::uniform_int_distribution<int> value_dist(-4096, 4096);
+    std::uniform_int_distribution<int> predicate_dist(0, 1);
+
+    bool ok = true;
+    for (std::size_t case_index = 0; case_index < 64; ++case_index) {
+        const auto vl = static_cast<std::uint16_t>(vl_dist(rng));
+        const auto op = ops.at(static_cast<std::size_t>(op_dist(rng)));
+
+        std::array<std::int32_t, lanes_max * 3> args{};
+        std::vector<std::uint8_t> predicate(vl, 1);
+        std::vector<std::int32_t> expected(vl, 0);
+
+        for (std::size_t lane = 0; lane < lanes_max; ++lane) {
+            const auto lhs = static_cast<std::int32_t>(value_dist(rng));
+            const auto rhs = static_cast<std::int32_t>(value_dist(rng));
+            const auto initial = static_cast<std::int32_t>(value_dist(rng));
+            args.at(lane) = lhs;
+            args.at(lanes_max + lane) = rhs;
+            args.at((lanes_max * 2) + lane) = initial;
+            if (lane < vl) {
+                predicate.at(lane) = static_cast<std::uint8_t>(predicate_dist(rng));
+                expected.at(lane) = predicate.at(lane) != 0
+                    ? reference_random_vector_op(op, lhs, rhs)
+                    : initial;
+            }
+        }
+
+        const std::array<std::uint32_t, 7> program{
+            encode_vector_config_set_vl(vl),
+            encode_vector_load_i32(1, lhs_offset),
+            encode_vector_load_i32(2, rhs_offset),
+            encode_vector_load_i32(3, dst_offset),
+            encode_random_vector_op(op, 3, 1, 2),
+            encode_vector_store_i32(3, dst_offset),
+            encode_system_exit(),
+        };
+        const auto arg_bytes = std::as_bytes(std::span(args));
+        const auto desc = valid_program_desc(program, arg_bytes, local_mem_bytes);
+
+        machine model(local_mem_bytes, lanes_max);
+        const auto load = model.load_program_descriptor(desc, program, arg_bytes);
+        const auto case_name = std::string{"random vector case "} + std::to_string(case_index);
+        ok &= expect_eq(case_name + " load fault", load.fault, model_error::none);
+        ok &= expect_true(case_name + " predicate", model.set_predicate(predicate));
+        ok &= expect_eq(case_name + " run", model.run(32).state, lifecycle_state::done);
+        const auto actual = model.read_i32(dst_offset, expected.size());
+        ok &= expect_vector_eq(case_name, actual, expected);
+    }
+    return ok;
+}
+
 bool test_predicate_inactive_lanes_preserve_destination() {
     machine model(128, 16);
     const std::array<std::int32_t, 12> args{
@@ -573,6 +747,7 @@ int main() {
     ok &= test_dma_faults();
     ok &= test_vector_i32_alu_ops();
     ok &= test_vector_i32_compare_shift_ops();
+    ok &= test_random_vector_i32_programs();
     ok &= test_predicate_inactive_lanes_preserve_destination();
     ok &= test_matrix_gemm_i8_i32_micro_op();
     ok &= test_matrix_issue_faults();

@@ -151,6 +151,8 @@ Active V2 model coverage today:
 - Vector `i32` load/store plus add, subtract, min, max, equal, signed less-than,
   logical shift-left/right, and arithmetic shift-right execution with INT32
   wraparound semantics for add/subtract.
+- Deterministic constrained-random vector programs with random VL, operands,
+  predicates, and operation selection compared against C++ reference semantics.
 - Matrix `i8*i8->i32` GEMM micro-op effects over local A/B/C operands,
   including clear/accumulate behavior, event emission, and issue faults.
 - Explicit program-fault and vector-configuration fault paths.
