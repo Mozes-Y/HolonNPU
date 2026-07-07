@@ -147,7 +147,9 @@ Active V2 model coverage today:
 - Local scratchpad loads/stores with bounds faults.
 - In-order DMA load/store event visibility between system memory and local
   scratchpad, including system/local bounds faults.
-- Vector `i32` load/add/store execution with INT32 wraparound semantics.
+- Predicate inactive-lane preservation.
+- Vector `i32` load/store plus add, subtract, min, and max execution with
+  INT32 wraparound semantics for add/subtract.
 - Explicit program-fault and vector-configuration fault paths.
 
 Required V2 verification classes before RTL release:

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -19,7 +20,10 @@ using holon_npu::v2::model::encode_system_fault;
 using holon_npu::v2::model::encode_vector_add_i32;
 using holon_npu::v2::model::encode_vector_config_set_vl;
 using holon_npu::v2::model::encode_vector_load_i32;
+using holon_npu::v2::model::encode_vector_max_i32;
+using holon_npu::v2::model::encode_vector_min_i32;
 using holon_npu::v2::model::encode_vector_store_i32;
+using holon_npu::v2::model::encode_vector_sub_i32;
 using holon_npu::v2::model::lifecycle_state;
 using holon_npu::v2::model::machine;
 using holon_npu::v2::model::model_error;
@@ -108,6 +112,10 @@ bool test_decode_and_disassemble() {
     ok &= expect_eq("decode rs2", inst.rs2, std::uint8_t{2});
     ok &= expect_true("class name", class_name(inst.isa_class) == "vector_alu");
     ok &= expect_true("disassemble", disassemble(inst) == "vector_alu.add_i32 v3, v1, v2");
+    ok &= expect_true(
+        "disassemble sub",
+        disassemble(decode(encode_vector_sub_i32(4, 5, 6))) == "vector_alu.sub_i32 v4, v5, v6"
+    );
     ok &= expect_eq("reserved decode", decode(HOLON_NPU_ISA_CLASS_RESERVED_D).isa_class,
                     HOLON_NPU_ISA_ENUM_RESERVED_D);
     return ok;
@@ -242,6 +250,99 @@ bool test_dma_faults() {
     return ok;
 }
 
+bool test_vector_i32_alu_ops() {
+    const std::array<std::int32_t, 12> args{
+        1,
+        -5,
+        std::numeric_limits<std::int32_t>::min(),
+        7,
+        2,
+        4,
+        -1,
+        -10,
+        100,
+        200,
+        300,
+        400,
+    };
+    const auto arg_bytes = std::as_bytes(std::span(args));
+
+    auto run_op = [&](std::uint32_t op, std::span<const std::int32_t> expected) {
+        machine model(128, 16);
+        const std::array<std::uint32_t, 6> program{
+            encode_vector_config_set_vl(4),
+            encode_vector_load_i32(1, 0),
+            encode_vector_load_i32(2, 16),
+            op,
+            encode_vector_store_i32(3, 48),
+            encode_system_exit(),
+        };
+        const auto desc = valid_program_desc(program, arg_bytes);
+        const auto load_result = model.load_program_descriptor(desc, program, arg_bytes);
+        bool ok = true;
+        ok &= expect_eq("alu load state", load_result.state, lifecycle_state::idle);
+        ok &= expect_eq("alu load fault", load_result.fault, model_error::none);
+        const auto result = model.run(16);
+        ok &= expect_eq("alu run state", result.state, lifecycle_state::done);
+        const auto actual = model.read_i32(48, expected.size());
+        ok &= expect_vector_eq("alu result", actual, expected);
+        return ok;
+    };
+
+    const std::array<std::int32_t, 4> add_expected{
+        3,
+        -1,
+        std::numeric_limits<std::int32_t>::max(),
+        -3,
+    };
+    const std::array<std::int32_t, 4> sub_expected{
+        -1,
+        -9,
+        std::numeric_limits<std::int32_t>::min() + 1,
+        17,
+    };
+    const std::array<std::int32_t, 4> min_expected{1, -5, std::numeric_limits<std::int32_t>::min(), -10};
+    const std::array<std::int32_t, 4> max_expected{2, 4, -1, 7};
+
+    bool ok = true;
+    ok &= run_op(encode_vector_add_i32(3, 1, 2), add_expected);
+    ok &= run_op(encode_vector_sub_i32(3, 1, 2), sub_expected);
+    ok &= run_op(encode_vector_min_i32(3, 1, 2), min_expected);
+    ok &= run_op(encode_vector_max_i32(3, 1, 2), max_expected);
+    return ok;
+}
+
+bool test_predicate_inactive_lanes_preserve_destination() {
+    machine model(128, 16);
+    const std::array<std::int32_t, 12> args{
+        1, 2, 3, 4,
+        10, 20, 30, 40,
+        100, 200, 300, 400,
+    };
+    const std::array<std::uint8_t, 4> predicate{1, 0, 1, 0};
+    const std::array<std::int32_t, 4> expected{11, 200, 33, 400};
+    const std::array<std::uint32_t, 7> program{
+        encode_vector_config_set_vl(4),
+        encode_vector_load_i32(1, 0),
+        encode_vector_load_i32(2, 16),
+        encode_vector_load_i32(3, 32),
+        encode_vector_add_i32(3, 1, 2),
+        encode_vector_store_i32(3, 48),
+        encode_system_exit(),
+    };
+    const auto arg_bytes = std::as_bytes(std::span(args));
+    const auto desc = valid_program_desc(program, arg_bytes);
+
+    bool ok = true;
+    ok &= expect_eq("predicate load", model.load_program_descriptor(desc, program, arg_bytes).fault,
+                    model_error::none);
+    ok &= expect_true("set predicate", model.set_predicate(predicate));
+    ok &= expect_eq("predicate run", model.run(16).state, lifecycle_state::done);
+    const auto actual = model.read_i32(48, expected.size());
+    ok &= expect_vector_eq("predicate inactive lanes", actual, expected);
+    return ok;
+}
+
 bool test_vector_config_fault() {
     machine model(128, 16);
     const std::array<std::uint32_t, 2> program{
@@ -299,6 +400,8 @@ int main() {
     ok &= test_descriptor_validation_faults();
     ok &= test_dma_ordering_and_visibility();
     ok &= test_dma_faults();
+    ok &= test_vector_i32_alu_ops();
+    ok &= test_predicate_inactive_lanes_preserve_destination();
     ok &= test_vector_config_fault();
     ok &= test_local_memory_bounds_fault();
     ok &= test_explicit_program_fault();

@@ -39,6 +39,9 @@ enum class v2_opcode : std::uint8_t {
     vector_memory_load_i32 = 0x0,
     vector_memory_store_i32 = 0x1,
     vector_alu_add_i32 = 0x0,
+    vector_alu_sub_i32 = 0x1,
+    vector_alu_min_i32 = 0x2,
+    vector_alu_max_i32 = 0x3,
     system_exit = 0x0,
     system_fault = 0x1,
 };
@@ -99,6 +102,9 @@ std::uint32_t encode_vector_config_set_vl(std::uint16_t vl);
 std::uint32_t encode_vector_load_i32(std::uint8_t vd, std::uint16_t local_byte_offset);
 std::uint32_t encode_vector_store_i32(std::uint8_t vs, std::uint16_t local_byte_offset);
 std::uint32_t encode_vector_add_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_sub_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_min_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_max_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
 std::uint32_t encode_system_exit();
 std::uint32_t encode_system_fault(model_error fault);
 
@@ -126,6 +132,7 @@ public:
         const loader_config& config = {}
     );
     bool load_arguments(std::span<const std::byte> bytes, std::uint32_t local_byte_offset);
+    bool set_predicate(std::span<const std::uint8_t> active_lanes);
     bool write_i32(std::uint32_t local_byte_offset, std::span<const std::int32_t> values);
     std::vector<std::int32_t> read_i32(std::uint32_t local_byte_offset, std::size_t count) const;
     bool write_system_i32(std::uint64_t system_byte_offset, std::span<const std::int32_t> values);

@@ -38,6 +38,12 @@ std::int32_t wrap_add(std::int32_t lhs, std::int32_t rhs) {
     return std::bit_cast<std::int32_t>(lhs_bits + rhs_bits);
 }
 
+std::int32_t wrap_sub(std::int32_t lhs, std::int32_t rhs) {
+    const auto lhs_bits = static_cast<std::uint32_t>(lhs);
+    const auto rhs_bits = static_cast<std::uint32_t>(rhs);
+    return std::bit_cast<std::int32_t>(lhs_bits - rhs_bits);
+}
+
 bool class_matches(std::uint32_t word, std::uint32_t value, std::uint32_t mask) {
     return (word & mask) == value;
 }
@@ -82,6 +88,18 @@ std::uint32_t encode_vector_store_i32(std::uint8_t vs, std::uint16_t local_byte_
 
 std::uint32_t encode_vector_add_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
     return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_add_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_sub_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_sub_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_min_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_min_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_max_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_max_i32, vd, vs1, vs2, 0);
 }
 
 std::uint32_t encode_system_exit() {
@@ -199,6 +217,18 @@ std::string disassemble(const decoded_instruction& inst) {
     if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
         inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_add_i32)) {
         return std::format("{}.add_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_sub_i32)) {
+        return std::format("{}.sub_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_min_i32)) {
+        return std::format("{}.min_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_max_i32)) {
+        return std::format("{}.max_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
     }
     if (inst.isa_class == HOLON_NPU_ISA_ENUM_SYSTEM &&
         inst.opcode == static_cast<std::uint8_t>(v2_opcode::system_exit)) {
@@ -321,6 +351,16 @@ bool machine::load_arguments(std::span<const std::byte> bytes, std::uint32_t loc
         return false;
     }
     std::ranges::copy(bytes, scratchpad_.begin() + local_byte_offset);
+    return true;
+}
+
+bool machine::set_predicate(std::span<const std::uint8_t> active_lanes) {
+    if (active_lanes.size() > predicate_active_.size()) {
+        raise_fault(model_error::vector_config);
+        return false;
+    }
+    std::ranges::fill(predicate_active_, 0);
+    std::ranges::copy(active_lanes, predicate_active_.begin());
     return true;
 }
 
@@ -481,16 +521,32 @@ run_result machine::step() {
             break;
 
         case HOLON_NPU_ISA_ENUM_VECTOR_ALU:
-            if (inst.opcode != static_cast<std::uint8_t>(v2_opcode::vector_alu_add_i32) ||
-                !register_index_ok(inst.rd) || !register_index_ok(inst.rs1) ||
+            if (!register_index_ok(inst.rd) || !register_index_ok(inst.rs1) ||
                 !register_index_ok(inst.rs2) || vl_ == 0) {
                 raise_fault(model_error::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             for (std::uint32_t lane = 0; lane < vl_; ++lane) {
                 if (predicate_active_.at(lane) != 0) {
-                    vector_registers_.at(inst.rd).at(lane) =
-                        wrap_add(vector_registers_.at(inst.rs1).at(lane), vector_registers_.at(inst.rs2).at(lane));
+                    const auto lhs = vector_registers_.at(inst.rs1).at(lane);
+                    const auto rhs = vector_registers_.at(inst.rs2).at(lane);
+                    switch (static_cast<v2_opcode>(inst.opcode)) {
+                        case v2_opcode::vector_alu_add_i32:
+                            vector_registers_.at(inst.rd).at(lane) = wrap_add(lhs, rhs);
+                            break;
+                        case v2_opcode::vector_alu_sub_i32:
+                            vector_registers_.at(inst.rd).at(lane) = wrap_sub(lhs, rhs);
+                            break;
+                        case v2_opcode::vector_alu_min_i32:
+                            vector_registers_.at(inst.rd).at(lane) = std::min(lhs, rhs);
+                            break;
+                        case v2_opcode::vector_alu_max_i32:
+                            vector_registers_.at(inst.rd).at(lane) = std::max(lhs, rhs);
+                            break;
+                        default:
+                            raise_fault(model_error::illegal_instruction);
+                            return run_result{state_, fault_, pc_, retired_};
+                    }
                 }
             }
             pc_ = next_pc;
