@@ -12,6 +12,7 @@ namespace {
 
 using holon_npu::v2::model::class_name;
 using holon_npu::v2::model::decode;
+using holon_npu::v2::model::dma_direction;
 using holon_npu::v2::model::disassemble;
 using holon_npu::v2::model::encode_system_exit;
 using holon_npu::v2::model::encode_system_fault;
@@ -193,6 +194,54 @@ bool test_descriptor_validation_faults() {
     return ok;
 }
 
+bool test_dma_ordering_and_visibility() {
+    machine model(128, 16);
+    model.resize_system_memory(128);
+
+    const std::array<std::int32_t, 4> source{5, 6, 7, 8};
+    const std::array<std::int32_t, 4> expected_store{15, 16, 17, 18};
+
+    bool ok = true;
+    ok &= expect_true("system write", model.write_system_i32(0, source));
+    ok &= expect_true("dma load", model.issue_dma_load(0, 0, source.size() * sizeof(std::int32_t)));
+    const auto loaded = model.read_i32(0, source.size());
+    ok &= expect_vector_eq("dma load visible", loaded, source);
+
+    ok &= expect_true("local write", model.write_i32(32, expected_store));
+    ok &= expect_true("dma store", model.issue_dma_store(32, 64, expected_store.size() * sizeof(std::int32_t)));
+    const auto stored = model.read_system_i32(64, expected_store.size());
+    ok &= expect_vector_eq("dma store visible", stored, expected_store);
+
+    const auto& events = model.dma_events();
+    ok &= expect_eq("dma event count", events.size(), std::size_t{2});
+    ok &= expect_eq("dma event 0 sequence", events.at(0).sequence, std::uint64_t{0});
+    ok &= expect_eq("dma event 0 direction", events.at(0).direction, dma_direction::system_to_local);
+    ok &= expect_eq("dma event 1 sequence", events.at(1).sequence, std::uint64_t{1});
+    ok &= expect_eq("dma event 1 direction", events.at(1).direction, dma_direction::local_to_system);
+    model.clear_dma_events();
+    ok &= expect_eq("dma event clear", model.dma_events().size(), std::size_t{0});
+    return ok;
+}
+
+bool test_dma_faults() {
+    machine model(32, 16);
+    model.resize_system_memory(32);
+
+    bool ok = true;
+    const std::array<std::int32_t, 1> source{1};
+    ok &= expect_true("dma system write", model.write_system_i32(0, source));
+    ok &= expect_true("dma load local bounds false", !model.issue_dma_load(0, 24, 16));
+    ok &= expect_eq("dma load local bounds state", model.state(), lifecycle_state::fault);
+    ok &= expect_eq("dma load local bounds fault", model.fault(), model_error::local_memory_bounds);
+
+    model.reset();
+    model.resize_system_memory(32);
+    ok &= expect_true("dma load system bounds false", !model.issue_dma_load(28, 0, 16));
+    ok &= expect_eq("dma load system bounds state", model.state(), lifecycle_state::fault);
+    ok &= expect_eq("dma load system bounds fault", model.fault(), model_error::dma_request);
+    return ok;
+}
+
 bool test_vector_config_fault() {
     machine model(128, 16);
     const std::array<std::uint32_t, 2> program{
@@ -248,6 +297,8 @@ int main() {
     ok &= test_decode_and_disassemble();
     ok &= test_minimal_vector_program();
     ok &= test_descriptor_validation_faults();
+    ok &= test_dma_ordering_and_visibility();
+    ok &= test_dma_faults();
     ok &= test_vector_config_fault();
     ok &= test_local_memory_bounds_fault();
     ok &= test_explicit_program_fault();

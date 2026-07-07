@@ -145,6 +145,8 @@ Active V2 model coverage today:
 - ISA class decode/disassemble checks using generated ISA constants.
 - Frontend PC/state/fault progression for a minimal program.
 - Local scratchpad loads/stores with bounds faults.
+- In-order DMA load/store event visibility between system memory and local
+  scratchpad, including system/local bounds faults.
 - Vector `i32` load/add/store execution with INT32 wraparound semantics.
 - Explicit program-fault and vector-configuration fault paths.
 

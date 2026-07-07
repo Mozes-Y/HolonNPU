@@ -229,6 +229,12 @@ void machine::reset() {
     pc_ = 0;
     vl_ = 0;
     retired_ = 0;
+    dma_events_.clear();
+    next_dma_sequence_ = 0;
+}
+
+void machine::resize_system_memory(std::size_t byte_count) {
+    system_memory_.assign(byte_count, std::byte{0});
 }
 
 void machine::load_program(std::span<const std::uint32_t> words) {
@@ -237,6 +243,8 @@ void machine::load_program(std::span<const std::uint32_t> words) {
     fault_ = model_error::none;
     pc_ = 0;
     retired_ = 0;
+    dma_events_.clear();
+    next_dma_sequence_ = 0;
 }
 
 run_result machine::load_program_descriptor(
@@ -250,6 +258,8 @@ run_result machine::load_program_descriptor(
     pc_ = 0;
     retired_ = 0;
     program_.clear();
+    dma_events_.clear();
+    next_dma_sequence_ = 0;
 
     if (desc.size_bytes != HOLON_NPU_PROGRAM_DESC_SIZE || !descriptor_reserved_zero(desc)) {
         raise_fault(model_error::invalid_program_descriptor);
@@ -333,6 +343,87 @@ std::vector<std::int32_t> machine::read_i32(std::uint32_t local_byte_offset, std
         values.push_back(local_range_ok(offset, sizeof(std::int32_t)) ? load_i32(offset) : 0);
     }
     return values;
+}
+
+bool machine::write_system_i32(std::uint64_t system_byte_offset, std::span<const std::int32_t> values) {
+    const auto byte_count = values.size_bytes();
+    if (!system_range_ok(system_byte_offset, byte_count)) {
+        return false;
+    }
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        store_system_i32(system_byte_offset + static_cast<std::uint64_t>(index * sizeof(std::int32_t)), values[index]);
+    }
+    return true;
+}
+
+std::vector<std::int32_t> machine::read_system_i32(std::uint64_t system_byte_offset, std::size_t count) const {
+    std::vector<std::int32_t> values;
+    values.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto offset = system_byte_offset + static_cast<std::uint64_t>(index * sizeof(std::int32_t));
+        values.push_back(system_range_ok(offset, sizeof(std::int32_t)) ? load_system_i32(offset) : 0);
+    }
+    return values;
+}
+
+bool machine::issue_dma_load(
+    std::uint64_t system_byte_offset,
+    std::uint32_t local_byte_offset,
+    std::uint32_t byte_count
+) {
+    if (!local_range_ok(local_byte_offset, byte_count)) {
+        raise_fault(model_error::local_memory_bounds);
+        return false;
+    }
+    if (!system_range_ok(system_byte_offset, byte_count)) {
+        raise_fault(model_error::dma_request);
+        return false;
+    }
+    std::ranges::copy(
+        system_memory_.begin() + static_cast<std::ptrdiff_t>(system_byte_offset),
+        system_memory_.begin() + static_cast<std::ptrdiff_t>(system_byte_offset + byte_count),
+        scratchpad_.begin() + local_byte_offset
+    );
+    dma_events_.push_back(dma_event{
+        .sequence = next_dma_sequence_++,
+        .direction = dma_direction::system_to_local,
+        .system_byte_offset = system_byte_offset,
+        .local_byte_offset = local_byte_offset,
+        .byte_count = byte_count,
+    });
+    return true;
+}
+
+bool machine::issue_dma_store(
+    std::uint32_t local_byte_offset,
+    std::uint64_t system_byte_offset,
+    std::uint32_t byte_count
+) {
+    if (!local_range_ok(local_byte_offset, byte_count)) {
+        raise_fault(model_error::local_memory_bounds);
+        return false;
+    }
+    if (!system_range_ok(system_byte_offset, byte_count)) {
+        raise_fault(model_error::dma_request);
+        return false;
+    }
+    std::ranges::copy(
+        scratchpad_.begin() + local_byte_offset,
+        scratchpad_.begin() + local_byte_offset + byte_count,
+        system_memory_.begin() + static_cast<std::ptrdiff_t>(system_byte_offset)
+    );
+    dma_events_.push_back(dma_event{
+        .sequence = next_dma_sequence_++,
+        .direction = dma_direction::local_to_system,
+        .system_byte_offset = system_byte_offset,
+        .local_byte_offset = local_byte_offset,
+        .byte_count = byte_count,
+    });
+    return true;
+}
+
+void machine::clear_dma_events() {
+    dma_events_.clear();
 }
 
 run_result machine::step() {
@@ -443,6 +534,12 @@ bool machine::local_range_ok(std::uint32_t local_byte_offset, std::size_t byte_c
     return offset <= scratchpad_.size() && byte_count <= scratchpad_.size() - offset;
 }
 
+bool machine::system_range_ok(std::uint64_t system_byte_offset, std::size_t byte_count) const {
+    const auto offset = static_cast<std::size_t>(system_byte_offset);
+    return system_byte_offset <= static_cast<std::uint64_t>(system_memory_.size()) &&
+           offset <= system_memory_.size() && byte_count <= system_memory_.size() - offset;
+}
+
 std::int32_t machine::load_i32(std::uint32_t local_byte_offset) const {
     std::int32_t value = 0;
     std::memcpy(&value, scratchpad_.data() + local_byte_offset, sizeof(value));
@@ -451,6 +548,16 @@ std::int32_t machine::load_i32(std::uint32_t local_byte_offset) const {
 
 void machine::store_i32(std::uint32_t local_byte_offset, std::int32_t value) {
     std::memcpy(scratchpad_.data() + local_byte_offset, &value, sizeof(value));
+}
+
+std::int32_t machine::load_system_i32(std::uint64_t system_byte_offset) const {
+    std::int32_t value = 0;
+    std::memcpy(&value, system_memory_.data() + system_byte_offset, sizeof(value));
+    return value;
+}
+
+void machine::store_system_i32(std::uint64_t system_byte_offset, std::int32_t value) {
+    std::memcpy(system_memory_.data() + system_byte_offset, &value, sizeof(value));
 }
 
 void machine::raise_fault(model_error fault) {

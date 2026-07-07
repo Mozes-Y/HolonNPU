@@ -30,6 +30,7 @@ enum class model_error : std::uint32_t {
     local_memory_bounds = HOLON_NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS,
     illegal_instruction = HOLON_NPU_V2_FAULT_ILLEGAL_INSTRUCTION,
     vector_config = HOLON_NPU_V2_FAULT_VECTOR_CONFIG,
+    dma_request = HOLON_NPU_V2_FAULT_DMA_REQUEST,
     explicit_program_fault = HOLON_NPU_V2_FAULT_EXPLICIT_PROGRAM_FAULT,
 };
 
@@ -81,6 +82,19 @@ struct loader_config {
     std::uint16_t isa_minor = HOLON_NPU_ISA_MINOR;
 };
 
+enum class dma_direction : std::uint8_t {
+    system_to_local,
+    local_to_system,
+};
+
+struct dma_event {
+    std::uint64_t sequence = 0;
+    dma_direction direction = dma_direction::system_to_local;
+    std::uint64_t system_byte_offset = 0;
+    std::uint32_t local_byte_offset = 0;
+    std::uint32_t byte_count = 0;
+};
+
 std::uint32_t encode_vector_config_set_vl(std::uint16_t vl);
 std::uint32_t encode_vector_load_i32(std::uint8_t vd, std::uint16_t local_byte_offset);
 std::uint32_t encode_vector_store_i32(std::uint8_t vs, std::uint16_t local_byte_offset);
@@ -103,6 +117,7 @@ public:
     );
 
     void reset();
+    void resize_system_memory(std::size_t byte_count);
     void load_program(std::span<const std::uint32_t> words);
     run_result load_program_descriptor(
         const holon_npu_program_desc_t& desc,
@@ -113,6 +128,12 @@ public:
     bool load_arguments(std::span<const std::byte> bytes, std::uint32_t local_byte_offset);
     bool write_i32(std::uint32_t local_byte_offset, std::span<const std::int32_t> values);
     std::vector<std::int32_t> read_i32(std::uint32_t local_byte_offset, std::size_t count) const;
+    bool write_system_i32(std::uint64_t system_byte_offset, std::span<const std::int32_t> values);
+    std::vector<std::int32_t> read_system_i32(std::uint64_t system_byte_offset, std::size_t count) const;
+    bool issue_dma_load(std::uint64_t system_byte_offset, std::uint32_t local_byte_offset, std::uint32_t byte_count);
+    bool issue_dma_store(std::uint32_t local_byte_offset, std::uint64_t system_byte_offset, std::uint32_t byte_count);
+    [[nodiscard]] const std::vector<dma_event>& dma_events() const { return dma_events_; }
+    void clear_dma_events();
 
     run_result step();
     run_result run(std::uint64_t max_instructions);
@@ -127,13 +148,18 @@ private:
     using vector_register = std::vector<std::int32_t>;
 
     bool local_range_ok(std::uint32_t local_byte_offset, std::size_t byte_count) const;
+    bool system_range_ok(std::uint64_t system_byte_offset, std::size_t byte_count) const;
     std::int32_t load_i32(std::uint32_t local_byte_offset) const;
     void store_i32(std::uint32_t local_byte_offset, std::int32_t value);
+    std::int32_t load_system_i32(std::uint64_t system_byte_offset) const;
+    void store_system_i32(std::uint64_t system_byte_offset, std::int32_t value);
     void raise_fault(model_error fault);
     bool register_index_ok(std::uint8_t index) const;
 
     std::vector<std::uint32_t> program_;
     std::vector<std::byte> scratchpad_;
+    std::vector<std::byte> system_memory_;
+    std::vector<dma_event> dma_events_;
     std::array<vector_register, vector_register_count> vector_registers_;
     std::vector<std::uint8_t> predicate_active_;
     lifecycle_state state_ = lifecycle_state::idle;
@@ -141,6 +167,7 @@ private:
     std::uint32_t pc_ = 0;
     std::uint32_t vl_ = 0;
     std::uint64_t retired_ = 0;
+    std::uint64_t next_dma_sequence_ = 0;
     std::size_t max_vl_ = default_max_vl;
 };
 
