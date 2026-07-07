@@ -153,6 +153,8 @@ Active V2 model coverage today:
   wraparound semantics for add/subtract.
 - Deterministic constrained-random vector programs with random VL, operands,
   predicates, and operation selection compared against C++ reference semantics.
+- Reusable C++ `program_builder` assembly helpers so tests construct executable
+  Holon programs instead of hand-maintaining instruction arrays.
 - Matrix `i8*i8->i32` GEMM micro-op effects over local A/B/C operands,
   including clear/accumulate behavior, event emission, and issue faults.
 - Explicit program-fault and vector-configuration fault paths.

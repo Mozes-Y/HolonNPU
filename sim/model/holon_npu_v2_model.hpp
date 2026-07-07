@@ -144,6 +144,32 @@ decoded_instruction decode(std::uint32_t word);
 std::string class_name(holon_npu_isa_class_t isa_class);
 std::string disassemble(const decoded_instruction& inst);
 
+class program_builder {
+public:
+    program_builder& raw(std::uint32_t word);
+    program_builder& set_vl(std::uint16_t vl);
+    program_builder& load_i32(std::uint8_t vd, std::uint16_t local_byte_offset);
+    program_builder& store_i32(std::uint8_t vs, std::uint16_t local_byte_offset);
+    program_builder& add_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& sub_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& min_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& max_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& eq_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& lt_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& shl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& srl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& sra_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+    program_builder& exit();
+    program_builder& fault(model_error fault);
+
+    [[nodiscard]] const std::vector<std::uint32_t>& words() const { return words_; }
+    [[nodiscard]] std::span<const std::uint32_t> span() const { return words_; }
+    [[nodiscard]] std::size_t size() const { return words_.size(); }
+
+private:
+    std::vector<std::uint32_t> words_;
+};
+
 class machine {
 public:
     static constexpr std::size_t vector_register_count = 16;

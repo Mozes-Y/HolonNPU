@@ -305,6 +305,67 @@ std::string disassemble(const decoded_instruction& inst) {
     return std::format("{}.unknown opcode=0x{:X} word=0x{:08X}", cls, inst.opcode, inst.word);
 }
 
+program_builder& program_builder::raw(std::uint32_t word) {
+    words_.push_back(word);
+    return *this;
+}
+
+program_builder& program_builder::set_vl(std::uint16_t vl) {
+    return raw(encode_vector_config_set_vl(vl));
+}
+
+program_builder& program_builder::load_i32(std::uint8_t vd, std::uint16_t local_byte_offset) {
+    return raw(encode_vector_load_i32(vd, local_byte_offset));
+}
+
+program_builder& program_builder::store_i32(std::uint8_t vs, std::uint16_t local_byte_offset) {
+    return raw(encode_vector_store_i32(vs, local_byte_offset));
+}
+
+program_builder& program_builder::add_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_add_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::sub_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_sub_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::min_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_min_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::max_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_max_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::eq_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_eq_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::lt_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_lt_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::shl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_shl_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::srl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_srl_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::sra_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return raw(encode_vector_sra_i32(vd, vs1, vs2));
+}
+
+program_builder& program_builder::exit() {
+    return raw(encode_system_exit());
+}
+
+program_builder& program_builder::fault(model_error fault) {
+    return raw(encode_system_fault(fault));
+}
+
 machine::machine(std::size_t scratchpad_bytes, std::size_t max_vl)
     : scratchpad_(scratchpad_bytes), predicate_active_(max_vl, 1), max_vl_(max_vl) {
     for (auto& reg : vector_registers_) {

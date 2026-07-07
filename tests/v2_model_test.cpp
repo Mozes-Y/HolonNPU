@@ -37,6 +37,7 @@ using holon_npu::v2::model::lifecycle_state;
 using holon_npu::v2::model::machine;
 using holon_npu::v2::model::matrix_gemm_i8_i32_op;
 using holon_npu::v2::model::model_error;
+using holon_npu::v2::model::program_builder;
 
 bool expect_true(std::string_view name, bool condition) {
     if (condition) {
@@ -160,28 +161,34 @@ enum class random_vector_op : std::uint8_t {
     sra,
 };
 
-std::uint32_t encode_random_vector_op(random_vector_op op, std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+program_builder& append_random_vector_op(
+    program_builder& program,
+    random_vector_op op,
+    std::uint8_t vd,
+    std::uint8_t vs1,
+    std::uint8_t vs2
+) {
     switch (op) {
         case random_vector_op::add:
-            return encode_vector_add_i32(vd, vs1, vs2);
+            return program.add_i32(vd, vs1, vs2);
         case random_vector_op::sub:
-            return encode_vector_sub_i32(vd, vs1, vs2);
+            return program.sub_i32(vd, vs1, vs2);
         case random_vector_op::min:
-            return encode_vector_min_i32(vd, vs1, vs2);
+            return program.min_i32(vd, vs1, vs2);
         case random_vector_op::max:
-            return encode_vector_max_i32(vd, vs1, vs2);
+            return program.max_i32(vd, vs1, vs2);
         case random_vector_op::eq:
-            return encode_vector_eq_i32(vd, vs1, vs2);
+            return program.eq_i32(vd, vs1, vs2);
         case random_vector_op::lt:
-            return encode_vector_lt_i32(vd, vs1, vs2);
+            return program.lt_i32(vd, vs1, vs2);
         case random_vector_op::shl:
-            return encode_vector_shl_i32(vd, vs1, vs2);
+            return program.shl_i32(vd, vs1, vs2);
         case random_vector_op::srl:
-            return encode_vector_srl_i32(vd, vs1, vs2);
+            return program.srl_i32(vd, vs1, vs2);
         case random_vector_op::sra:
-            return encode_vector_sra_i32(vd, vs1, vs2);
+            return program.sra_i32(vd, vs1, vs2);
     }
-    return encode_system_fault(model_error::illegal_instruction);
+    return program.fault(model_error::illegal_instruction);
 }
 
 std::int32_t reference_random_vector_op(random_vector_op op, std::int32_t lhs, std::int32_t rhs) {
@@ -240,19 +247,18 @@ bool test_minimal_vector_program() {
     machine model(128, 16);
     const std::array<std::int32_t, 8> args{1, 2, 3, 4, 10, 20, 30, 40};
     const std::array<std::int32_t, 4> expected{11, 22, 33, 44};
-    const std::array<std::uint32_t, 6> program{
-        encode_vector_config_set_vl(4),
-        encode_vector_load_i32(1, 0),
-        encode_vector_load_i32(2, 16),
-        encode_vector_add_i32(3, 1, 2),
-        encode_vector_store_i32(3, 32),
-        encode_system_exit(),
-    };
+    program_builder program;
+    program.set_vl(4)
+        .load_i32(1, 0)
+        .load_i32(2, 16)
+        .add_i32(3, 1, 2)
+        .store_i32(3, 32)
+        .exit();
     const auto arg_bytes = std::as_bytes(std::span(args));
-    const auto desc = valid_program_desc(program, arg_bytes);
+    const auto desc = valid_program_desc(program.span(), arg_bytes);
 
     bool ok = true;
-    const auto load_result = model.load_program_descriptor(desc, program, arg_bytes);
+    const auto load_result = model.load_program_descriptor(desc, program.span(), arg_bytes);
     ok &= expect_eq("descriptor load state", load_result.state, lifecycle_state::idle);
     ok &= expect_eq("descriptor load fault", load_result.fault, model_error::none);
     const auto result = model.run(16);
@@ -268,16 +274,14 @@ bool test_minimal_vector_program() {
 bool test_descriptor_validation_faults() {
     machine model(128, 16);
     const std::array<std::int32_t, 4> args{1, 2, 3, 4};
-    const std::array<std::uint32_t, 2> program{
-        encode_vector_config_set_vl(4),
-        encode_system_exit(),
-    };
+    program_builder program;
+    program.set_vl(4).exit();
     const auto arg_bytes = std::as_bytes(std::span(args));
-    const auto base = valid_program_desc(program, arg_bytes);
+    const auto base = valid_program_desc(program.span(), arg_bytes);
 
     bool ok = true;
     auto expect_fault = [&](std::string_view name, holon_npu_program_desc_t desc, model_error expected) {
-        const auto result = model.load_program_descriptor(desc, program, arg_bytes);
+        const auto result = model.load_program_descriptor(desc, program.span(), arg_bytes);
         ok &= expect_eq(name, result.fault, expected);
         ok &= expect_eq("state after descriptor fault", result.state, lifecycle_state::fault);
     };
@@ -384,16 +388,15 @@ bool test_vector_i32_alu_ops() {
 
     auto run_op = [&](std::uint32_t op, std::span<const std::int32_t> expected) {
         machine model(128, 16);
-        const std::array<std::uint32_t, 6> program{
-            encode_vector_config_set_vl(4),
-            encode_vector_load_i32(1, 0),
-            encode_vector_load_i32(2, 16),
-            op,
-            encode_vector_store_i32(3, 48),
-            encode_system_exit(),
-        };
-        const auto desc = valid_program_desc(program, arg_bytes);
-        const auto load_result = model.load_program_descriptor(desc, program, arg_bytes);
+        program_builder program;
+        program.set_vl(4)
+            .load_i32(1, 0)
+            .load_i32(2, 16)
+            .raw(op)
+            .store_i32(3, 48)
+            .exit();
+        const auto desc = valid_program_desc(program.span(), arg_bytes);
+        const auto load_result = model.load_program_descriptor(desc, program.span(), arg_bytes);
         bool ok = true;
         ok &= expect_eq("alu load state", load_result.state, lifecycle_state::idle);
         ok &= expect_eq("alu load fault", load_result.fault, model_error::none);
@@ -442,17 +445,16 @@ bool test_vector_i32_compare_shift_ops() {
 
     auto run_op = [&](std::uint32_t op, std::span<const std::int32_t> expected) {
         machine model(128, 16);
-        const std::array<std::uint32_t, 6> program{
-            encode_vector_config_set_vl(4),
-            encode_vector_load_i32(1, 0),
-            encode_vector_load_i32(2, 16),
-            op,
-            encode_vector_store_i32(3, 32),
-            encode_system_exit(),
-        };
-        const auto desc = valid_program_desc(program, arg_bytes);
+        program_builder program;
+        program.set_vl(4)
+            .load_i32(1, 0)
+            .load_i32(2, 16)
+            .raw(op)
+            .store_i32(3, 32)
+            .exit();
+        const auto desc = valid_program_desc(program.span(), arg_bytes);
         bool ok = true;
-        ok &= expect_eq("compare shift load fault", model.load_program_descriptor(desc, program, arg_bytes).fault,
+        ok &= expect_eq("compare shift load fault", model.load_program_descriptor(desc, program.span(), arg_bytes).fault,
                         model_error::none);
         ok &= expect_eq("compare shift run", model.run(16).state, lifecycle_state::done);
         const auto actual = model.read_i32(32, expected.size());
@@ -524,20 +526,17 @@ bool test_random_vector_i32_programs() {
             }
         }
 
-        const std::array<std::uint32_t, 7> program{
-            encode_vector_config_set_vl(vl),
-            encode_vector_load_i32(1, lhs_offset),
-            encode_vector_load_i32(2, rhs_offset),
-            encode_vector_load_i32(3, dst_offset),
-            encode_random_vector_op(op, 3, 1, 2),
-            encode_vector_store_i32(3, dst_offset),
-            encode_system_exit(),
-        };
+        program_builder program;
+        program.set_vl(vl)
+            .load_i32(1, lhs_offset)
+            .load_i32(2, rhs_offset)
+            .load_i32(3, dst_offset);
+        append_random_vector_op(program, op, 3, 1, 2).store_i32(3, dst_offset).exit();
         const auto arg_bytes = std::as_bytes(std::span(args));
-        const auto desc = valid_program_desc(program, arg_bytes, local_mem_bytes);
+        const auto desc = valid_program_desc(program.span(), arg_bytes, local_mem_bytes);
 
         machine model(local_mem_bytes, lanes_max);
-        const auto load = model.load_program_descriptor(desc, program, arg_bytes);
+        const auto load = model.load_program_descriptor(desc, program.span(), arg_bytes);
         const auto case_name = std::string{"random vector case "} + std::to_string(case_index);
         ok &= expect_eq(case_name + " load fault", load.fault, model_error::none);
         ok &= expect_true(case_name + " predicate", model.set_predicate(predicate));
@@ -557,20 +556,19 @@ bool test_predicate_inactive_lanes_preserve_destination() {
     };
     const std::array<std::uint8_t, 4> predicate{1, 0, 1, 0};
     const std::array<std::int32_t, 4> expected{11, 200, 33, 400};
-    const std::array<std::uint32_t, 7> program{
-        encode_vector_config_set_vl(4),
-        encode_vector_load_i32(1, 0),
-        encode_vector_load_i32(2, 16),
-        encode_vector_load_i32(3, 32),
-        encode_vector_add_i32(3, 1, 2),
-        encode_vector_store_i32(3, 48),
-        encode_system_exit(),
-    };
+    program_builder program;
+    program.set_vl(4)
+        .load_i32(1, 0)
+        .load_i32(2, 16)
+        .load_i32(3, 32)
+        .add_i32(3, 1, 2)
+        .store_i32(3, 48)
+        .exit();
     const auto arg_bytes = std::as_bytes(std::span(args));
-    const auto desc = valid_program_desc(program, arg_bytes);
+    const auto desc = valid_program_desc(program.span(), arg_bytes);
 
     bool ok = true;
-    ok &= expect_eq("predicate load", model.load_program_descriptor(desc, program, arg_bytes).fault,
+    ok &= expect_eq("predicate load", model.load_program_descriptor(desc, program.span(), arg_bytes).fault,
                     model_error::none);
     ok &= expect_true("set predicate", model.set_predicate(predicate));
     ok &= expect_eq("predicate run", model.run(16).state, lifecycle_state::done);
@@ -690,11 +688,9 @@ bool test_matrix_issue_faults() {
 
 bool test_vector_config_fault() {
     machine model(128, 16);
-    const std::array<std::uint32_t, 2> program{
-        encode_vector_config_set_vl(17),
-        encode_system_exit(),
-    };
-    model.load_program(program);
+    program_builder program;
+    program.set_vl(17).exit();
+    model.load_program(program.span());
     const auto result = model.run(4);
 
     bool ok = true;
@@ -706,12 +702,9 @@ bool test_vector_config_fault() {
 
 bool test_local_memory_bounds_fault() {
     machine model(32, 16);
-    const std::array<std::uint32_t, 3> program{
-        encode_vector_config_set_vl(4),
-        encode_vector_load_i32(1, 24),
-        encode_system_exit(),
-    };
-    model.load_program(program);
+    program_builder program;
+    program.set_vl(4).load_i32(1, 24).exit();
+    model.load_program(program.span());
     const auto result = model.run(8);
 
     bool ok = true;
@@ -723,10 +716,9 @@ bool test_local_memory_bounds_fault() {
 
 bool test_explicit_program_fault() {
     machine model(32, 16);
-    const std::array<std::uint32_t, 1> program{
-        encode_system_fault(model_error::explicit_program_fault),
-    };
-    model.load_program(program);
+    program_builder program;
+    program.fault(model_error::explicit_program_fault);
+    model.load_program(program.span());
     const auto result = model.run(2);
 
     bool ok = true;

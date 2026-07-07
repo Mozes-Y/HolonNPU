@@ -22,6 +22,7 @@ All notable project-level release changes are recorded here.
   execution, and focused simulator tests.
 - Added deterministic constrained-random V2 vector program tests against C++
   reference semantics.
+- Added a reusable V2 C++ program builder for architectural simulator tests.
 - Added V2 simulator matrix micro-op architectural effects for INT8 GEMM
   clear/accumulate behavior, event emission, and issue faults.
 
