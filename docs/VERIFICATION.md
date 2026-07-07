@@ -139,6 +139,9 @@ gate; it adds new gate content once V2 RTL and ABI 3.0 exist.
 
 Active V2 model coverage today:
 
+- ABI 3.0 program descriptor validation for version, ISA, program format,
+  required capabilities/classes, flags, reserved fields, alignment, and bounds.
+- Program image load and argument copy into local scratchpad before execution.
 - ISA class decode/disassemble checks using generated ISA constants.
 - Frontend PC/state/fault progression for a minimal program.
 - Local scratchpad loads/stores with bounds faults.

@@ -60,6 +60,42 @@ bool expect_vector_eq(
     return true;
 }
 
+holon_npu_program_desc_t valid_program_desc(
+    std::span<const std::uint32_t> program,
+    std::span<const std::byte> args
+) {
+    return holon_npu_program_desc_t{
+        .size_bytes = HOLON_NPU_PROGRAM_DESC_SIZE,
+        .version = HOLON_NPU_V2_ABI_MAJOR,
+        .program_format = HOLON_NPU_PROGRAM_FORMAT_HOLON_V2,
+        .holon_isa_major = HOLON_NPU_ISA_MAJOR,
+        .holon_isa_minor = HOLON_NPU_ISA_MINOR,
+        .required_caps = HOLON_NPU_V2_CAP_PROGRAM_DESCRIPTOR |
+                         HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY |
+                         HOLON_NPU_V2_CAP_ARGUMENT_SCRATCHPAD_COPY |
+                         HOLON_NPU_V2_CAP_INTEGER_QUANT_VECTOR,
+        .required_op_classes = HOLON_NPU_PROGRAM_OP_CLASS_VECTOR |
+                               HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM,
+        .code_addr = 0x1000,
+        .code_size_bytes = static_cast<std::uint32_t>(program.size_bytes()),
+        .entry_pc = 0,
+        .arg_addr = 0x2000,
+        .arg_size_bytes = static_cast<std::uint32_t>(args.size()),
+        .local_mem_bytes = 128,
+        .program_mem_bytes = static_cast<std::uint32_t>(program.size_bytes()),
+        .stack_bytes = 0,
+        .completion_addr = 0,
+        .flags = HOLON_NPU_PROGRAM_FLAG_IRQ_ON_DONE,
+        .reserved_4c = 0,
+        .reserved_50 = 0,
+        .reserved_58 = 0,
+        .reserved_60 = 0,
+        .reserved_68 = 0,
+        .reserved_70 = 0,
+        .reserved_78 = 0,
+    };
+}
+
 bool test_decode_and_disassemble() {
     const auto word = encode_vector_add_i32(3, 1, 2);
     const auto inst = decode(word);
@@ -78,8 +114,7 @@ bool test_decode_and_disassemble() {
 
 bool test_minimal_vector_program() {
     machine model(128, 16);
-    const std::array<std::int32_t, 4> lhs{1, 2, 3, 4};
-    const std::array<std::int32_t, 4> rhs{10, 20, 30, 40};
+    const std::array<std::int32_t, 8> args{1, 2, 3, 4, 10, 20, 30, 40};
     const std::array<std::int32_t, 4> expected{11, 22, 33, 44};
     const std::array<std::uint32_t, 6> program{
         encode_vector_config_set_vl(4),
@@ -89,11 +124,13 @@ bool test_minimal_vector_program() {
         encode_vector_store_i32(3, 32),
         encode_system_exit(),
     };
+    const auto arg_bytes = std::as_bytes(std::span(args));
+    const auto desc = valid_program_desc(program, arg_bytes);
 
     bool ok = true;
-    ok &= expect_true("write lhs", model.write_i32(0, lhs));
-    ok &= expect_true("write rhs", model.write_i32(16, rhs));
-    model.load_program(program);
+    const auto load_result = model.load_program_descriptor(desc, program, arg_bytes);
+    ok &= expect_eq("descriptor load state", load_result.state, lifecycle_state::idle);
+    ok &= expect_eq("descriptor load fault", load_result.fault, model_error::none);
     const auto result = model.run(16);
     ok &= expect_eq("minimal state", result.state, lifecycle_state::done);
     ok &= expect_eq("minimal fault", result.fault, model_error::none);
@@ -101,6 +138,58 @@ bool test_minimal_vector_program() {
     ok &= expect_eq("minimal pc", result.pc, std::uint32_t{24});
     const auto actual = model.read_i32(32, expected.size());
     ok &= expect_vector_eq("minimal vector result", actual, expected);
+    return ok;
+}
+
+bool test_descriptor_validation_faults() {
+    machine model(128, 16);
+    const std::array<std::int32_t, 4> args{1, 2, 3, 4};
+    const std::array<std::uint32_t, 2> program{
+        encode_vector_config_set_vl(4),
+        encode_system_exit(),
+    };
+    const auto arg_bytes = std::as_bytes(std::span(args));
+    const auto base = valid_program_desc(program, arg_bytes);
+
+    bool ok = true;
+    auto expect_fault = [&](std::string_view name, holon_npu_program_desc_t desc, model_error expected) {
+        const auto result = model.load_program_descriptor(desc, program, arg_bytes);
+        ok &= expect_eq(name, result.fault, expected);
+        ok &= expect_eq("state after descriptor fault", result.state, lifecycle_state::fault);
+    };
+
+    auto bad = base;
+    bad.version = 2;
+    expect_fault("bad descriptor version", bad, model_error::unsupported_abi_or_isa);
+
+    bad = base;
+    bad.program_format = 0;
+    expect_fault("bad program format", bad, model_error::unsupported_program_format);
+
+    bad = base;
+    bad.required_caps = std::uint64_t{1} << 63U;
+    expect_fault("bad required cap", bad, model_error::unsupported_capability);
+
+    bad = base;
+    bad.required_op_classes = std::uint64_t{1} << 63U;
+    expect_fault("bad required op class", bad, model_error::unsupported_operation_class);
+
+    bad = base;
+    bad.flags = HOLON_NPU_PROGRAM_FLAG_VALID_MASK << 1U;
+    expect_fault("bad flags", bad, model_error::invalid_program_descriptor);
+
+    bad = base;
+    bad.reserved_50 = 1;
+    expect_fault("bad reserved", bad, model_error::invalid_program_descriptor);
+
+    bad = base;
+    bad.code_addr = 0x1002;
+    expect_fault("bad code alignment", bad, model_error::alignment);
+
+    bad = base;
+    bad.entry_pc = base.code_size_bytes;
+    expect_fault("bad entry pc", bad, model_error::local_memory_bounds);
+
     return ok;
 }
 
@@ -158,6 +247,7 @@ int main() {
     bool ok = true;
     ok &= test_decode_and_disassemble();
     ok &= test_minimal_vector_program();
+    ok &= test_descriptor_validation_faults();
     ok &= test_vector_config_fault();
     ok &= test_local_memory_bounds_fault();
     ok &= test_explicit_program_fault();

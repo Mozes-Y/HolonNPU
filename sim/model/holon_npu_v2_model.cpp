@@ -42,6 +42,16 @@ bool class_matches(std::uint32_t word, std::uint32_t value, std::uint32_t mask) 
     return (word & mask) == value;
 }
 
+bool aligned(std::uint64_t value, std::uint64_t alignment) {
+    return alignment != 0 && value % alignment == 0;
+}
+
+bool descriptor_reserved_zero(const holon_npu_program_desc_t& desc) {
+    return desc.reserved_4c == 0 && desc.reserved_50 == 0 && desc.reserved_58 == 0 &&
+           desc.reserved_60 == 0 && desc.reserved_68 == 0 && desc.reserved_70 == 0 &&
+           desc.reserved_78 == 0;
+}
+
 }  // namespace
 
 std::uint32_t encode_vector_config_set_vl(std::uint16_t vl) {
@@ -227,6 +237,73 @@ void machine::load_program(std::span<const std::uint32_t> words) {
     fault_ = model_error::none;
     pc_ = 0;
     retired_ = 0;
+}
+
+run_result machine::load_program_descriptor(
+    const holon_npu_program_desc_t& desc,
+    std::span<const std::uint32_t> program_words,
+    std::span<const std::byte> argument_bytes,
+    const loader_config& config
+) {
+    state_ = lifecycle_state::idle;
+    fault_ = model_error::none;
+    pc_ = 0;
+    retired_ = 0;
+    program_.clear();
+
+    if (desc.size_bytes != HOLON_NPU_PROGRAM_DESC_SIZE || !descriptor_reserved_zero(desc)) {
+        raise_fault(model_error::invalid_program_descriptor);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    if (desc.version != HOLON_NPU_V2_ABI_MAJOR || desc.holon_isa_major != config.isa_major ||
+        desc.holon_isa_minor > config.isa_minor) {
+        raise_fault(model_error::unsupported_abi_or_isa);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    if (desc.program_format != HOLON_NPU_PROGRAM_FORMAT_HOLON_V2) {
+        raise_fault(model_error::unsupported_program_format);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    if ((desc.flags & ~HOLON_NPU_PROGRAM_FLAG_VALID_MASK) != 0) {
+        raise_fault(model_error::invalid_program_descriptor);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    if ((desc.required_caps & ~config.implemented_caps) != 0) {
+        raise_fault(model_error::unsupported_capability);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    if ((desc.required_op_classes & ~config.implemented_op_classes) != 0) {
+        raise_fault(model_error::unsupported_operation_class);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    if (!aligned(desc.code_addr, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
+        !aligned(desc.code_size_bytes, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
+        !aligned(desc.entry_pc, HOLON_NPU_ISA_INSTRUCTION_BYTES) ||
+        !aligned(desc.arg_addr, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
+        !aligned(desc.arg_size_bytes, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
+        (desc.completion_addr != 0 &&
+         !aligned(desc.completion_addr, HOLON_NPU_PROGRAM_COMPLETION_ALIGN))) {
+        raise_fault(model_error::alignment);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    if (desc.code_size_bytes == 0 ||
+        desc.code_size_bytes != program_words.size_bytes() ||
+        desc.arg_size_bytes != argument_bytes.size() ||
+        desc.program_mem_bytes > HOLON_NPU_PROGRAM_MEM_MAX_BYTES ||
+        desc.local_mem_bytes > scratchpad_.size() ||
+        desc.stack_bytes > HOLON_NPU_PROGRAM_STACK_MAX_BYTES ||
+        desc.entry_pc >= desc.code_size_bytes) {
+        raise_fault(model_error::local_memory_bounds);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+
+    load_program(program_words);
+    pc_ = desc.entry_pc;
+    if (!load_arguments(argument_bytes, 0)) {
+        raise_fault(model_error::local_memory_bounds);
+        return run_result{state_, fault_, pc_, retired_};
+    }
+    return run_result{state_, fault_, pc_, retired_};
 }
 
 bool machine::load_arguments(std::span<const std::byte> bytes, std::uint32_t local_byte_offset) {

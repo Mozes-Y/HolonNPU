@@ -48,6 +48,7 @@ Detailed historical logs live in Git history and `CHANGELOG.md`.
   plane migration.
 - V2.2 has started with a stdlib-only C++26 architectural simulator foundation
   under `sim/model/`. The initial model covers ISA class decode/disassemble,
+  ABI 3.0 program descriptor validation, program image/argument loading,
   frontend PC/state/fault progression, local scratchpad, vector register state,
   `i32` vector load/add/store, and focused fault paths.
 
@@ -71,7 +72,7 @@ The latest completed V2 metadata/model gate passed with:
 | Debug build | `cmake --preset debug && cmake --build --preset debug --parallel 2` | Passed |
 | Focused V2 ABI/ISA tests | `ctest --preset debug -R 'v2_abi\|isa\|holon_npu_driver' --output-on-failure` | Passed `5/5` |
 | V2 model build | `cmake --build --preset debug --target holon_npu_v2_model_test --parallel 2` | Passed |
-| V2 model test | `ctest --preset debug -R holon_npu_v2_model --output-on-failure` | Passed `1/1` |
+| V2 model test | `ctest --preset debug -R holon_npu_v2_model --output-on-failure` | Passed `1/1`, including ABI 3.0 descriptor loading |
 | Debug tests | `ctest --preset debug --output-on-failure` | Passed `19/19` |
 | Lint tests | `ctest --preset lint --output-on-failure` | Passed `8/8` |
 | Regression build | `cmake --preset regression && cmake --build --preset regression --parallel 2` | Passed |
@@ -116,8 +117,8 @@ The latest completed V1.5 release gate passed with:
 ## Next Engineering Step
 
 - Continue V2 Phase V2.2 by expanding the C++ architectural simulator with
-  program descriptor validation, program image/argument loading, DMA event
-  ordering, predicate state, and matrix micro-op architectural effects.
+  DMA event ordering, predicate state, vector operation classes, and matrix
+  micro-op architectural effects.
 - V2 RTL control-plane work must not begin until the frontend implementation
   boundary, ISA metadata, program descriptor schema, lifecycle state machine,
   and memory ordering rules remain green under the static checks.

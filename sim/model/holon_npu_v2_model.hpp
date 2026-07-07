@@ -23,6 +23,10 @@ enum class model_error : std::uint32_t {
     none = HOLON_NPU_V2_FAULT_NONE,
     invalid_program_descriptor = HOLON_NPU_V2_FAULT_INVALID_PROGRAM_DESCRIPTOR,
     unsupported_abi_or_isa = HOLON_NPU_V2_FAULT_UNSUPPORTED_ABI_OR_ISA,
+    unsupported_program_format = HOLON_NPU_V2_FAULT_UNSUPPORTED_PROGRAM_FORMAT,
+    unsupported_capability = HOLON_NPU_V2_FAULT_UNSUPPORTED_CAPABILITY,
+    unsupported_operation_class = HOLON_NPU_V2_FAULT_UNSUPPORTED_OPERATION_CLASS,
+    alignment = HOLON_NPU_V2_FAULT_ALIGNMENT,
     local_memory_bounds = HOLON_NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS,
     illegal_instruction = HOLON_NPU_V2_FAULT_ILLEGAL_INSTRUCTION,
     vector_config = HOLON_NPU_V2_FAULT_VECTOR_CONFIG,
@@ -55,6 +59,28 @@ struct run_result {
     std::uint64_t retired = 0;
 };
 
+struct loader_config {
+    std::uint64_t implemented_caps =
+        HOLON_NPU_V2_CAP_PROGRAM_DESCRIPTOR |
+        HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY |
+        HOLON_NPU_V2_CAP_ARGUMENT_SCRATCHPAD_COPY |
+        HOLON_NPU_V2_CAP_IN_ORDER_DMA_QUEUE |
+        HOLON_NPU_V2_CAP_MATRIX_MICRO_OP |
+        HOLON_NPU_V2_CAP_INTEGER_QUANT_VECTOR;
+    std::uint64_t implemented_op_classes =
+        HOLON_NPU_PROGRAM_OP_CLASS_FRONTEND_CONTROL |
+        HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE |
+        HOLON_NPU_PROGRAM_OP_CLASS_VECTOR |
+        HOLON_NPU_PROGRAM_OP_CLASS_QUANTIZATION |
+        HOLON_NPU_PROGRAM_OP_CLASS_MATRIX |
+        HOLON_NPU_PROGRAM_OP_CLASS_DMA |
+        HOLON_NPU_PROGRAM_OP_CLASS_CSR_DEBUG |
+        HOLON_NPU_PROGRAM_OP_CLASS_SYNC |
+        HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM;
+    std::uint16_t isa_major = HOLON_NPU_ISA_MAJOR;
+    std::uint16_t isa_minor = HOLON_NPU_ISA_MINOR;
+};
+
 std::uint32_t encode_vector_config_set_vl(std::uint16_t vl);
 std::uint32_t encode_vector_load_i32(std::uint8_t vd, std::uint16_t local_byte_offset);
 std::uint32_t encode_vector_store_i32(std::uint8_t vs, std::uint16_t local_byte_offset);
@@ -78,6 +104,12 @@ public:
 
     void reset();
     void load_program(std::span<const std::uint32_t> words);
+    run_result load_program_descriptor(
+        const holon_npu_program_desc_t& desc,
+        std::span<const std::uint32_t> program_words,
+        std::span<const std::byte> argument_bytes,
+        const loader_config& config = {}
+    );
     bool load_arguments(std::span<const std::byte> bytes, std::uint32_t local_byte_offset);
     bool write_i32(std::uint32_t local_byte_offset, std::span<const std::int32_t> values);
     std::vector<std::int32_t> read_i32(std::uint32_t local_byte_offset, std::size_t count) const;
