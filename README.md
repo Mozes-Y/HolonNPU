@@ -64,6 +64,7 @@ Machine-checkable V2 metadata now includes:
   `docs/V2_ISA_REFERENCE.md`
 - Generated program ABI header/reference: `include/holon_npu_program.h`,
   `docs/V2_INTERFACE_REFERENCE.md`
+- C++26 architectural simulator foundation: `sim/model/`
 
 No V2 RTL implementation is present yet; the current product top remains the
 V1.5 ABI 2.0 GEMM accelerator until the V2 loader/frontend phases land.
@@ -86,7 +87,7 @@ and GCC 15.3.0.
 docs/       Roadmap, architecture, ABI, verification, progress, and ADRs.
 include/    Public C ABI headers for registers and descriptors.
 rtl/        Product/core SystemVerilog RTL.
-sim/        Verilator C++26 testbenches and simulation-only SV harnesses.
+sim/        Verilator C++26 testbenches, V2 model code, and simulation-only SV harnesses.
 spec/       ABI/register/descriptor and ISA schemas used to generate shared outputs.
 sw/         Minimal C driver.
 tests/      Host-side driver tests.

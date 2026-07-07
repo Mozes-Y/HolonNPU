@@ -16,6 +16,8 @@ source of truth.
   `cover property`, enabled through Verilator `--assert`.
 - Coverage: dedicated coverage build with Verilator structural/user coverage
   plus a typed C++ functional coverage gate.
+- V2 architectural model: stdlib-only C++26 code under `sim/model/`, used as
+  the future RTL differential reference.
 
 ## Required Gates
 
@@ -135,7 +137,15 @@ V2 verification must extend the current assertion, coverage, and deterministic
 random strategy to a programmable NPU tile. The V2 plan does not relax any V1.5
 gate; it adds new gate content once V2 RTL and ABI 3.0 exist.
 
-Required V2 verification classes:
+Active V2 model coverage today:
+
+- ISA class decode/disassemble checks using generated ISA constants.
+- Frontend PC/state/fault progression for a minimal program.
+- Local scratchpad loads/stores with bounds faults.
+- Vector `i32` load/add/store execution with INT32 wraparound semantics.
+- Explicit program-fault and vector-configuration fault paths.
+
+Required V2 verification classes before RTL release:
 
 - ABI 3.0 program descriptor generation and byte-checking from
   `spec/holon_npu_v2_abi.json`.

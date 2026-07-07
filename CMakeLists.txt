@@ -216,6 +216,20 @@ target_sources(holon_npu_driver PRIVATE sw/holon_npu_driver.c)
 target_compile_features(holon_npu_driver PUBLIC c_std_23)
 target_link_libraries(holon_npu_driver PUBLIC holon_npu_public_headers)
 
+add_library(holon_npu_v2_model)
+target_sources(
+  holon_npu_v2_model
+  PRIVATE
+    sim/model/holon_npu_v2_model.cpp
+  PUBLIC
+    FILE_SET model_headers
+    TYPE HEADERS
+    BASE_DIRS sim/model
+    FILES sim/model/holon_npu_v2_model.hpp
+)
+target_compile_features(holon_npu_v2_model PUBLIC cxx_std_26)
+target_link_libraries(holon_npu_v2_model PUBLIC holon_npu_public_headers)
+
 holon_npu_add_sv_source_target(holon_npu_rtl_pkg rtl/common/npu_pkg.sv)
 holon_npu_add_sv_source_target(
   holon_npu_rtl_interfaces
@@ -548,6 +562,12 @@ target_sources(holon_npu_driver_test PRIVATE tests/driver_test.cpp)
 holon_npu_target_options(holon_npu_driver_test)
 target_link_libraries(holon_npu_driver_test PRIVATE holon_npu_driver)
 holon_npu_add_ctest(TEST holon_npu_driver TARGET holon_npu_driver_test LABELS fast)
+
+add_executable(holon_npu_v2_model_test)
+target_sources(holon_npu_v2_model_test PRIVATE tests/v2_model_test.cpp)
+holon_npu_target_options(holon_npu_v2_model_test)
+target_link_libraries(holon_npu_v2_model_test PRIVATE holon_npu_v2_model)
+holon_npu_add_ctest(TEST holon_npu_v2_model TARGET holon_npu_v2_model_test LABELS fast)
 
 if(HOLON_NPU_ENABLE_COVERAGE)
   holon_npu_add_python_check(

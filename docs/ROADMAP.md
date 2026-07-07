@@ -243,8 +243,6 @@ Deliverables:
 - Static checker that verifies ISA encoding table uniqueness, reserved-space
   policy, metadata completeness, coverage labels, fault model, and semantic
   hook names.
-- C++ architectural simulator skeleton for decoder, local-memory, DMA-ordering,
-  vector-state, and matrix micro-op differential tests.
 
 Acceptance criteria:
 
@@ -256,8 +254,8 @@ Acceptance criteria:
   project-owned C macros.
 - Program descriptor compatibility failures are testable before frontend
   execution starts.
-- Frontend execution starts only after code and argument visibility rules are
-  satisfied.
+- Program descriptor compatibility failures are representable before frontend
+  execution starts.
 
 Dependencies:
 
@@ -269,28 +267,71 @@ Primary risks:
   requirements are validated.
 - Mixing V1 GEMM descriptor compatibility into the new program descriptor model.
 
-### Phase V2.2: Frontend Boundary
+### Phase V2.2: C++ Architectural Simulator
 
-Goal: introduce the replaceable frontend implementation boundary and a minimal
-test frontend.
+Goal: create the stdlib-only C++26 architectural reference used by later RTL
+differential tests.
+
+Deliverables:
+
+- ISA decode/disassemble model driven by generated metadata constants.
+- Frontend PC/state/fault model.
+- Program memory and data scratchpad model.
+- Vector and predicate architectural state.
+- DMA ordering/event model.
+- Matrix micro-op architectural effects.
+- Program builder/assembler helpers for deterministic tests.
+
+Acceptance criteria:
+
+- Minimal program runs through load args, vector operation, and program exit.
+- Deterministic random seeds reproduce simulator programs.
+- Later RTL program-level tests can compare RTL-visible execution against this
+  simulator.
+
+### Phase V2.3: V2 Control Plane And Program Loader
+
+Goal: migrate the product control model from V1 GEMM descriptors to ABI 3.0
+program descriptors.
+
+Deliverables:
+
+- ABI 3.0 control/status/fault/debug registers.
+- Program descriptor fetch and validation.
+- Compatibility checks for Holon ISA version, program format, required
+  capabilities, and required operation classes.
+- Program image load to local program memory and argument copy to data
+  scratchpad before `RUNNING`.
+- Lifecycle state machine: `IDLE`, `LOADING`, `RUNNING`, `HALTED`, `DONE`,
+  `FAULT`.
+
+Acceptance criteria:
+
+- Doorbell starts only V2 program descriptors.
+- Incompatible programs fault before frontend start.
+- Busy doorbell, halt/resume/reset/clear, fault priority, and IRQ sticky
+  semantics are tested.
+
+### Phase V2.4: Frontend Boundary And Reference Frontend
+
+Goal: introduce the replaceable frontend implementation boundary and a reference
+frontend that executes the Holon program ISA.
 
 Deliverables:
 
 - `npu_frontend_if` with program memory, local memory, CSR/fault, and engine
   issue channels.
-- Reference test frontend capable of booting, issuing simple engine commands,
-  and reporting completion/fault.
-- Frontend lifecycle control through ABI 3.0 registers.
-- Precise halt/resume/reset/fault priority semantics.
+- Reference frontend implementation for boot, simple instruction execution,
+  fault, done, and debug snapshot.
+- Stable issue interfaces for DMA, vector, matrix, and sync operations.
 
 Acceptance criteria:
 
-- Program descriptor launches the test frontend.
-- Boot, halt, fault, IRQ, and debug snapshot paths are tested.
-- Product RTL remains interface-native; test-only wrappers remain under
-  `sim/rtl/`.
+- Minimal Holon program can boot, issue no-op/simple work, and exit done.
+- Illegal instruction, unsupported op class, and explicit fault enter `FAULT`.
+- Program binaries do not depend on frontend implementation internals.
 
-### Phase V2.3: Scratchpad And DMA Command Fabric
+### Phase V2.5: Local Memory And DMA Command Fabric
 
 Goal: make local memory and DMA programmable resources under frontend control.
 
@@ -308,7 +349,7 @@ Acceptance criteria:
 - Functional coverage includes DMA command success, backpressure, and fault
   paths.
 
-### Phase V2.4: Integer/Quant Vector And Helper Engine
+### Phase V2.6: Integer/Quant Vector And Helper Engine
 
 Goal: implement the first V2 vector/helper compute engine.
 
@@ -329,7 +370,7 @@ Acceptance criteria:
 - Program-level tests run vector kernels from a program descriptor.
 - Coverage gates include all required vector instruction classes.
 
-### Phase V2.5: Matrix Engine Re-Issue
+### Phase V2.7: Matrix Engine Re-Issue
 
 Goal: reuse the V1 matrix engine as a frontend-issued matrix resource.
 
@@ -349,17 +390,37 @@ Acceptance criteria:
   path.
 - The V1 systolic array dataflow remains B-weight-stationary.
 
-### Phase V2.6: Firmware, Driver, And Release Hardening
+### Phase V2.8: Driver, Runtime, And Example Kernels
 
-Goal: provide a minimal V2 software stack and release-quality verification.
+Goal: provide a minimal V2 software runtime around program images and program
+descriptors.
 
 Deliverables:
 
 - Program image layout and kernel ABI.
-- C23 submit/wait/status/error/perf driver APIs for program descriptors.
-- Example GEMM, activation, requant, reduce, and transpose kernels.
+- C23 program-oriented driver APIs for init/caps, submit, halt/resume/reset,
+  poll/wait, fault/debug, and perf.
+- Example kernels for vector add, requant, activation, reduce, transpose, and
+  INT8 GEMM through matrix micro-ops.
+
+Acceptance criteria:
+
+- Host-side driver tests statically check ABI 3.0 descriptor layout and offsets.
+- Example kernels match between simulator and RTL testbench.
+- Completion record, IRQ, fault, debug snapshot, and performance flow are
+  tested.
+
+### Phase V2.9: Integration And Release Hardening
+
+Goal: make the programmable NPU tile release-quality.
+
+Deliverables:
+
 - ISA decoder, frontend exception, SPM bounds, DMA fault, vector, matrix, and
   integration coverage gates.
+- Full V2 top-level tests and lint coverage.
+- Updated README, getting-started, architecture, interface, verification,
+  progress, and changelog documentation.
 
 Acceptance criteria:
 

@@ -46,10 +46,14 @@ Detailed historical logs live in Git history and `CHANGELOG.md`.
   header/reference docs, and V2 ABI schema/generated-source checks. The current
   product RTL still uses the V1.5 ABI 2.0 schema until the V2 loader/control
   plane migration.
+- V2.2 has started with a stdlib-only C++26 architectural simulator foundation
+  under `sim/model/`. The initial model covers ISA class decode/disassemble,
+  frontend PC/state/fault progression, local scratchpad, vector register state,
+  `i32` vector load/add/store, and focused fault paths.
 
 ## Latest Verification Matrix
 
-The latest completed V2 metadata gate passed with:
+The latest completed V2 metadata/model gate passed with:
 
 | Area | Command | Result |
 | ---- | ------- | ------ |
@@ -66,12 +70,14 @@ The latest completed V2 metadata gate passed with:
 | V2 required terms | grep for V2 ISA/ABI/lifecycle/ordering/model terms | Passed |
 | Debug build | `cmake --preset debug && cmake --build --preset debug --parallel 2` | Passed |
 | Focused V2 ABI/ISA tests | `ctest --preset debug -R 'v2_abi\|isa\|holon_npu_driver' --output-on-failure` | Passed `5/5` |
-| Debug tests | `ctest --preset debug --output-on-failure` | Passed `18/18` |
+| V2 model build | `cmake --build --preset debug --target holon_npu_v2_model_test --parallel 2` | Passed |
+| V2 model test | `ctest --preset debug -R holon_npu_v2_model --output-on-failure` | Passed `1/1` |
+| Debug tests | `ctest --preset debug --output-on-failure` | Passed `19/19` |
 | Lint tests | `ctest --preset lint --output-on-failure` | Passed `8/8` |
 | Regression build | `cmake --preset regression && cmake --build --preset regression --parallel 2` | Passed |
-| Regression tests | `ctest --preset regression --output-on-failure` | Passed `28/28` |
+| Regression tests | `ctest --preset regression --output-on-failure` | Passed `29/29` |
 | Coverage build | `cmake --preset coverage && cmake --build --preset coverage --parallel 2` | Passed |
-| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `29/29` |
+| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `30/30` |
 | Coverage gate | `python3 tools/check_coverage.py --build-dir build/coverage` | Passed: 11 raw files, 55 functional points |
 
 The latest completed V1.5 release gate passed with:
@@ -95,9 +101,9 @@ The latest completed V1.5 release gate passed with:
 
 ## Active Limitations
 
-- GEMM only in current RTL; no V2 frontend, vector engine, ABI 3.0 product RTL
+- GEMM only in current RTL; no V2 frontend RTL, vector RTL, ABI 3.0 product RTL
   control plane, BF16, FP8, graph scheduler, or post-processing engine is
-  implemented.
+  implemented. The V2 C++ model is a simulator foundation, not RTL.
 - One descriptor may be active at a time.
 - AXI4 DMA supports one outstanding read or write burst per engine.
 - Tensor and descriptor accesses must satisfy the documented alignment
@@ -109,8 +115,9 @@ The latest completed V1.5 release gate passed with:
 
 ## Next Engineering Step
 
-- Continue V2 Phase V2.1 by adding the C++ architectural simulator foundation
-  and program builder/decoder tests.
+- Continue V2 Phase V2.2 by expanding the C++ architectural simulator with
+  program descriptor validation, program image/argument loading, DMA event
+  ordering, predicate state, and matrix micro-op architectural effects.
 - V2 RTL control-plane work must not begin until the frontend implementation
   boundary, ISA metadata, program descriptor schema, lifecycle state machine,
   and memory ordering rules remain green under the static checks.

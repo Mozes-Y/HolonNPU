@@ -17,6 +17,9 @@ All notable project-level release changes are recorded here.
   a generated ISA reference document, and ISA metadata/source checks.
 - Added machine-checkable V2 ABI 3.0 program descriptor metadata, generated
   public program ABI header/reference docs, and V2 ABI schema/source checks.
+- Added the first V2 C++26 architectural simulator foundation with decode,
+  local scratchpad, vector register state, minimal vector execution, and
+  focused simulator tests.
 
 ## v1.5 - 2026-07-06
 
