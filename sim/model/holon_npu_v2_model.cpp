@@ -44,6 +44,30 @@ std::int32_t wrap_sub(std::int32_t lhs, std::int32_t rhs) {
     return std::bit_cast<std::int32_t>(lhs_bits - rhs_bits);
 }
 
+std::uint32_t shift_count(std::int32_t value) {
+    return static_cast<std::uint32_t>(value) & 31U;
+}
+
+std::int32_t logical_shift_left(std::int32_t value, std::uint32_t count) {
+    return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value) << count);
+}
+
+std::int32_t logical_shift_right(std::int32_t value, std::uint32_t count) {
+    return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value) >> count);
+}
+
+std::int32_t arithmetic_shift_right(std::int32_t value, std::uint32_t count) {
+    if (count == 0) {
+        return value;
+    }
+    const auto bits = static_cast<std::uint32_t>(value);
+    if (value >= 0) {
+        return std::bit_cast<std::int32_t>(bits >> count);
+    }
+    const auto sign_fill = ~std::uint32_t{0} << (32U - count);
+    return std::bit_cast<std::int32_t>((bits >> count) | sign_fill);
+}
+
 bool class_matches(std::uint32_t word, std::uint32_t value, std::uint32_t mask) {
     return (word & mask) == value;
 }
@@ -100,6 +124,26 @@ std::uint32_t encode_vector_min_i32(std::uint8_t vd, std::uint8_t vs1, std::uint
 
 std::uint32_t encode_vector_max_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
     return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_max_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_eq_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_eq_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_lt_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_lt_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_shl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_shl_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_srl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_srl_i32, vd, vs1, vs2, 0);
+}
+
+std::uint32_t encode_vector_sra_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2) {
+    return encode(HOLON_NPU_ISA_CLASS_VECTOR_ALU, v2_opcode::vector_alu_sra_i32, vd, vs1, vs2, 0);
 }
 
 std::uint32_t encode_system_exit() {
@@ -229,6 +273,26 @@ std::string disassemble(const decoded_instruction& inst) {
     if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
         inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_max_i32)) {
         return std::format("{}.max_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_eq_i32)) {
+        return std::format("{}.eq_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_lt_i32)) {
+        return std::format("{}.lt_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_shl_i32)) {
+        return std::format("{}.shl_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_srl_i32)) {
+        return std::format("{}.srl_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
+    }
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU &&
+        inst.opcode == static_cast<std::uint8_t>(v2_opcode::vector_alu_sra_i32)) {
+        return std::format("{}.sra_i32 v{}, v{}, v{}", cls, inst.rd, inst.rs1, inst.rs2);
     }
     if (inst.isa_class == HOLON_NPU_ISA_ENUM_SYSTEM &&
         inst.opcode == static_cast<std::uint8_t>(v2_opcode::system_exit)) {
@@ -628,6 +692,24 @@ run_result machine::step() {
                             break;
                         case v2_opcode::vector_alu_max_i32:
                             vector_registers_.at(inst.rd).at(lane) = std::max(lhs, rhs);
+                            break;
+                        case v2_opcode::vector_alu_eq_i32:
+                            vector_registers_.at(inst.rd).at(lane) = lhs == rhs ? 1 : 0;
+                            break;
+                        case v2_opcode::vector_alu_lt_i32:
+                            vector_registers_.at(inst.rd).at(lane) = lhs < rhs ? 1 : 0;
+                            break;
+                        case v2_opcode::vector_alu_shl_i32:
+                            vector_registers_.at(inst.rd).at(lane) =
+                                logical_shift_left(lhs, shift_count(rhs));
+                            break;
+                        case v2_opcode::vector_alu_srl_i32:
+                            vector_registers_.at(inst.rd).at(lane) =
+                                logical_shift_right(lhs, shift_count(rhs));
+                            break;
+                        case v2_opcode::vector_alu_sra_i32:
+                            vector_registers_.at(inst.rd).at(lane) =
+                                arithmetic_shift_right(lhs, shift_count(rhs));
                             break;
                         default:
                             raise_fault(model_error::illegal_instruction);

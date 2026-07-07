@@ -148,8 +148,9 @@ Active V2 model coverage today:
 - In-order DMA load/store event visibility between system memory and local
   scratchpad, including system/local bounds faults.
 - Predicate inactive-lane preservation.
-- Vector `i32` load/store plus add, subtract, min, and max execution with
-  INT32 wraparound semantics for add/subtract.
+- Vector `i32` load/store plus add, subtract, min, max, equal, signed less-than,
+  logical shift-left/right, and arithmetic shift-right execution with INT32
+  wraparound semantics for add/subtract.
 - Matrix `i8*i8->i32` GEMM micro-op effects over local A/B/C operands,
   including clear/accumulate behavior, event emission, and issue faults.
 - Explicit program-fault and vector-configuration fault paths.

@@ -18,8 +18,8 @@ All notable project-level release changes are recorded here.
 - Added machine-checkable V2 ABI 3.0 program descriptor metadata, generated
   public program ABI header/reference docs, and V2 ABI schema/source checks.
 - Added the first V2 C++26 architectural simulator foundation with decode,
-  local scratchpad, vector register state, minimal vector execution, and
-  focused simulator tests.
+  local scratchpad, vector register state, vector arithmetic/compare/shift
+  execution, and focused simulator tests.
 - Added V2 simulator matrix micro-op architectural effects for INT8 GEMM
   clear/accumulate behavior, event emission, and issue faults.
 

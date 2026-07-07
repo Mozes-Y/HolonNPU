@@ -19,10 +19,15 @@ using holon_npu::v2::model::encode_system_exit;
 using holon_npu::v2::model::encode_system_fault;
 using holon_npu::v2::model::encode_vector_add_i32;
 using holon_npu::v2::model::encode_vector_config_set_vl;
+using holon_npu::v2::model::encode_vector_eq_i32;
 using holon_npu::v2::model::encode_vector_load_i32;
+using holon_npu::v2::model::encode_vector_lt_i32;
 using holon_npu::v2::model::encode_vector_max_i32;
 using holon_npu::v2::model::encode_vector_min_i32;
+using holon_npu::v2::model::encode_vector_shl_i32;
 using holon_npu::v2::model::encode_vector_store_i32;
+using holon_npu::v2::model::encode_vector_sra_i32;
+using holon_npu::v2::model::encode_vector_srl_i32;
 using holon_npu::v2::model::encode_vector_sub_i32;
 using holon_npu::v2::model::lifecycle_state;
 using holon_npu::v2::model::machine;
@@ -116,6 +121,14 @@ bool test_decode_and_disassemble() {
     ok &= expect_true(
         "disassemble sub",
         disassemble(decode(encode_vector_sub_i32(4, 5, 6))) == "vector_alu.sub_i32 v4, v5, v6"
+    );
+    ok &= expect_true(
+        "disassemble eq",
+        disassemble(decode(encode_vector_eq_i32(7, 8, 9))) == "vector_alu.eq_i32 v7, v8, v9"
+    );
+    ok &= expect_true(
+        "disassemble sra",
+        disassemble(decode(encode_vector_sra_i32(10, 11, 12))) == "vector_alu.sra_i32 v10, v11, v12"
     );
     ok &= expect_eq("reserved decode", decode(HOLON_NPU_ISA_CLASS_RESERVED_D).isa_class,
                     HOLON_NPU_ISA_ENUM_RESERVED_D);
@@ -310,6 +323,54 @@ bool test_vector_i32_alu_ops() {
     ok &= run_op(encode_vector_sub_i32(3, 1, 2), sub_expected);
     ok &= run_op(encode_vector_min_i32(3, 1, 2), min_expected);
     ok &= run_op(encode_vector_max_i32(3, 1, 2), max_expected);
+    return ok;
+}
+
+bool test_vector_i32_compare_shift_ops() {
+    const std::array<std::int32_t, 8> args{
+        5,
+        -5,
+        1'073'741'824,
+        -16,
+        5,
+        3,
+        2,
+        35,
+    };
+    const auto arg_bytes = std::as_bytes(std::span(args));
+
+    auto run_op = [&](std::uint32_t op, std::span<const std::int32_t> expected) {
+        machine model(128, 16);
+        const std::array<std::uint32_t, 6> program{
+            encode_vector_config_set_vl(4),
+            encode_vector_load_i32(1, 0),
+            encode_vector_load_i32(2, 16),
+            op,
+            encode_vector_store_i32(3, 32),
+            encode_system_exit(),
+        };
+        const auto desc = valid_program_desc(program, arg_bytes);
+        bool ok = true;
+        ok &= expect_eq("compare shift load fault", model.load_program_descriptor(desc, program, arg_bytes).fault,
+                        model_error::none);
+        ok &= expect_eq("compare shift run", model.run(16).state, lifecycle_state::done);
+        const auto actual = model.read_i32(32, expected.size());
+        ok &= expect_vector_eq("compare shift result", actual, expected);
+        return ok;
+    };
+
+    const std::array<std::int32_t, 4> eq_expected{1, 0, 0, 0};
+    const std::array<std::int32_t, 4> lt_expected{0, 1, 0, 1};
+    const std::array<std::int32_t, 4> shl_expected{160, -40, 0, -128};
+    const std::array<std::int32_t, 4> srl_expected{0, 536'870'911, 268'435'456, 536'870'910};
+    const std::array<std::int32_t, 4> sra_expected{0, -1, 268'435'456, -2};
+
+    bool ok = true;
+    ok &= run_op(encode_vector_eq_i32(3, 1, 2), eq_expected);
+    ok &= run_op(encode_vector_lt_i32(3, 1, 2), lt_expected);
+    ok &= run_op(encode_vector_shl_i32(3, 1, 2), shl_expected);
+    ok &= run_op(encode_vector_srl_i32(3, 1, 2), srl_expected);
+    ok &= run_op(encode_vector_sra_i32(3, 1, 2), sra_expected);
     return ok;
 }
 
@@ -511,6 +572,7 @@ int main() {
     ok &= test_dma_ordering_and_visibility();
     ok &= test_dma_faults();
     ok &= test_vector_i32_alu_ops();
+    ok &= test_vector_i32_compare_shift_ops();
     ok &= test_predicate_inactive_lanes_preserve_destination();
     ok &= test_matrix_gemm_i8_i32_micro_op();
     ok &= test_matrix_issue_faults();

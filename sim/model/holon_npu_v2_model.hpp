@@ -43,6 +43,11 @@ enum class v2_opcode : std::uint8_t {
     vector_alu_sub_i32 = 0x1,
     vector_alu_min_i32 = 0x2,
     vector_alu_max_i32 = 0x3,
+    vector_alu_eq_i32 = 0x4,
+    vector_alu_lt_i32 = 0x5,
+    vector_alu_shl_i32 = 0x6,
+    vector_alu_srl_i32 = 0x7,
+    vector_alu_sra_i32 = 0x8,
     system_exit = 0x0,
     system_fault = 0x1,
 };
@@ -127,6 +132,11 @@ std::uint32_t encode_vector_add_i32(std::uint8_t vd, std::uint8_t vs1, std::uint
 std::uint32_t encode_vector_sub_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
 std::uint32_t encode_vector_min_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
 std::uint32_t encode_vector_max_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_eq_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_lt_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_shl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_srl_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
+std::uint32_t encode_vector_sra_i32(std::uint8_t vd, std::uint8_t vs1, std::uint8_t vs2);
 std::uint32_t encode_system_exit();
 std::uint32_t encode_system_fault(model_error fault);
 
