@@ -13,6 +13,8 @@ All notable project-level release changes are recorded here.
 - Added V2 roadmap phases and decision records for the replaceable frontend
   implementation, explicit scratchpad/DMA memory model, and frontend-issued
   matrix micro-op direction.
+- Added machine-checkable Holon V2 ISA metadata, a generated public ISA header,
+  a generated ISA reference document, and ISA metadata/source checks.
 
 ## v1.5 - 2026-07-06
 

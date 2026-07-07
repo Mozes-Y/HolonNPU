@@ -206,6 +206,7 @@ target_sources(
     FILES
       include/holon_npu_regs.h
       include/holon_npu_desc.h
+      include/holon_npu_isa.h
       sw/holon_npu_driver.h
 )
 
@@ -317,6 +318,21 @@ holon_npu_add_python_check(
   TEST abi_generate_check
   SCRIPT tools/gen_abi.py
   ARGS --check
+  LABELS fast static
+)
+
+holon_npu_add_python_check(
+  TARGET isa_generate_check
+  TEST isa_generate_check
+  SCRIPT tools/gen_isa.py
+  ARGS --check
+  LABELS fast static
+)
+
+holon_npu_add_python_check(
+  TARGET isa_metadata_check
+  TEST isa_metadata
+  SCRIPT tools/check_isa.py
   LABELS fast static
 )
 

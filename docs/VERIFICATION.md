@@ -45,6 +45,8 @@ Static checks that must stay green:
 ```sh
 python3 -m json.tool CMakePresets.json
 python3 tools/gen_abi.py --check
+python3 tools/gen_isa.py --check
+python3 tools/check_isa.py
 python3 tools/check_rtl_interface_usage.py
 python3 tools/check_macro_policy.py
 git diff --check

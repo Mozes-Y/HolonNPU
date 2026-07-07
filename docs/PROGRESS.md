@@ -7,7 +7,7 @@ Detailed historical logs live in Git history and `CHANGELOG.md`.
 
 - Last updated: 2026-07-07.
 - Current baseline: v1.5 final V1-generation release baseline complete; V2.0
-  programmable NPU tile architecture definition is complete.
+  programmable NPU tile architecture definition is complete and committed.
 - Product datapath: v1.1 B-weight-stationary INT8 GEMM with ABI 2.0.
 - Planned V2 direction: ABI 3.0 program descriptors, replaceable frontend
   implementation, stable Holon-owned program ISA, integer/quant vector/helper
@@ -38,6 +38,9 @@ Detailed historical logs live in Git history and `CHANGELOG.md`.
 - V2 architecture documents define the programmable NPU tile direction, complete
   Holon ISA ownership, ABI 3.0 program descriptor draft, local-memory ordering,
   frontend lifecycle, matrix micro-op contract, and V2 verification expansion.
+- V2.1 has started with machine-checkable Holon ISA metadata in
+  `spec/holon_npu_isa.json`, generated public ISA header/reference docs, and
+  ISA metadata/generated-source checks.
 
 ## Latest Verification Matrix
 
@@ -46,6 +49,8 @@ The latest completed V2 architecture-only gate passed with:
 | Area | Command | Result |
 | ---- | ------- | ------ |
 | ABI source | `python3 tools/gen_abi.py --check` | Passed |
+| ISA source | `python3 tools/gen_isa.py --check` | Passed |
+| ISA metadata | `python3 tools/check_isa.py` | Passed |
 | Macro policy | `python3 tools/check_macro_policy.py` | Passed |
 | RTL boundaries | `python3 tools/check_rtl_interface_usage.py` | Passed |
 | Whitespace | `git diff --check` | Passed |
@@ -64,12 +69,12 @@ The latest completed V1.5 release gate passed with:
 | Whitespace | `git diff --check` | Passed |
 | Debug build | `cmake --preset debug && cmake --build --preset debug --parallel 2` | Passed |
 | Lint target | `cmake --build --preset debug --target lint --parallel 2` | Passed |
-| Debug tests | `ctest --preset debug --output-on-failure` | Passed `14/14` |
+| Debug tests | `ctest --preset debug --output-on-failure` | Passed `16/16` |
 | Lint tests | `ctest --preset lint --output-on-failure` | Passed `8/8` |
 | Regression build | `cmake --preset regression && cmake --build --preset regression --parallel 2` | Passed |
-| Regression tests | `ctest --preset regression --output-on-failure` | Passed `24/24` |
+| Regression tests | `ctest --preset regression --output-on-failure` | Passed `26/26` |
 | Coverage build | `cmake --preset coverage && cmake --build --preset coverage --parallel 2` | Passed |
-| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `25/25` |
+| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `27/27` |
 | Coverage gate | `python3 tools/check_coverage.py --build-dir build/coverage` | Passed: 11 raw files, 55 functional points |
 
 ## Active Limitations
@@ -88,10 +93,8 @@ The latest completed V1.5 release gate passed with:
 
 ## Next Engineering Step
 
-- Start V2 Phase V2.1 only after reviewing the V2 architecture, ISA, and
-  interface drafts.
-- V2 ABI 3.0 implementation must begin by updating `spec/holon_npu_abi.json`
-  and generator support, not by hand-editing generated ABI artifacts.
+- Continue V2 Phase V2.1 by migrating ABI 3.0 into the schema and generator
+  when the V2 control plane and loader work begins.
 - V2 RTL work must not begin until the frontend implementation boundary, ISA
   metadata, program descriptor schema, lifecycle state machine, and memory
   ordering rules are accepted.

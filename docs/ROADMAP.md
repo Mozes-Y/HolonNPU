@@ -221,7 +221,8 @@ machine-checkable ISA metadata.
 Allowed edit scope:
 
 - `spec/holon_npu_abi.json` and generator support for ABI 3.0.
-- ISA metadata/checker files.
+- ISA metadata/checker files. The first ISA metadata source is
+  `spec/holon_npu_isa.json`.
 - Generated RTL/C/docs outputs.
 - Focused ABI and decoder tests.
 
@@ -237,8 +238,9 @@ Deliverables:
 - Program-image local load and argument scratchpad-copy semantics before
   frontend execution.
 - Generated ABI documentation and public C23 headers for ABI 3.0.
-- Static checker that verifies ISA encoding table uniqueness and reserved-space
-  policy.
+- Static checker that verifies ISA encoding table uniqueness, reserved-space
+  policy, metadata completeness, coverage labels, fault model, and semantic
+  hook names.
 - C++ architectural simulator skeleton for decoder, local-memory, DMA-ordering,
   vector-state, and matrix micro-op differential tests.
 

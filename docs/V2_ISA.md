@@ -4,6 +4,15 @@ This document defines the planning contract for the Holon V2 NPU instruction
 set. It is a draft for architecture and verification work; exact bit encodings
 must become machine-checkable metadata before RTL decode is implemented.
 
+The first machine-checkable ISA metadata source is:
+
+- `spec/holon_npu_isa.json`
+
+Generated reference artifacts:
+
+- `include/holon_npu_isa.h`
+- `docs/V2_ISA_REFERENCE.md`
+
 ## Design Goals
 
 Holon V2 needs an ISA that serves NPU kernels directly:

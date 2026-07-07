@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "project": "HolonNPU",
+  "isa": {
+    "name": "HolonNPU V2 Program ISA",
+    "major": 1,
+    "minor": 0,
+    "instruction_bits": 32,
+    "alignment_bytes": 4,
+    "ownership": "Holon owns the complete V2 program ISA; frontend implementations are replaceable microarchitectures, not ABI owners.",
+    "non_goals": [
+      "No RVV binary compatibility.",
+      "No RVC compressed instruction compatibility.",
+      "No BF16, FP8, or floating-point operation classes in the V2 first release."
+    ]
+  },
+  "common_masks": {
+    "class": "0xF0000000"
+  },
+  "instruction_classes": [
+    {
+      "name": "FRONTEND_CONTROL",
+      "value": "0x00000000",
+      "mask": "0xF0000000",
+      "format": "rd_rs1_rs2_imm",
+      "coverage": "isa_class_frontend_control",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "frontend_control",
+      "description": "Integer ALU, branch, loop, address generation, and lightweight control instructions."
+    },
+    {
+      "name": "PREDICATE",
+      "value": "0x10000000",
+      "mask": "0xF0000000",
+      "format": "pd_ps1_ps2_imm",
+      "coverage": "isa_class_predicate",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "predicate",
+      "description": "Predicate register operations, mask generation, mask combine, and active-lane tests."
+    },
+    {
+      "name": "VECTOR_CONFIG",
+      "value": "0x20000000",
+      "mask": "0xF0000000",
+      "format": "vd_vl_vtype",
+      "coverage": "isa_class_vector_config",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "vector_config",
+      "description": "Vector length, element width, grouping, rounding, saturation, and predicate behavior."
+    },
+    {
+      "name": "VECTOR_ALU",
+      "value": "0x30000000",
+      "mask": "0xF0000000",
+      "format": "vd_vs1_vs2_pred",
+      "coverage": "isa_class_vector_alu",
+      "fault": "UNSUPPORTED_OPERATION_CLASS",
+      "semantics": "vector_alu_integer",
+      "description": "Integer elementwise add, subtract, min, max, compare, select, shift, and fixed-point helpers."
+    },
+    {
+      "name": "VECTOR_MEMORY",
+      "value": "0x40000000",
+      "mask": "0xF0000000",
+      "format": "vd_addr_stride_pred",
+      "coverage": "isa_class_vector_memory",
+      "fault": "LOCAL_MEMORY_BOUNDS",
+      "semantics": "vector_memory",
+      "description": "Scratchpad vector load, store, strided access, and local tile movement."
+    },
+    {
+      "name": "VECTOR_PERMUTE",
+      "value": "0x50000000",
+      "mask": "0xF0000000",
+      "format": "vd_vs1_vs2_pred",
+      "coverage": "isa_class_vector_permute",
+      "fault": "UNSUPPORTED_OPERATION_CLASS",
+      "semantics": "vector_permute",
+      "description": "Lane shuffle, pack, unpack, and transpose helper instructions."
+    },
+    {
+      "name": "VECTOR_REDUCTION",
+      "value": "0x60000000",
+      "mask": "0xF0000000",
+      "format": "vd_vs1_pred_mode",
+      "coverage": "isa_class_vector_reduction",
+      "fault": "UNSUPPORTED_OPERATION_CLASS",
+      "semantics": "vector_reduction",
+      "description": "Integer sum, min, max, any, all, and narrow or widen reduction helpers."
+    },
+    {
+      "name": "QUANTIZATION",
+      "value": "0x70000000",
+      "mask": "0xF0000000",
+      "format": "vd_vs1_scale_pred",
+      "coverage": "isa_class_quantization",
+      "fault": "UNSUPPORTED_OPERATION_CLASS",
+      "semantics": "quantization",
+      "description": "Requantization, clip, saturate, scale, and zero-point helpers for integer tensors."
+    },
+    {
+      "name": "MATRIX",
+      "value": "0x80000000",
+      "mask": "0xF0000000",
+      "format": "tile_operands_event",
+      "coverage": "isa_class_matrix",
+      "fault": "MATRIX_ISSUE_FAULT",
+      "semantics": "matrix_micro_op",
+      "description": "Matrix tile load, issue, accumulate, store, and completion-event instructions for the INT8 matrix engine."
+    },
+    {
+      "name": "DMA",
+      "value": "0x90000000",
+      "mask": "0xF0000000",
+      "format": "sysaddr_spmaddr_size_event",
+      "coverage": "isa_class_dma",
+      "fault": "DMA_REQUEST_FAULT",
+      "semantics": "dma_command",
+      "description": "System-memory to scratchpad and scratchpad to system-memory transfer commands."
+    },
+    {
+      "name": "CSR_DEBUG",
+      "value": "0xA0000000",
+      "mask": "0xF0000000",
+      "format": "rd_csr_rs1_imm",
+      "coverage": "isa_class_csr_debug",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "csr_debug",
+      "description": "Frontend CSRs, fault reporting, performance counters, and debug snapshots."
+    },
+    {
+      "name": "SYNC",
+      "value": "0xB0000000",
+      "mask": "0xF0000000",
+      "format": "event_fence_scope",
+      "coverage": "isa_class_sync",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "sync",
+      "description": "Wait, fence.local, fence.dma, engine barrier, and event signaling instructions."
+    },
+    {
+      "name": "SYSTEM",
+      "value": "0xC0000000",
+      "mask": "0xF0000000",
+      "format": "system_imm",
+      "coverage": "isa_class_system",
+      "fault": "EXPLICIT_PROGRAM_FAULT",
+      "semantics": "system",
+      "description": "Program exit, explicit fault, halt, and privileged lifecycle operations."
+    }
+  ],
+  "reserved_classes": [
+    {
+      "name": "RESERVED_D",
+      "value": "0xD0000000",
+      "mask": "0xF0000000",
+      "description": "Reserved for future floating-point or transformer extensions."
+    },
+    {
+      "name": "RESERVED_E",
+      "value": "0xE0000000",
+      "mask": "0xF0000000",
+      "description": "Reserved for future multi-engine and system-level extensions."
+    },
+    {
+      "name": "RESERVED_F",
+      "value": "0xF0000000",
+      "mask": "0xF0000000",
+      "description": "Reserved for implementation-independent expansion."
+    }
+  ],
+  "architectural_state": {
+    "vector": [
+      "vl",
+      "max_vl",
+      "element_width",
+      "predicate",
+      "rounding_mode",
+      "saturation_mode"
+    ],
+    "frontend": [
+      "pc",
+      "fault_code",
+      "halted",
+      "debug_snapshot"
+    ],
+    "memory": [
+      "program_memory",
+      "data_scratchpad",
+      "vector_register_file",
+      "matrix_buffers"
+    ]
+  }
+}

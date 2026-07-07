@@ -1,4 +1,5 @@
 #include "holon_npu_driver.h"
+#include "holon_npu_isa.h"
 
 #include <array>
 #include <cstddef>
@@ -33,6 +34,14 @@ static_assert(HOLON_NPU_ARRAY_K == 16);
 static_assert(HOLON_NPU_ARRAY_N == 16);
 static_assert((HOLON_NPU_CAP1_RESET & 0xFFU) == HOLON_NPU_ARRAY_K);
 static_assert(((HOLON_NPU_CAP1_RESET >> 8U) & 0xFFU) == HOLON_NPU_ARRAY_N);
+static_assert(HOLON_NPU_ISA_MAJOR == 1);
+static_assert(HOLON_NPU_ISA_MINOR == 0);
+static_assert(HOLON_NPU_ISA_INSTRUCTION_BITS == 32);
+static_assert(HOLON_NPU_ISA_INSTRUCTION_BYTES == 4);
+static_assert((HOLON_NPU_ISA_CLASS_MATRIX & HOLON_NPU_ISA_CLASS_MATRIX_MASK) ==
+              HOLON_NPU_ISA_CLASS_MATRIX);
+static_assert((HOLON_NPU_ISA_CLASS_RESERVED_F & HOLON_NPU_ISA_CLASS_SYSTEM_MASK) !=
+              HOLON_NPU_ISA_CLASS_SYSTEM);
 
 using RegFile = std::array<std::uint32_t, 256>;
 

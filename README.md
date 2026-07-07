@@ -56,6 +56,9 @@ Planning documents:
 - `docs/V2_ISA.md`
 - `docs/V2_INTERFACE.md`
 
+Machine-checkable V2 ISA metadata lives in `spec/holon_npu_isa.json` and
+generates `include/holon_npu_isa.h` plus `docs/V2_ISA_REFERENCE.md`.
+
 No V2 RTL or ABI 3.0 schema implementation is present in the v1.5 release
 baseline.
 
