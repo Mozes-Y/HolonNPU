@@ -150,6 +150,8 @@ Active V2 model coverage today:
 - Predicate inactive-lane preservation.
 - Vector `i32` load/store plus add, subtract, min, and max execution with
   INT32 wraparound semantics for add/subtract.
+- Matrix `i8*i8->i32` GEMM micro-op effects over local A/B/C operands,
+  including clear/accumulate behavior, event emission, and issue faults.
 - Explicit program-fault and vector-configuration fault paths.
 
 Required V2 verification classes before RTL release:

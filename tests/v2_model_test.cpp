@@ -26,6 +26,7 @@ using holon_npu::v2::model::encode_vector_store_i32;
 using holon_npu::v2::model::encode_vector_sub_i32;
 using holon_npu::v2::model::lifecycle_state;
 using holon_npu::v2::model::machine;
+using holon_npu::v2::model::matrix_gemm_i8_i32_op;
 using holon_npu::v2::model::model_error;
 
 bool expect_true(std::string_view name, bool condition) {
@@ -343,6 +344,115 @@ bool test_predicate_inactive_lanes_preserve_destination() {
     return ok;
 }
 
+bool test_matrix_gemm_i8_i32_micro_op() {
+    machine model(256, 16);
+    const std::array<std::int8_t, 6> a{
+        1, -2, 3,
+        4, 5, -6,
+    };
+    const std::array<std::int8_t, 12> b{
+        7, -8, 9, 10,
+        -1, 2, -3, 4,
+        5, 6, -7, -8,
+    };
+    const std::array<std::int32_t, 8> initial_c{
+        100, 200, 300, 400,
+        500, 600, 700, 800,
+    };
+    const std::array<std::int32_t, 8> expected_clear{
+        24, 6, -6, -22,
+        -7, -58, 63, 108,
+    };
+    const std::array<std::int32_t, 8> expected_accumulate{
+        124, 206, 294, 378,
+        493, 542, 763, 908,
+    };
+    const auto op = matrix_gemm_i8_i32_op{
+        .a_offset = 0,
+        .b_offset = 32,
+        .c_offset = 96,
+        .a_row_stride_bytes = 3,
+        .b_row_stride_bytes = 4,
+        .c_row_stride_bytes = 16,
+        .m = 2,
+        .n = 4,
+        .k = 3,
+        .clear_accumulator = true,
+    };
+
+    bool ok = true;
+    ok &= expect_true("matrix write a", model.write_i8(op.a_offset, a));
+    ok &= expect_true("matrix write b", model.write_i8(op.b_offset, b));
+    ok &= expect_true("matrix write c", model.write_i32(op.c_offset, initial_c));
+    ok &= expect_true("matrix issue clear", model.issue_matrix_gemm_i8_i32(op));
+    const auto clear_actual = model.read_i32(op.c_offset, expected_clear.size());
+    ok &= expect_vector_eq("matrix clear result", clear_actual, expected_clear);
+
+    ok &= expect_true("matrix rewrite c", model.write_i32(op.c_offset, initial_c));
+    auto accumulate_op = op;
+    accumulate_op.clear_accumulator = false;
+    ok &= expect_true("matrix issue accumulate", model.issue_matrix_gemm_i8_i32(accumulate_op));
+    const auto accumulate_actual = model.read_i32(op.c_offset, expected_accumulate.size());
+    ok &= expect_vector_eq(
+        "matrix accumulate result",
+        accumulate_actual,
+        expected_accumulate
+    );
+
+    const auto& events = model.matrix_events();
+    ok &= expect_eq("matrix event count", events.size(), std::size_t{2});
+    ok &= expect_eq("matrix event 0 sequence", events.at(0).sequence, std::uint64_t{0});
+    ok &= expect_eq("matrix event 0 m", events.at(0).m, std::uint16_t{2});
+    ok &= expect_eq("matrix event 0 n", events.at(0).n, std::uint16_t{4});
+    ok &= expect_eq("matrix event 0 k", events.at(0).k, std::uint16_t{3});
+    ok &= expect_eq("matrix event 1 sequence", events.at(1).sequence, std::uint64_t{1});
+    model.clear_matrix_events();
+    ok &= expect_eq("matrix event clear", model.matrix_events().size(), std::size_t{0});
+    return ok;
+}
+
+bool test_matrix_issue_faults() {
+    machine model(128, 16);
+    const auto base = matrix_gemm_i8_i32_op{
+        .a_offset = 0,
+        .b_offset = 32,
+        .c_offset = 64,
+        .a_row_stride_bytes = 2,
+        .b_row_stride_bytes = 2,
+        .c_row_stride_bytes = 8,
+        .m = 2,
+        .n = 2,
+        .k = 2,
+        .clear_accumulator = true,
+    };
+
+    bool ok = true;
+    auto expect_matrix_fault = [&](std::string_view name, matrix_gemm_i8_i32_op op) {
+        ok &= expect_true(name, !model.issue_matrix_gemm_i8_i32(op));
+        ok &= expect_eq("matrix fault state", model.state(), lifecycle_state::fault);
+        ok &= expect_eq("matrix fault code", model.fault(), model_error::matrix_issue);
+        model.reset();
+    };
+
+    auto bad = base;
+    bad.m = 0;
+    expect_matrix_fault("matrix zero m", bad);
+
+    bad = base;
+    bad.a_row_stride_bytes = 1;
+    expect_matrix_fault("matrix short a stride", bad);
+
+    bad = base;
+    bad.c_offset = 66;
+    expect_matrix_fault("matrix unaligned c", bad);
+
+    bad = base;
+    bad.c_offset = 124;
+    expect_matrix_fault("matrix c out of range", bad);
+
+    return ok;
+}
+
 bool test_vector_config_fault() {
     machine model(128, 16);
     const std::array<std::uint32_t, 2> program{
@@ -402,6 +512,8 @@ int main() {
     ok &= test_dma_faults();
     ok &= test_vector_i32_alu_ops();
     ok &= test_predicate_inactive_lanes_preserve_destination();
+    ok &= test_matrix_gemm_i8_i32_micro_op();
+    ok &= test_matrix_issue_faults();
     ok &= test_vector_config_fault();
     ok &= test_local_memory_bounds_fault();
     ok &= test_explicit_program_fault();

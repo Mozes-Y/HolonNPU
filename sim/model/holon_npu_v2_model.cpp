@@ -260,7 +260,9 @@ void machine::reset() {
     vl_ = 0;
     retired_ = 0;
     dma_events_.clear();
+    matrix_events_.clear();
     next_dma_sequence_ = 0;
+    next_matrix_sequence_ = 0;
 }
 
 void machine::resize_system_memory(std::size_t byte_count) {
@@ -274,7 +276,9 @@ void machine::load_program(std::span<const std::uint32_t> words) {
     pc_ = 0;
     retired_ = 0;
     dma_events_.clear();
+    matrix_events_.clear();
     next_dma_sequence_ = 0;
+    next_matrix_sequence_ = 0;
 }
 
 run_result machine::load_program_descriptor(
@@ -289,7 +293,9 @@ run_result machine::load_program_descriptor(
     retired_ = 0;
     program_.clear();
     dma_events_.clear();
+    matrix_events_.clear();
     next_dma_sequence_ = 0;
+    next_matrix_sequence_ = 0;
 
     if (desc.size_bytes != HOLON_NPU_PROGRAM_DESC_SIZE || !descriptor_reserved_zero(desc)) {
         raise_fault(model_error::invalid_program_descriptor);
@@ -362,6 +368,26 @@ bool machine::set_predicate(std::span<const std::uint8_t> active_lanes) {
     std::ranges::fill(predicate_active_, 0);
     std::ranges::copy(active_lanes, predicate_active_.begin());
     return true;
+}
+
+bool machine::write_i8(std::uint32_t local_byte_offset, std::span<const std::int8_t> values) {
+    if (!local_range_ok(local_byte_offset, values.size())) {
+        return false;
+    }
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        store_i8(local_byte_offset + static_cast<std::uint32_t>(index), values[index]);
+    }
+    return true;
+}
+
+std::vector<std::int8_t> machine::read_i8(std::uint32_t local_byte_offset, std::size_t count) const {
+    std::vector<std::int8_t> values;
+    values.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto offset = local_byte_offset + static_cast<std::uint32_t>(index);
+        values.push_back(local_range_ok(offset, sizeof(std::int8_t)) ? load_i8(offset) : 0);
+    }
+    return values;
 }
 
 bool machine::write_i32(std::uint32_t local_byte_offset, std::span<const std::int32_t> values) {
@@ -464,6 +490,66 @@ bool machine::issue_dma_store(
 
 void machine::clear_dma_events() {
     dma_events_.clear();
+}
+
+bool machine::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
+    if (op.m == 0 || op.n == 0 || op.k == 0 ||
+        op.a_row_stride_bytes < op.k ||
+        op.b_row_stride_bytes < op.n ||
+        op.c_row_stride_bytes < static_cast<std::uint32_t>(op.n) * sizeof(std::int32_t) ||
+        op.c_offset % sizeof(std::int32_t) != 0 ||
+        op.c_row_stride_bytes % sizeof(std::int32_t) != 0) {
+        raise_fault(model_error::matrix_issue);
+        return false;
+    }
+
+    const auto a_last = op.a_offset +
+                        static_cast<std::uint64_t>(op.m - 1U) * op.a_row_stride_bytes +
+                        static_cast<std::uint64_t>(op.k);
+    const auto b_last = op.b_offset +
+                        static_cast<std::uint64_t>(op.k - 1U) * op.b_row_stride_bytes +
+                        static_cast<std::uint64_t>(op.n);
+    const auto c_last = op.c_offset +
+                        static_cast<std::uint64_t>(op.m - 1U) * op.c_row_stride_bytes +
+                        static_cast<std::uint64_t>(op.n) * sizeof(std::int32_t);
+    if (a_last > scratchpad_.size() || b_last > scratchpad_.size() || c_last > scratchpad_.size()) {
+        raise_fault(model_error::matrix_issue);
+        return false;
+    }
+
+    for (std::uint16_t row = 0; row < op.m; ++row) {
+        for (std::uint16_t col = 0; col < op.n; ++col) {
+            const auto c_offset = op.c_offset +
+                                  static_cast<std::uint32_t>(row) * op.c_row_stride_bytes +
+                                  static_cast<std::uint32_t>(col) * sizeof(std::int32_t);
+            auto acc = op.clear_accumulator ? std::int32_t{0} : load_i32(c_offset);
+            for (std::uint16_t kk = 0; kk < op.k; ++kk) {
+                const auto a_offset = op.a_offset +
+                                      static_cast<std::uint32_t>(row) * op.a_row_stride_bytes +
+                                      kk;
+                const auto b_offset = op.b_offset +
+                                      static_cast<std::uint32_t>(kk) * op.b_row_stride_bytes +
+                                      col;
+                const auto product = static_cast<std::int32_t>(load_i8(a_offset)) *
+                                     static_cast<std::int32_t>(load_i8(b_offset));
+                acc = wrap_add(acc, product);
+            }
+            store_i32(c_offset, acc);
+        }
+    }
+
+    matrix_events_.push_back(matrix_event{
+        .sequence = next_matrix_sequence_++,
+        .m = op.m,
+        .n = op.n,
+        .k = op.k,
+        .c_offset = op.c_offset,
+    });
+    return true;
+}
+
+void machine::clear_matrix_events() {
+    matrix_events_.clear();
 }
 
 run_result machine::step() {
@@ -594,6 +680,16 @@ bool machine::system_range_ok(std::uint64_t system_byte_offset, std::size_t byte
     const auto offset = static_cast<std::size_t>(system_byte_offset);
     return system_byte_offset <= static_cast<std::uint64_t>(system_memory_.size()) &&
            offset <= system_memory_.size() && byte_count <= system_memory_.size() - offset;
+}
+
+std::int8_t machine::load_i8(std::uint32_t local_byte_offset) const {
+    std::int8_t value = 0;
+    std::memcpy(&value, scratchpad_.data() + local_byte_offset, sizeof(value));
+    return value;
+}
+
+void machine::store_i8(std::uint32_t local_byte_offset, std::int8_t value) {
+    std::memcpy(scratchpad_.data() + local_byte_offset, &value, sizeof(value));
 }
 
 std::int32_t machine::load_i32(std::uint32_t local_byte_offset) const {
