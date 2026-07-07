@@ -1,9 +1,17 @@
 # HolonNPU V2 Interface Draft
 
-This document is the planning draft for V2 ABI 3.0. It does not replace the
-generated V1.5 ABI document in `docs/INTERFACE.md`. When V2 implementation
-starts, ABI 3.0 fields must be added to `spec/holon_npu_abi.json` and generated
-into RTL, C headers, and interface documentation.
+This document defines the hand-written contract for V2 ABI 3.0. It does not
+replace the generated V1.5 ABI document in `docs/INTERFACE.md` until the product
+RTL migrates to the V2 control plane.
+
+Machine-checkable V2 ABI metadata lives in:
+
+- `spec/holon_npu_v2_abi.json`
+
+Generated V2 ABI reference artifacts:
+
+- `include/holon_npu_program.h`
+- `docs/V2_INTERFACE_REFERENCE.md`
 
 ## ABI Direction
 
@@ -26,7 +34,7 @@ Expected ABI properties:
 
 ## Program Descriptor Fields
 
-The ABI 3.0 descriptor schema must include at least:
+The ABI 3.0 descriptor schema defines:
 
 | Field | Purpose |
 | ----- | ------- |
@@ -50,8 +58,8 @@ The ABI 3.0 descriptor schema must include at least:
 | `stack_bytes` | Optional frontend stack/local control allocation. |
 | `reserved` | Must be zero and checked by hardware. |
 
-The exact layout, widths, and reset/required values must be schema-owned before
-RTL depends on them.
+The exact layout, widths, and reset/required values are schema-owned. RTL must
+consume the generated contract when the V2 loader/control plane is implemented.
 
 Compatibility check rules:
 

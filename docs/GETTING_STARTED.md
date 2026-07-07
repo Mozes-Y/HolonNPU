@@ -44,14 +44,17 @@ v1 不做：
 这些未来功能必须先进入 `docs/ROADMAP.md` 和 `docs/DECISIONS.md`，不能直接混进
 v1。
 
-目前 V2 已经作为下一代架构进入规划阶段，但还没有 RTL 或 ABI 3.0 实现。V2 的
-目标是 programmable NPU tile：可替换 frontend 实现、稳定的 Holon-owned program
-ISA、integer/quant vector/helper engine、显式 scratchpad/DMA，以及由 frontend
-microprogram 调度 matrix engine。对应规划文档：
+目前 V2 已经作为下一代架构进入实现准备阶段：ISA metadata 和 ABI 3.0 program
+descriptor metadata 已经进入 schema/generator/checker，但还没有 V2 RTL
+实现。V2 的目标是 programmable NPU tile：可替换 frontend 实现、稳定的
+Holon-owned program ISA、integer/quant vector/helper engine、显式
+scratchpad/DMA，以及由 frontend microprogram 调度 matrix engine。对应文档：
 
 - `docs/V2_ARCHITECTURE.md`
 - `docs/V2_ISA.md`
 - `docs/V2_INTERFACE.md`
+- `docs/V2_ISA_REFERENCE.md`
+- `docs/V2_INTERFACE_REFERENCE.md`
 
 ## 2. 你应该先知道的三个核心概念
 

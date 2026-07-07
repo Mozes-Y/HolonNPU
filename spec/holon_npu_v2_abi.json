@@ -1,0 +1,646 @@
+{
+  "schema_version": 1,
+  "project": "HolonNPU",
+  "architecture": "v2 programmable NPU tile",
+  "abi": {
+    "major": 3,
+    "minor": 0,
+    "version_reset": "0x00030000",
+    "rules": [
+      "All multi-byte fields are little-endian.",
+      "AXI-Lite data width is 32 bits.",
+      "System memory addresses in registers and descriptors are 64 bits.",
+      "One program may be active in the first V2 release.",
+      "Program descriptor base addresses must be 16-byte aligned.",
+      "Program images must be 4-byte aligned.",
+      "Argument blocks and completion records must be 16-byte aligned.",
+      "Program compatibility must be checked before frontend execution starts.",
+      "Reserved fields must be zero."
+    ]
+  },
+  "constants": {
+    "program_desc_size": 128,
+    "program_desc_align": 16,
+    "program_image_align": 4,
+    "argument_align": 16,
+    "completion_align": 16,
+    "program_format_holon_v2": 1,
+    "program_mem_max_bytes": 65536,
+    "local_mem_max_bytes": 262144,
+    "stack_max_bytes": 16384
+  },
+  "flags": [
+    {
+      "name": "IRQ_ON_DONE",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Set IRQ status when a program completes successfully."
+    },
+    {
+      "name": "IRQ_ON_FAULT",
+      "bit": 1,
+      "value": "0x00000002",
+      "description": "Set IRQ status when a program faults."
+    },
+    {
+      "name": "CLEAR_PERF_ON_START",
+      "bit": 2,
+      "value": "0x00000004",
+      "description": "Clear performance counters before program execution."
+    },
+    {
+      "name": "DEBUG_SNAPSHOT_ON_FAULT",
+      "bit": 3,
+      "value": "0x00000008",
+      "description": "Capture frontend debug snapshot on fault."
+    }
+  ],
+  "flags_valid_mask": "0x0000000F",
+  "op_classes": [
+    {
+      "name": "FRONTEND_CONTROL",
+      "value": "0x0000000000000001",
+      "description": "Frontend-control instruction class required."
+    },
+    {
+      "name": "PREDICATE",
+      "value": "0x0000000000000002",
+      "description": "Predicate instruction class required."
+    },
+    {
+      "name": "VECTOR",
+      "value": "0x0000000000000004",
+      "description": "Vector instruction classes required."
+    },
+    {
+      "name": "QUANTIZATION",
+      "value": "0x0000000000000008",
+      "description": "Quantization helper class required."
+    },
+    {
+      "name": "MATRIX",
+      "value": "0x0000000000000010",
+      "description": "Matrix micro-op class required."
+    },
+    {
+      "name": "DMA",
+      "value": "0x0000000000000020",
+      "description": "DMA command class required."
+    },
+    {
+      "name": "CSR_DEBUG",
+      "value": "0x0000000000000040",
+      "description": "CSR/debug class required."
+    },
+    {
+      "name": "SYNC",
+      "value": "0x0000000000000080",
+      "description": "Sync, wait, and fence class required."
+    },
+    {
+      "name": "SYSTEM",
+      "value": "0x0000000000000100",
+      "description": "System class required."
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "PROGRAM_DESCRIPTOR",
+      "value": "0x0000000000000001",
+      "description": "ABI 3.0 program descriptor supported."
+    },
+    {
+      "name": "LOCAL_PROGRAM_MEMORY",
+      "value": "0x0000000000000002",
+      "description": "Program image is loaded into local program memory before RUNNING."
+    },
+    {
+      "name": "ARGUMENT_SCRATCHPAD_COPY",
+      "value": "0x0000000000000004",
+      "description": "Argument block is copied into data scratchpad before RUNNING."
+    },
+    {
+      "name": "IN_ORDER_DMA_QUEUE",
+      "value": "0x0000000000000008",
+      "description": "Frontend-issued DMA commands complete in queue order."
+    },
+    {
+      "name": "MATRIX_MICRO_OP",
+      "value": "0x0000000000000010",
+      "description": "Frontend-issued INT8 matrix micro-ops supported."
+    },
+    {
+      "name": "INTEGER_QUANT_VECTOR",
+      "value": "0x0000000000000020",
+      "description": "Integer and quantized vector/helper operations supported."
+    }
+  ],
+  "lifecycle_states": [
+    {
+      "name": "IDLE",
+      "value": "0x00000001",
+      "description": "No active program and no sticky terminal state is blocking a start."
+    },
+    {
+      "name": "LOADING",
+      "value": "0x00000002",
+      "description": "Program descriptor, program image, or argument setup is in progress."
+    },
+    {
+      "name": "RUNNING",
+      "value": "0x00000004",
+      "description": "Frontend is executing the Holon program ISA."
+    },
+    {
+      "name": "HALTED",
+      "value": "0x00000008",
+      "description": "Frontend is halted at a precise architectural boundary."
+    },
+    {
+      "name": "DONE",
+      "value": "0x00000010",
+      "description": "Program completed successfully. Sticky until clear or accepted restart."
+    },
+    {
+      "name": "FAULT",
+      "value": "0x00000020",
+      "description": "Program, descriptor, DMA, memory, or engine fault occurred. Sticky until clear or accepted restart."
+    },
+    {
+      "name": "IRQ_PENDING",
+      "value": "0x00000040",
+      "description": "At least one enabled sticky IRQ cause is pending."
+    }
+  ],
+  "registers": [
+    {
+      "name": "DEVICE_ID",
+      "offset": "0x000",
+      "access": "RO",
+      "reset": "0x4E505502",
+      "description": "ASCII-like device ID, NPU plus V2 marker."
+    },
+    {
+      "name": "ABI_VERSION",
+      "offset": "0x004",
+      "access": "RO",
+      "reset": "0x00030000",
+      "description": "Bits [31:16] ABI major, [15:0] ABI minor."
+    },
+    {
+      "name": "ISA_VERSION",
+      "offset": "0x008",
+      "access": "RO",
+      "reset": "0x00010000",
+      "description": "Bits [31:16] Holon ISA major, [15:0] Holon ISA minor."
+    },
+    {
+      "name": "CAP0_LO",
+      "offset": "0x00C",
+      "access": "RO",
+      "reset": "0x0000003F",
+      "description": "Implemented V2 capability bits [31:0]."
+    },
+    {
+      "name": "CAP0_HI",
+      "offset": "0x010",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Implemented V2 capability bits [63:32]."
+    },
+    {
+      "name": "OP_CLASS_LO",
+      "offset": "0x014",
+      "access": "RO",
+      "reset": "0x000001FF",
+      "description": "Implemented Holon operation classes [31:0]."
+    },
+    {
+      "name": "OP_CLASS_HI",
+      "offset": "0x018",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Implemented Holon operation classes [63:32]."
+    },
+    {
+      "name": "PROGRAM_MEM_BYTES",
+      "offset": "0x01C",
+      "access": "RO",
+      "reset": "0x00010000",
+      "description": "Maximum local program-memory bytes."
+    },
+    {
+      "name": "LOCAL_MEM_BYTES",
+      "offset": "0x020",
+      "access": "RO",
+      "reset": "0x00040000",
+      "description": "Maximum local data-scratchpad bytes."
+    },
+    {
+      "name": "VECTOR_CAP0",
+      "offset": "0x024",
+      "access": "RO",
+      "reset": "0x08100100",
+      "description": "Vector baseline: [15:0] max VL, [23:16] lanes, [31:24] predicate registers."
+    },
+    {
+      "name": "MATRIX_CAP0",
+      "offset": "0x028",
+      "access": "RO",
+      "reset": "0x08201010",
+      "description": "Matrix baseline: [7:0] ARRAY_K, [15:8] ARRAY_N, [23:16] ACC_BITS, [31:24] INPUT_BITS."
+    },
+    {
+      "name": "CONTROL",
+      "offset": "0x030",
+      "access": "WO",
+      "reset": "0x00000000",
+      "description": "Write-one lifecycle control pulses."
+    },
+    {
+      "name": "STATUS",
+      "offset": "0x034",
+      "access": "RO",
+      "reset": "0x00000001",
+      "description": "Lifecycle state bits and sticky IRQ pending bit."
+    },
+    {
+      "name": "FAULT_CODE",
+      "offset": "0x038",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Last terminal V2 fault code."
+    },
+    {
+      "name": "DEBUG_PC",
+      "offset": "0x03C",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Frontend PC snapshot for halt, fault, or debug step."
+    },
+    {
+      "name": "PROGRAM_DESC_ADDR_LO",
+      "offset": "0x040",
+      "access": "RW",
+      "reset": "0x00000000",
+      "description": "Program descriptor system address bits [31:0]."
+    },
+    {
+      "name": "PROGRAM_DESC_ADDR_HI",
+      "offset": "0x044",
+      "access": "RW",
+      "reset": "0x00000000",
+      "description": "Program descriptor system address bits [63:32]."
+    },
+    {
+      "name": "DOORBELL",
+      "offset": "0x048",
+      "access": "WO",
+      "reset": "0x00000000",
+      "description": "Write start pulse after descriptor address is programmed."
+    },
+    {
+      "name": "IRQ_ENABLE",
+      "offset": "0x04C",
+      "access": "RW",
+      "reset": "0x00000000",
+      "description": "IRQ enable bits for done, fault, halt, and debug events."
+    },
+    {
+      "name": "IRQ_STATUS",
+      "offset": "0x050",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Sticky IRQ cause bits."
+    },
+    {
+      "name": "IRQ_CLEAR",
+      "offset": "0x054",
+      "access": "WO",
+      "reset": "0x00000000",
+      "description": "Write-one IRQ clear bits."
+    },
+    {
+      "name": "PERF_CYCLE_LO",
+      "offset": "0x060",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Program cycle counter bits [31:0]."
+    },
+    {
+      "name": "PERF_CYCLE_HI",
+      "offset": "0x064",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Program cycle counter bits [63:32]."
+    },
+    {
+      "name": "PERF_INSTRET_LO",
+      "offset": "0x068",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Retired Holon instruction counter bits [31:0]."
+    },
+    {
+      "name": "PERF_INSTRET_HI",
+      "offset": "0x06C",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Retired Holon instruction counter bits [63:32]."
+    }
+  ],
+  "faults": [
+    {
+      "name": "NONE",
+      "value": 0,
+      "description": "No fault."
+    },
+    {
+      "name": "INVALID_PROGRAM_DESCRIPTOR",
+      "value": 1,
+      "description": "Program descriptor fields are invalid."
+    },
+    {
+      "name": "UNSUPPORTED_ABI_OR_ISA",
+      "value": 2,
+      "description": "ABI or Holon ISA version is unsupported."
+    },
+    {
+      "name": "UNSUPPORTED_PROGRAM_FORMAT",
+      "value": 3,
+      "description": "Program image format is unsupported."
+    },
+    {
+      "name": "UNSUPPORTED_CAPABILITY",
+      "value": 4,
+      "description": "Program requires unsupported capability bits."
+    },
+    {
+      "name": "UNSUPPORTED_OPERATION_CLASS",
+      "value": 5,
+      "description": "Program requires unsupported operation classes."
+    },
+    {
+      "name": "ALIGNMENT",
+      "value": 6,
+      "description": "Descriptor, code, argument, or completion alignment is unsupported."
+    },
+    {
+      "name": "LOCAL_MEMORY_BOUNDS",
+      "value": 7,
+      "description": "Program requested or accessed local memory out of range."
+    },
+    {
+      "name": "ILLEGAL_INSTRUCTION",
+      "value": 8,
+      "description": "Frontend decoded an illegal instruction."
+    },
+    {
+      "name": "VECTOR_CONFIG",
+      "value": 9,
+      "description": "Vector configuration is unsupported."
+    },
+    {
+      "name": "MATRIX_ISSUE",
+      "value": 10,
+      "description": "Matrix micro-op issue failed."
+    },
+    {
+      "name": "DMA_REQUEST",
+      "value": 11,
+      "description": "DMA command request is invalid."
+    },
+    {
+      "name": "AXI_READ",
+      "value": 12,
+      "description": "AXI read response failed."
+    },
+    {
+      "name": "AXI_WRITE",
+      "value": 13,
+      "description": "AXI write response failed."
+    },
+    {
+      "name": "EXPLICIT_PROGRAM_FAULT",
+      "value": 14,
+      "description": "Program explicitly raised a fault."
+    }
+  ],
+  "descriptor": {
+    "struct_name": "holon_npu_program_desc",
+    "typedef_name": "holon_npu_program_desc_t",
+    "fields": [
+      {
+        "name": "size_bytes",
+        "offset": "0x00",
+        "ctype": "uint16_t",
+        "width": 16,
+        "required": "128",
+        "macro_suffix": "SIZE_BYTES",
+        "description": "Program descriptor size in bytes."
+      },
+      {
+        "name": "version",
+        "offset": "0x02",
+        "ctype": "uint8_t",
+        "width": 8,
+        "required": "3",
+        "macro_suffix": "VERSION",
+        "description": "Program descriptor ABI major version."
+      },
+      {
+        "name": "program_format",
+        "offset": "0x03",
+        "ctype": "uint8_t",
+        "width": 8,
+        "required": "1",
+        "macro_suffix": "PROGRAM_FORMAT",
+        "description": "Holon V2 program image format identifier."
+      },
+      {
+        "name": "holon_isa_major",
+        "offset": "0x04",
+        "ctype": "uint16_t",
+        "width": 16,
+        "required": "1",
+        "macro_suffix": "HOLON_ISA_MAJOR",
+        "description": "Required Holon ISA major version."
+      },
+      {
+        "name": "holon_isa_minor",
+        "offset": "0x06",
+        "ctype": "uint16_t",
+        "width": 16,
+        "required": "0..implemented",
+        "macro_suffix": "HOLON_ISA_MINOR",
+        "description": "Minimum Holon ISA minor version required by the program."
+      },
+      {
+        "name": "required_caps",
+        "offset": "0x08",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "subset of hardware caps",
+        "macro_suffix": "REQUIRED_CAPS",
+        "description": "Required V2 capability bits."
+      },
+      {
+        "name": "required_op_classes",
+        "offset": "0x10",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "subset of hardware op classes",
+        "macro_suffix": "REQUIRED_OP_CLASSES",
+        "description": "Required V2 operation class bits."
+      },
+      {
+        "name": "code_addr",
+        "offset": "0x18",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "4-byte aligned",
+        "macro_suffix": "CODE_ADDR",
+        "description": "System-memory address of the Holon program image."
+      },
+      {
+        "name": "code_size_bytes",
+        "offset": "0x20",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "nonzero multiple of 4",
+        "macro_suffix": "CODE_SIZE",
+        "description": "Program image size in bytes."
+      },
+      {
+        "name": "entry_pc",
+        "offset": "0x24",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "4-byte aligned local PC",
+        "macro_suffix": "ENTRY_PC",
+        "description": "Frontend entry PC relative to local program memory."
+      },
+      {
+        "name": "arg_addr",
+        "offset": "0x28",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "16-byte aligned",
+        "macro_suffix": "ARG_ADDR",
+        "description": "System-memory address of the argument block."
+      },
+      {
+        "name": "arg_size_bytes",
+        "offset": "0x30",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "16-byte aligned size",
+        "macro_suffix": "ARG_SIZE",
+        "description": "Argument block size in bytes."
+      },
+      {
+        "name": "local_mem_bytes",
+        "offset": "0x34",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "<= local max",
+        "macro_suffix": "LOCAL_MEM_BYTES",
+        "description": "Requested data scratchpad bytes."
+      },
+      {
+        "name": "program_mem_bytes",
+        "offset": "0x38",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "<= program max",
+        "macro_suffix": "PROGRAM_MEM_BYTES",
+        "description": "Requested local program memory bytes."
+      },
+      {
+        "name": "stack_bytes",
+        "offset": "0x3C",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "<= stack max",
+        "macro_suffix": "STACK_BYTES",
+        "description": "Requested frontend stack/control bytes."
+      },
+      {
+        "name": "completion_addr",
+        "offset": "0x40",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "16-byte aligned or 0",
+        "macro_suffix": "COMPLETION_ADDR",
+        "description": "Optional system-memory completion/status record address."
+      },
+      {
+        "name": "flags",
+        "offset": "0x48",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "See flag table",
+        "macro_suffix": "FLAGS",
+        "description": "Program lifecycle, IRQ, debug, and performance flags."
+      },
+      {
+        "name": "reserved_4c",
+        "offset": "0x4C",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "0",
+        "macro_suffix": "RESERVED_4C",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_50",
+        "offset": "0x50",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "0",
+        "macro_suffix": "RESERVED_TAIL",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_58",
+        "offset": "0x58",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_60",
+        "offset": "0x60",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_68",
+        "offset": "0x68",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_70",
+        "offset": "0x70",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "0",
+        "description": "Reserved."
+      },
+      {
+        "name": "reserved_78",
+        "offset": "0x78",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "0",
+        "description": "Reserved."
+      }
+    ]
+  }
+}

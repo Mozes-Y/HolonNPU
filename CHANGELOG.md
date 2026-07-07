@@ -15,6 +15,8 @@ All notable project-level release changes are recorded here.
   matrix micro-op direction.
 - Added machine-checkable Holon V2 ISA metadata, a generated public ISA header,
   a generated ISA reference document, and ISA metadata/source checks.
+- Added machine-checkable V2 ABI 3.0 program descriptor metadata, generated
+  public program ABI header/reference docs, and V2 ABI schema/source checks.
 
 ## v1.5 - 2026-07-06
 

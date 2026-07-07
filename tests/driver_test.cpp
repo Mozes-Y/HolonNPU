@@ -1,5 +1,6 @@
 #include "holon_npu_driver.h"
 #include "holon_npu_isa.h"
+#include "holon_npu_program.h"
 
 #include <array>
 #include <cstddef>
@@ -42,6 +43,33 @@ static_assert((HOLON_NPU_ISA_CLASS_MATRIX & HOLON_NPU_ISA_CLASS_MATRIX_MASK) ==
               HOLON_NPU_ISA_CLASS_MATRIX);
 static_assert((HOLON_NPU_ISA_CLASS_RESERVED_F & HOLON_NPU_ISA_CLASS_SYSTEM_MASK) !=
               HOLON_NPU_ISA_CLASS_SYSTEM);
+static_assert(HOLON_NPU_V2_ABI_MAJOR == 3);
+static_assert(HOLON_NPU_V2_ABI_MINOR == 0);
+static_assert(HOLON_NPU_V2_ABI_VERSION_RESET == 0x0003'0000U);
+static_assert(HOLON_NPU_PROGRAM_FORMAT_HOLON_V2 == 1);
+static_assert(sizeof(holon_npu_program_desc_t) == HOLON_NPU_PROGRAM_DESC_SIZE);
+static_assert(offsetof(holon_npu_program_desc_t, size_bytes) ==
+              HOLON_NPU_PROGRAM_DESC_OFF_SIZE_BYTES);
+static_assert(offsetof(holon_npu_program_desc_t, version) ==
+              HOLON_NPU_PROGRAM_DESC_OFF_VERSION);
+static_assert(offsetof(holon_npu_program_desc_t, program_format) ==
+              HOLON_NPU_PROGRAM_DESC_OFF_PROGRAM_FORMAT);
+static_assert(offsetof(holon_npu_program_desc_t, required_caps) ==
+              HOLON_NPU_PROGRAM_DESC_OFF_REQUIRED_CAPS);
+static_assert(offsetof(holon_npu_program_desc_t, required_op_classes) ==
+              HOLON_NPU_PROGRAM_DESC_OFF_REQUIRED_OP_CLASSES);
+static_assert(offsetof(holon_npu_program_desc_t, code_addr) ==
+              HOLON_NPU_PROGRAM_DESC_OFF_CODE_ADDR);
+static_assert(offsetof(holon_npu_program_desc_t, flags) == HOLON_NPU_PROGRAM_DESC_OFF_FLAGS);
+static_assert(offsetof(holon_npu_program_desc_t, reserved_78) == 0x78);
+static_assert(HOLON_NPU_PROGRAM_OP_CLASS_MATRIX != 0);
+static_assert(HOLON_NPU_PROGRAM_OP_CLASS_VECTOR != 0);
+static_assert(HOLON_NPU_V2_CAP_PROGRAM_DESCRIPTOR != 0);
+static_assert(HOLON_NPU_V2_CAP_INTEGER_QUANT_VECTOR != 0);
+static_assert(HOLON_NPU_V2_STATUS_IDLE == 0x0000'0001U);
+static_assert(HOLON_NPU_V2_STATUS_FAULT == 0x0000'0020U);
+static_assert(HOLON_NPU_V2_FAULT_UNSUPPORTED_ABI_OR_ISA == 2);
+static_assert(HOLON_NPU_V2_FAULT_ILLEGAL_INSTRUCTION == 8);
 
 using RegFile = std::array<std::uint32_t, 256>;
 

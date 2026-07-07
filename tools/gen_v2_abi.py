@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import difflib
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from check_v2_abi import ROOT, V2_ABI_SCHEMA_PATH, as_int, check_schema
+
+
+BANNER = "Generated from spec/holon_npu_v2_abi.json by tools/gen_v2_abi.py. Do not edit."
+
+
+def c_hex(value: int | str, width: int = 8) -> str:
+    return f"0x{as_int(value):0{width}X}u"
+
+
+def c_const(type_name: str, name: str, value: int | str, width: int = 8, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"static constexpr {type_name} {name}{spacer}= {c_hex(value, width)};"
+
+
+def md_hex(value: int | str, width: int = 8) -> str:
+    return f"0x{as_int(value):0{width}X}"
+
+
+def md_offset(value: int | str) -> str:
+    return f"0x{as_int(value):03X}"
+
+
+def md_desc_offset(value: int | str) -> str:
+    return f"0x{as_int(value):02X}"
+
+
+def load_schema(path: Path = V2_ABI_SCHEMA_PATH) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        schema = json.load(f)
+    if schema.get("schema_version") != 1:
+        raise ValueError("unsupported V2 ABI schema_version")
+    failures = check_schema(schema)
+    if failures:
+        raise ValueError("; ".join(failures))
+    return schema
+
+
+def generated_header(schema: dict[str, Any]) -> str:
+    abi = schema["abi"]
+    constants = schema["constants"]
+    descriptor = schema["descriptor"]
+    registers = schema["registers"]
+
+    register_constants = [(f"HOLON_NPU_V2_REG_{reg['name']}", reg["offset"]) for reg in registers]
+    lifecycle_constants = [
+        (f"HOLON_NPU_V2_STATUS_{state['name']}", state["value"])
+        for state in schema["lifecycle_states"]
+    ]
+    flag_constants = [(f"HOLON_NPU_PROGRAM_FLAG_{flag['name']}", flag["value"]) for flag in schema["flags"]]
+    flag_constants.append(("HOLON_NPU_PROGRAM_FLAG_VALID_MASK", schema["flags_valid_mask"]))
+    op_class_constants = [
+        (f"HOLON_NPU_PROGRAM_OP_CLASS_{entry['name']}", entry["value"])
+        for entry in schema["op_classes"]
+    ]
+    capability_constants = [
+        (f"HOLON_NPU_V2_CAP_{entry['name']}", entry["value"])
+        for entry in schema["capabilities"]
+    ]
+    fault_constants = [(f"HOLON_NPU_V2_FAULT_{fault['name']}", fault["value"]) for fault in schema["faults"]]
+    offset_constants = [
+        (f"HOLON_NPU_PROGRAM_DESC_OFF_{field['macro_suffix']}", field["offset"])
+        for field in descriptor["fields"]
+        if "macro_suffix" in field
+    ]
+
+    lines = [
+        f"/* {BANNER} */",
+        "#pragma once",
+        "",
+        "#include <stddef.h>",
+        "#include <stdint.h>",
+        "",
+        '#include "holon_npu_isa.h"',
+        "",
+        c_const("uint8_t", "HOLON_NPU_V2_ABI_MAJOR", abi["major"], width=2, pad=42),
+        c_const("uint8_t", "HOLON_NPU_V2_ABI_MINOR", abi["minor"], width=2, pad=42),
+        c_const("uint32_t", "HOLON_NPU_V2_ABI_VERSION_RESET", abi["version_reset"], pad=42),
+        "",
+        c_const("uint16_t", "HOLON_NPU_PROGRAM_DESC_SIZE", constants["program_desc_size"], width=4, pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_DESC_ALIGN", constants["program_desc_align"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_IMAGE_ALIGN", constants["program_image_align"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_ARGUMENT_ALIGN", constants["argument_align"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_COMPLETION_ALIGN", constants["completion_align"], pad=42),
+        c_const("uint8_t", "HOLON_NPU_PROGRAM_FORMAT_HOLON_V2", constants["program_format_holon_v2"], width=2, pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_MEM_MAX_BYTES", constants["program_mem_max_bytes"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_LOCAL_MEM_MAX_BYTES", constants["local_mem_max_bytes"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_STACK_MAX_BYTES", constants["stack_max_bytes"], pad=42),
+        "",
+    ]
+
+    for title, consts, type_name, width in (
+        ("V2 register offsets", register_constants, "uint32_t", 3),
+        ("V2 lifecycle status bits", lifecycle_constants, "uint32_t", 8),
+        ("Program descriptor flags", flag_constants, "uint32_t", 8),
+        ("Required operation class bits", op_class_constants, "uint64_t", 16),
+        ("Capability bits", capability_constants, "uint64_t", 16),
+        ("Fault codes", fault_constants, "uint32_t", 2),
+        ("Program descriptor offsets", offset_constants, "uint32_t", 2),
+    ):
+        lines.append(f"/* {title}. */")
+        pad = max(len(name) for name, _ in consts)
+        for name, value in consts:
+            lines.append(c_const(type_name, name, value, width=width, pad=pad))
+        lines.append("")
+
+    lines.append(f"typedef struct {descriptor['struct_name']} {{")
+    for field in descriptor["fields"]:
+        lines.append(f"    {field['ctype']} {field['name']};")
+    lines.extend([f"}} {descriptor['typedef_name']};", ""])
+
+    lines.extend(
+        [
+            f"static_assert(sizeof({descriptor['typedef_name']}) == HOLON_NPU_PROGRAM_DESC_SIZE);",
+            f"static_assert(HOLON_NPU_V2_ABI_VERSION_RESET == {c_hex(abi['version_reset'])});",
+            "static_assert(HOLON_NPU_PROGRAM_FORMAT_HOLON_V2 == 0x01u);",
+            "static_assert(HOLON_NPU_ISA_MAJOR == 0x01u);",
+        ]
+    )
+    for field in descriptor["fields"]:
+        suffix = field.get("macro_suffix")
+        if suffix:
+            lines.append(
+                f"static_assert(offsetof({descriptor['typedef_name']}, {field['name']}) == "
+                f"HOLON_NPU_PROGRAM_DESC_OFF_{suffix});"
+            )
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generated_reference_md(schema: dict[str, Any]) -> str:
+    abi = schema["abi"]
+    constants = schema["constants"]
+    descriptor = schema["descriptor"]
+    lines = [
+        f"<!-- {BANNER} -->",
+        "# HolonNPU V2 ABI 3.0 Reference",
+        "",
+        "This file is generated from `spec/holon_npu_v2_abi.json`. Edit the schema",
+        "and regenerate outputs instead of editing this file by hand.",
+        "",
+        "## ABI Version",
+        "",
+        f"- ABI version: {abi['major']}.{abi['minor']}.",
+        f"- Reset value: `{md_hex(abi['version_reset'])}`.",
+        f"- Program descriptor size: `{constants['program_desc_size']}` bytes.",
+        f"- Program descriptor alignment: `{constants['program_desc_align']}` bytes.",
+        f"- Program image alignment: `{constants['program_image_align']}` bytes.",
+        f"- Argument/completion alignment: `{constants['argument_align']}` / `{constants['completion_align']}` bytes.",
+        "",
+        "## ABI Rules",
+        "",
+    ]
+    for rule in abi["rules"]:
+        lines.append(f"- {rule}")
+
+    lines.extend(
+        [
+            "",
+            "## Register Map",
+            "",
+            "| Offset | Name | Access | Reset | Description |",
+            "| ------ | ---- | ------ | ----- | ----------- |",
+        ]
+    )
+    for reg in schema["registers"]:
+        lines.append(
+            f"| `{md_offset(reg['offset'])}` | `{reg['name']}` | `{reg['access']}` | "
+            f"`{md_hex(reg['reset'])}` | {reg['description']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Lifecycle Status Bits",
+            "",
+            "| Name | Value | Description |",
+            "| ---- | ----- | ----------- |",
+        ]
+    )
+    for state in schema["lifecycle_states"]:
+        lines.append(f"| `{state['name']}` | `{md_hex(state['value'])}` | {state['description']} |")
+
+    lines.extend(
+        [
+            "",
+            "## Program Descriptor Layout",
+            "",
+            "| Offset | Field | C Type | Required | Description |",
+            "| ------ | ----- | ------ | -------- | ----------- |",
+        ]
+    )
+    for field in descriptor["fields"]:
+        lines.append(
+            f"| `{md_desc_offset(field['offset'])}` | `{field['name']}` | `{field['ctype']}` | "
+            f"`{field['required']}` | {field['description']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Program Flags",
+            "",
+            "| Name | Value | Description |",
+            "| ---- | ----- | ----------- |",
+        ]
+    )
+    for flag in schema["flags"]:
+        lines.append(f"| `{flag['name']}` | `{md_hex(flag['value'])}` | {flag['description']} |")
+    lines.append(f"| `VALID_MASK` | `{md_hex(schema['flags_valid_mask'])}` | OR of all defined program flags. |")
+
+    for title, key in (
+        ("Required Operation Classes", "op_classes"),
+        ("Capability Bits", "capabilities"),
+        ("Fault Codes", "faults"),
+    ):
+        lines.extend(
+            [
+                "",
+                f"## {title}",
+                "",
+                "| Name | Value | Description |",
+                "| ---- | ----- | ----------- |",
+            ]
+        )
+        for entry in schema[key]:
+            value_width = 16 if key in {"op_classes", "capabilities"} else 2
+            lines.append(f"| `{entry['name']}` | `{md_hex(entry['value'], value_width)}` | {entry['description']} |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_all(schema: dict[str, Any]) -> dict[str, str]:
+    return {
+        "include/holon_npu_program.h": generated_header(schema),
+        "docs/V2_INTERFACE_REFERENCE.md": generated_reference_md(schema),
+    }
+
+
+def write_outputs(outputs: dict[str, str], output_root: Path) -> None:
+    for rel_path, text in outputs.items():
+        path = output_root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def check_outputs(outputs: dict[str, str], root: Path) -> int:
+    errors = 0
+    for rel_path, expected in outputs.items():
+        actual_path = root / rel_path
+        if not actual_path.exists():
+            print(f"missing generated output: {rel_path}", file=sys.stderr)
+            errors += 1
+            continue
+        actual = actual_path.read_text(encoding="utf-8")
+        if actual != expected:
+            errors += 1
+            print(f"{rel_path} is not up to date with {V2_ABI_SCHEMA_PATH.relative_to(ROOT)}", file=sys.stderr)
+            diff = difflib.unified_diff(
+                actual.splitlines(),
+                expected.splitlines(),
+                fromfile=f"{rel_path} (current)",
+                tofile=f"{rel_path} (generated)",
+                lineterm="",
+            )
+            for line in list(diff)[:140]:
+                print(line, file=sys.stderr)
+    if errors == 0:
+        print(f"V2 ABI generated-source check passed ({len(outputs)} outputs).")
+    return 1 if errors else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Generate HolonNPU V2 ABI outputs from schema.")
+    parser.add_argument("--check", action="store_true", help="Verify tracked outputs are current.")
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=ROOT,
+        help="Directory where generated outputs are written.",
+    )
+    args = parser.parse_args()
+
+    try:
+        schema = load_schema()
+    except Exception as exc:  # noqa: BLE001 - command-line generator
+        print(f"V2 ABI generation failed: {exc}", file=sys.stderr)
+        return 1
+
+    outputs = render_all(schema)
+    if args.check:
+        return check_outputs(outputs, args.output_root)
+
+    write_outputs(outputs, args.output_root)
+    for rel_path in outputs:
+        print(rel_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

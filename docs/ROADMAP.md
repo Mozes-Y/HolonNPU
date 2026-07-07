@@ -220,7 +220,9 @@ machine-checkable ISA metadata.
 
 Allowed edit scope:
 
-- `spec/holon_npu_abi.json` and generator support for ABI 3.0.
+- V2 ABI 3.0 schema/generator support. The current implementation uses
+  `spec/holon_npu_v2_abi.json` as a parallel V2 contract until the product top
+  migrates away from the V1.5 ABI 2.0 schema.
 - ISA metadata/checker files. The first ISA metadata source is
   `spec/holon_npu_isa.json`.
 - Generated RTL/C/docs outputs.
@@ -246,7 +248,9 @@ Deliverables:
 
 Acceptance criteria:
 
-- `tools/gen_abi.py --check` passes with ABI 3.0 outputs.
+- `tools/gen_v2_abi.py --check` passes with ABI 3.0 outputs.
+- `tools/check_v2_abi.py` rejects malformed program descriptor/register
+  metadata.
 - ISA encoding checks reject duplicate or overlapping instruction classes.
 - Public headers expose program descriptor and capability constants without
   project-owned C macros.

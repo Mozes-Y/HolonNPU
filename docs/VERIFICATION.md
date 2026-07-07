@@ -47,6 +47,8 @@ python3 -m json.tool CMakePresets.json
 python3 tools/gen_abi.py --check
 python3 tools/gen_isa.py --check
 python3 tools/check_isa.py
+python3 tools/gen_v2_abi.py --check
+python3 tools/check_v2_abi.py
 python3 tools/check_rtl_interface_usage.py
 python3 tools/check_macro_policy.py
 git diff --check
@@ -135,7 +137,8 @@ gate; it adds new gate content once V2 RTL and ABI 3.0 exist.
 
 Required V2 verification classes:
 
-- ABI 3.0 program descriptor generation and byte-checking from schema.
+- ABI 3.0 program descriptor generation and byte-checking from
+  `spec/holon_npu_v2_abi.json`.
 - Holon ISA encoding table uniqueness and reserved-space checks.
 - Generated decoder and disassembler metadata checks.
 - C++ architectural simulator for frontend state, decode, local memory, DMA

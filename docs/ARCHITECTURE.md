@@ -467,5 +467,5 @@ Phase 9 integration:
 ## Open Items
 
 - None for v1.5.
-- V2 is now planned at the architecture level, but no V2 RTL or ABI 3.0 schema
-  implementation is present yet.
+- V2 architecture, ISA metadata, and ABI 3.0 program metadata are present, but
+  no V2 RTL implementation is present yet.

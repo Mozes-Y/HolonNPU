@@ -1,8 +1,8 @@
 # HolonNPU V2 ISA Draft
 
-This document defines the planning contract for the Holon V2 NPU instruction
-set. It is a draft for architecture and verification work; exact bit encodings
-must become machine-checkable metadata before RTL decode is implemented.
+This document defines the hand-written planning contract for the Holon V2 NPU
+instruction set. Machine-checkable instruction-class metadata now owns the
+initial decode envelope before RTL decode is implemented.
 
 The first machine-checkable ISA metadata source is:
 

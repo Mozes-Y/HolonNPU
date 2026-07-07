@@ -56,11 +56,17 @@ Planning documents:
 - `docs/V2_ISA.md`
 - `docs/V2_INTERFACE.md`
 
-Machine-checkable V2 ISA metadata lives in `spec/holon_npu_isa.json` and
-generates `include/holon_npu_isa.h` plus `docs/V2_ISA_REFERENCE.md`.
+Machine-checkable V2 metadata now includes:
 
-No V2 RTL or ABI 3.0 schema implementation is present in the v1.5 release
-baseline.
+- ISA source: `spec/holon_npu_isa.json`
+- Program ABI source: `spec/holon_npu_v2_abi.json`
+- Generated ISA header/reference: `include/holon_npu_isa.h`,
+  `docs/V2_ISA_REFERENCE.md`
+- Generated program ABI header/reference: `include/holon_npu_program.h`,
+  `docs/V2_INTERFACE_REFERENCE.md`
+
+No V2 RTL implementation is present yet; the current product top remains the
+V1.5 ABI 2.0 GEMM accelerator until the V2 loader/frontend phases land.
 
 ## Requirements
 
@@ -81,7 +87,7 @@ docs/       Roadmap, architecture, ABI, verification, progress, and ADRs.
 include/    Public C ABI headers for registers and descriptors.
 rtl/        Product/core SystemVerilog RTL.
 sim/        Verilator C++26 testbenches and simulation-only SV harnesses.
-spec/       ABI/register/descriptor schema used to generate shared outputs.
+spec/       ABI/register/descriptor and ISA schemas used to generate shared outputs.
 sw/         Minimal C driver.
 tests/      Host-side driver tests.
 tools/      Project verification utilities.
