@@ -14,6 +14,10 @@ module npu_v2_control_regs_core #(
     input  logic                  frontend_halted_i,
     input  logic [31:0]           frontend_debug_pc_i,
     input  logic [63:0]           frontend_instret_i,
+    input  logic                  irq_on_done_i,
+    input  logic                  irq_on_fault_i,
+    input  logic                  debug_snapshot_on_fault_i,
+    input  logic                  clear_perf_on_start_i,
 
     output logic                  program_start_o,
     output logic [63:0]           program_desc_addr_o,
@@ -22,6 +26,7 @@ module npu_v2_control_regs_core #(
     output logic                  resume_o,
     output logic                  debug_step_o,
     output logic                  clear_perf_o,
+    output logic [63:0]           perf_cycle_o,
     output logic                  irq_o
 );
 
@@ -123,6 +128,7 @@ module npu_v2_control_regs_core #(
     assign resume_o = resume_q;
     assign debug_step_o = debug_step_q;
     assign clear_perf_o = clear_perf_q;
+    assign perf_cycle_o = perf_cycle_q;
 
     assign irq_pending_masked = irq_enable_q & irq_status_q & NPU_V2_IRQ_VALID_MASK;
     assign irq_o = |irq_pending_masked;
@@ -197,7 +203,6 @@ module npu_v2_control_regs_core #(
         end else begin
             program_start_q <= 1'b0;
             soft_reset_q <= 1'b0;
-            halt_request_q <= 1'b0;
             resume_q <= 1'b0;
             debug_step_q <= 1'b0;
             clear_perf_q <= 1'b0;
@@ -223,21 +228,37 @@ module npu_v2_control_regs_core #(
             end
 
             if (frontend_fault_i && lifecycle_active) begin
+                halt_request_q <= 1'b0;
                 lifecycle_q <= NPU_V2_STATUS_FAULT;
                 fault_code_q <= frontend_fault_code_i;
-                debug_pc_q <= frontend_debug_pc_i;
-                irq_status_q <= irq_status_q | NPU_V2_IRQ_FAULT;
+                debug_pc_q <= debug_snapshot_on_fault_i ? frontend_debug_pc_i : 32'd0;
+                if (irq_on_fault_i) begin
+                    irq_status_q <= irq_status_q | NPU_V2_IRQ_FAULT;
+                end
             end else if (frontend_done_i && lifecycle_active) begin
+                halt_request_q <= 1'b0;
                 lifecycle_q <= NPU_V2_STATUS_DONE;
                 fault_code_q <= NPU_V2_FAULT_NONE;
                 debug_pc_q <= frontend_debug_pc_i;
-                irq_status_q <= irq_status_q | NPU_V2_IRQ_DONE;
-            end else if (frontend_halted_i && (lifecycle_q == NPU_V2_STATUS_RUNNING)) begin
+                if (irq_on_done_i) begin
+                    irq_status_q <= irq_status_q | NPU_V2_IRQ_DONE;
+                end
+            end else if (frontend_halted_i && !resume_q &&
+                         (lifecycle_q == NPU_V2_STATUS_RUNNING)) begin
+                halt_request_q <= 1'b0;
                 lifecycle_q <= NPU_V2_STATUS_HALTED;
                 debug_pc_q <= frontend_debug_pc_i;
                 irq_status_q <= irq_status_q | NPU_V2_IRQ_HALTED;
             end else if (loader_done_i && (lifecycle_q == NPU_V2_STATUS_LOADING)) begin
                 lifecycle_q <= NPU_V2_STATUS_RUNNING;
+                if (clear_perf_on_start_i) begin
+                    clear_perf();
+                    clear_perf_q <= 1'b1;
+                end
+            end
+
+            if (frontend_halted_i && (lifecycle_q == NPU_V2_STATUS_HALTED)) begin
+                debug_pc_q <= frontend_debug_pc_i;
             end
 
             if (bvalid_q && s_axil.bready) begin
@@ -262,6 +283,7 @@ module npu_v2_control_regs_core #(
                             if ((write_data & NPU_V2_CONTROL_SOFT_RESET) != 32'h0000_0000) begin
                                 reset_regs();
                                 soft_reset_q <= 1'b1;
+                                halt_request_q <= 1'b0;
                                 clear_perf_q <= 1'b1;
                             end else begin
                                 if ((write_data & NPU_V2_CONTROL_CLEAR_TERMINAL) != 32'h0000_0000) begin
@@ -282,6 +304,7 @@ module npu_v2_control_regs_core #(
                                 end
                                 if ((write_data & NPU_V2_CONTROL_RESUME) != 32'h0000_0000) begin
                                     if (lifecycle_q == NPU_V2_STATUS_HALTED) begin
+                                        halt_request_q <= 1'b0;
                                         lifecycle_q <= NPU_V2_STATUS_RUNNING;
                                         resume_q <= 1'b1;
                                     end else begin
@@ -309,9 +332,10 @@ module npu_v2_control_regs_core #(
                     end
 
                     REG_DOORBELL: begin
-                        if ((write_strb != FULL_STRB) || (write_data[31:1] != 31'd0)) begin
+                        if ((write_strb != FULL_STRB) ||
+                            ((write_data & ~NPU_V2_DOORBELL_VALID_MASK) != 32'h0000_0000)) begin
                             bresp_q <= AXI_RESP_SLVERR;
-                        end else if (write_data[0]) begin
+                        end else if ((write_data & NPU_V2_DOORBELL_START) != 32'h0000_0000) begin
                             if (lifecycle_q != NPU_V2_STATUS_IDLE) begin
                                 bresp_q <= AXI_RESP_SLVERR;
                             end else if (desc_addr_lo_q[3:0] != 4'h0) begin
@@ -320,6 +344,7 @@ module npu_v2_control_regs_core #(
                                 debug_pc_q <= 32'h0000_0000;
                                 irq_status_q <= irq_status_q | NPU_V2_IRQ_FAULT;
                             end else begin
+                                halt_request_q <= 1'b0;
                                 lifecycle_q <= NPU_V2_STATUS_LOADING;
                                 fault_code_q <= NPU_V2_FAULT_NONE;
                                 debug_pc_q <= 32'h0000_0000;
@@ -430,7 +455,7 @@ module npu_v2_control_regs_core #(
     v2_control_doorbell_active_rejected: assert property (
         @(posedge s_axil.aclk_i) disable iff (!s_axil.aresetn_i)
             write_fire && (write_addr == REG_DOORBELL) &&
-            (write_strb == FULL_STRB) && (write_data == 32'h0000_0001) &&
+            (write_strb == FULL_STRB) && (write_data == NPU_V2_DOORBELL_START) &&
             (lifecycle_q != NPU_V2_STATUS_IDLE)
             |=> bvalid_q && (bresp_q == AXI_RESP_SLVERR) && !program_start_q
     );

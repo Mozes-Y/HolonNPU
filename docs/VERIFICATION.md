@@ -11,13 +11,14 @@ source of truth.
 - Testbench language: C++26.
 - C driver/API language: C23.
 - Test runner: CTest presets.
-- ABI source: `spec/holon_npu_abi.json`.
+- ABI sources: `spec/holon_npu_abi.json` for v1.5 and
+  `spec/holon_npu_v2_abi.json` for V2.
 - Assertions: native named SystemVerilog `assert property` and
   `cover property`, enabled through Verilator `--assert`.
 - Coverage: dedicated coverage build with Verilator structural/user coverage
   plus a typed C++ functional coverage gate.
-- V2 architectural model: stdlib-only C++26 code under `sim/model/`, used as
-  the future RTL differential reference.
+- V2 architectural model: stdlib-only C++26 code under `sim/model/`, used by
+  program-level RTL differential tests.
 
 ## Required Gates
 
@@ -59,7 +60,8 @@ git diff --check
 ## ABI And Interface Consistency
 
 - ABI, register, descriptor, error, and capability values are generated from
-  `spec/holon_npu_abi.json`.
+  the versioned schemas; Holon ISA encodings come from
+  `spec/holon_npu_isa.json`.
 - `tools/gen_abi.py --check` regenerates outputs into a temporary directory and
   byte-compares them with checked-in files.
 - Product RTL must use `npu_vr_if`, `npu_axi_lite_if`, and `npu_axi4_if`
@@ -83,6 +85,9 @@ Required assertion coverage:
 - command validation preventing invalid descriptors from issuing GEMM work;
 - GEMM stage legality, tile bounds, and no writeback before all K tiles finish;
 - top read-arbiter ownership stability until `RLAST`.
+- V2 lifecycle legality, loader bounds, precise frontend retirement, local
+  memory ownership, engine issue/result handshakes, completion-record ordering,
+  and terminal visibility only after AXI write response.
 
 `npu_assert_fail` is intentionally marked `WILL_FAIL` in CTest so the gate
 proves assertions are compiled and active.
@@ -109,7 +114,13 @@ Required functional coverage classes:
   `64x64x64`;
 - deterministic constrained-random GEMM and top-level tile shapes, including
   M/N/K tails and multi-tile cases;
-- reset at idle and reset while work is in flight.
+- reset at idle and reset while work is in flight;
+- V2 descriptor compatibility, frontend lifecycle/control flow, vector tails
+  and helper classes, DMA/local-memory faults, matrix issue, program flags,
+  completion ordering, CSR/debug reads, halt/debug, and IRQ policy;
+- exact metadata-owned ISA class/instruction coverage names;
+- deterministic random vector RTL/model differential programs, signed INT8
+  matrix tiles with padded strides, and runtime-generated multi-tile GEMM.
 
 ## Debug Workflow
 
@@ -129,82 +140,46 @@ Required functional coverage classes:
 - Functional coverage is hard-gated; structural coverage percentages are
   reported but not thresholded.
 - Verilator is the active RTL verification backend.
-- The current product scope remains INT8 GEMM only.
+- The V2 first implementation remains integer/quant only and uses one active
+  program plus one active transaction per DMA engine.
 
-## V2 Verification Planning
+## V2 Verification Contract
 
-V2 verification extends the current assertion, coverage, and deterministic
-random strategy to a programmable NPU tile. The V2 plan does not relax any V1.5
-gate; it adds new gate content as V2 RTL and ABI 3.0 modules land.
+V2 extends the V1.5 gates rather than replacing them. The required reference is
+the C++26 architectural simulator plus the public program runtime; test programs
+use generated ISA constants or `program_builder`, never private encodings.
 
-Active V2 model coverage today:
+Model and host tests cover:
 
-- ABI 3.0 program descriptor validation for version, ISA, program format,
-  required capabilities/classes, flags, reserved fields, alignment, and bounds.
-- Program image load and argument copy into local scratchpad before execution.
-- ISA class decode/disassemble checks using generated ISA constants.
-- Frontend PC/state/fault progression for a minimal program.
-- Local scratchpad loads/stores with bounds faults.
-- In-order DMA load/store event visibility between system memory and local
-  scratchpad, including system/local bounds faults.
-- Predicate inactive-lane preservation.
-- Vector `i32` load/store plus add, subtract, min, max, equal, signed less-than,
-  logical shift-left/right, and arithmetic shift-right execution with INT32
-  wraparound semantics for add/subtract.
-- Deterministic constrained-random vector programs with random VL, operands,
-  predicates, and operation selection compared against C++ reference semantics.
-- Reusable C++ `program_builder` assembly helpers so tests construct executable
-  Holon programs instead of hand-maintaining instruction arrays.
-- Matrix `i8*i8->i32` GEMM micro-op effects over local A/B/C operands,
-  including clear/accumulate behavior, event emission, and issue faults.
-- Explicit program-fault and vector-configuration fault paths.
+- ABI 3.0 descriptor compatibility, image/argument loading, and local bounds;
+- wrapped descriptor, code, argument, completion, and DMA address rejection,
+  plus joint argument/stack allocation bounds;
+- generated decode/disassemble metadata and precise frontend PC/fault state;
+- frontend control flow, DMA ordering, predicate state, and vector-length tails;
+- signed/unsigned i8/i16/i32 ALU, saturation, select, gather, zip/unzip,
+  transpose, reductions, and requantization;
+- INT8-to-INT32 matrix clear/accumulate/store semantics and issue faults;
+- public example programs for vector add, ReLU, reduction, requantization,
+  transpose, and matrix GEMM.
 
-Active V2 RTL coverage today:
+RTL module and integration tests cover:
 
-- ABI 3.0 AXI-Lite control/lifecycle reset values generated from
-  `spec/holon_npu_v2_abi.json`.
-- Doorbell acceptance into `LOADING`, loader transition to `RUNNING`, active
-  doorbell rejection, and aligned descriptor-address reporting.
-- Halt, precise halted state observation, debug-step pulse, resume, done, fault,
-  sticky IRQ, IRQ clear, terminal clear, and soft-reset behavior.
-- Descriptor-base alignment fault before frontend start.
-- AXI-Lite AW/W skew handling and rejection of invalid writes to RO/pulse
-  registers.
-- Program descriptor fetch over AXI4, one-burst descriptor profile, descriptor
-  field extraction, ABI/ISA/program-format/capability/op-class validation,
-  flags/reserved-field rejection, alignment/bounds faults, and AXI read fault
-  handling in the V2 loader RTL.
+- lifecycle, doorbell policy, halt/resume/debug-step, sticky IRQ, terminal
+  clear, descriptor flags, counters, and reset;
+- descriptor/program/argument AXI reads, compatibility faults, and local writes;
+- local-memory arbitration and DMA/vector/matrix ownership under backpressure;
+- executable frontend-control, predicate, vector/helper, matrix, DMA,
+  CSR/debug, sync, and system instructions with precise retirement and faults;
+  sync operations cross an explicit backpressured issue handshake before
+  retirement;
+- completion-record done/fault contents, AXI write failure, and product-top
+  ordering that withholds terminal MMIO/IRQ until `BRESP`;
+- program-level output comparison with the architectural simulator;
+- public runtime example images executed unchanged in simulator and RTL;
+- public runtime-generated `17x19x23` and `64x64x64` matrix tile traversal,
+  plus deterministic random single-tile matrix/vector differential tests.
 
-Required V2 verification classes before RTL release:
-
-- ABI 3.0 program descriptor generation and byte-checking from
-  `spec/holon_npu_v2_abi.json`.
-- Holon ISA encoding table uniqueness and reserved-space checks.
-- Generated decoder and disassembler metadata checks.
-- C++ architectural simulator for frontend state, decode, local memory, DMA
-  ordering, vector state, and matrix micro-ops.
-- Instruction decoder tests for frontend control, predicate, vector, matrix,
-  DMA, CSR, sync, and system classes.
-- Frontend lifecycle tests for boot, start, halt, resume, debug snapshot, done,
-  fault, reset, and IRQ.
-- Scratchpad bounds, DMA command, backpressure, and AXI response fault tests.
-- Vector/helper golden-model tests for integer, predicate, tail, reduction,
-  transpose, requant, clip, and saturation behavior.
-- Matrix micro-op tests proving V1 GEMM behavior through the V2 frontend-issued
-  path.
-- Program-level constrained-random tests that generate deterministic kernels,
-  record seeds, and compare RTL-visible behavior against the C++ architectural
-  simulator.
-
-Required V2 functional coverage classes:
-
-- program descriptor success and validation failures;
-- program compatibility failures for ISA version, program format, required
-  capabilities, and operation classes;
-- frontend lifecycle states and fault classes;
-- every implemented ISA instruction class;
-- predicate and vector-length tail behavior;
-- integer/quant vector operation groups;
-- DMA success, backpressure, and fault paths;
-- matrix issue, completion, and fault paths;
-- IRQ, halt, reset, and debug snapshot paths.
+Coverage is metadata-driven. Every implemented ISA instruction carries a
+required coverage point, while the typed C++ registry gates lifecycle,
+compatibility, engine, completion, and fault scenarios. Structural coverage is
+reported separately and remains advisory until a threshold policy is adopted.

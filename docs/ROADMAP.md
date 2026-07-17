@@ -169,6 +169,8 @@ Scope:
 
 ### Phase V2.0: Architecture And Decision Freeze
 
+Status: Complete.
+
 Goal: freeze the programmable NPU tile direction before ABI 3.0 or RTL work.
 
 Allowed edit scope:
@@ -215,14 +217,16 @@ Primary risks:
 
 ### Phase V2.1: ISA And ABI Schema
 
+Status: Complete.
+
 Goal: convert the V2 architecture plan into schema-owned ABI 3.0 artifacts and
 machine-checkable ISA metadata.
 
 Allowed edit scope:
 
-- V2 ABI 3.0 schema/generator support. The current implementation uses
-  `spec/holon_npu_v2_abi.json` as a parallel V2 contract until the product top
-  migrates away from the V1.5 ABI 2.0 schema.
+- V2 ABI 3.0 schema/generator support. The implementation uses
+  `spec/holon_npu_v2_abi.json` as an independent V2 contract while preserving
+  the released V1.5 ABI 2.0 schema.
 - ISA metadata/checker files. The first ISA metadata source is
   `spec/holon_npu_isa.json`.
 - Generated RTL/C/docs outputs.
@@ -254,8 +258,6 @@ Acceptance criteria:
   project-owned C macros.
 - Program descriptor compatibility failures are testable before frontend
   execution starts.
-- Program descriptor compatibility failures are representable before frontend
-  execution starts.
 
 Dependencies:
 
@@ -268,6 +270,8 @@ Primary risks:
 - Mixing V1 GEMM descriptor compatibility into the new program descriptor model.
 
 ### Phase V2.2: C++ Architectural Simulator
+
+Status: Complete.
 
 Goal: create the stdlib-only C++26 architectural reference used by later RTL
 differential tests.
@@ -290,6 +294,8 @@ Acceptance criteria:
   simulator.
 
 ### Phase V2.3: V2 Control Plane And Program Loader
+
+Status: Complete.
 
 Goal: migrate the product control model from V1 GEMM descriptors to ABI 3.0
 program descriptors.
@@ -314,6 +320,8 @@ Acceptance criteria:
 
 ### Phase V2.4: Frontend Boundary And Reference Frontend
 
+Status: Complete.
+
 Goal: introduce the replaceable frontend implementation boundary and a reference
 frontend that executes the Holon program ISA.
 
@@ -333,6 +341,8 @@ Acceptance criteria:
 
 ### Phase V2.5: Local Memory And DMA Command Fabric
 
+Status: Complete.
+
 Goal: make local memory and DMA programmable resources under frontend control.
 
 Deliverables:
@@ -341,6 +351,9 @@ Deliverables:
 - Frontend-issued DMA command queues.
 - AXI4 DMA integration with existing protocol assertions.
 - SPM bounds and DMA fault reporting.
+- Initial delivered slice: metadata-owned `dma.load` and `dma.store`,
+  reference-frontend issue, one-command-at-a-time AXI4 read/write fabric,
+  data-scratchpad writeback/readout, and DMA fault reporting.
 
 Acceptance criteria:
 
@@ -350,6 +363,8 @@ Acceptance criteria:
   paths.
 
 ### Phase V2.6: Integer/Quant Vector And Helper Engine
+
+Status: Complete.
 
 Goal: implement the first V2 vector/helper compute engine.
 
@@ -362,6 +377,15 @@ Deliverables:
 - Frontend-control CSR, address generation, synchronization, and branch/control
   support.
 - C++ golden model and deterministic constrained-random vector tests.
+- Initial delivered slice: metadata-owned type-orthogonal vector configuration,
+  contiguous local load/store, signed and unsigned i8/i16/i32
+  add/sub/min/max/compare/shift, module-level vector engine RTL, dedicated
+  byte-strobed local-memory write protocol, explicit `predicate.ptrue` and
+  bit-packed `predicate.load`, masked execution/store, and vector fault
+  coverage.
+- Integrated delivered slice: reference-frontend vector issue/result states,
+  DMA/vector scratchpad arbitration, implementation-accurate vector capability
+  reporting, and program-level RTL/model differential testing.
 
 Acceptance criteria:
 
@@ -372,6 +396,8 @@ Acceptance criteria:
 
 ### Phase V2.7: Matrix Engine Re-Issue
 
+Status: Complete.
+
 Goal: reuse the V1 matrix engine as a frontend-issued matrix resource.
 
 Deliverables:
@@ -380,17 +406,23 @@ Deliverables:
 - Firmware-controlled tile traversal for INT8 GEMM.
 - Refactored matrix scheduler boundary so hardcoded descriptor-specific
   scheduling is no longer the control model.
-- Matrix micro-op operands for local A/B/C addresses, active M/N/K shape, edge
-  masks, accumulator control, completion event, and fault result.
+- Matrix micro-op operands for local A/B/C addresses, active M/N/K shape,
+  derived rectangular edge masks, accumulator control, and synchronous
+  completion/fault result.
+- Public runtime tile planner for arbitrary valid M/N/K shapes.
 
 Acceptance criteria:
 
 - GEMM launched through a V2 microprogram matches the V1 C++ golden model.
 - Matrix tests cover fixed and randomized tile shapes through the new issue
   path.
+- Integrated runtime-generated programs cover `17x19x23` and `64x64x64`
+  traversal through loader, frontend, scratchpad, and matrix RTL.
 - The V1 systolic array dataflow remains B-weight-stationary.
 
 ### Phase V2.8: Driver, Runtime, And Example Kernels
+
+Status: Complete.
 
 Goal: provide a minimal V2 software runtime around program images and program
 descriptors.
@@ -407,10 +439,15 @@ Acceptance criteria:
 
 - Host-side driver tests statically check ABI 3.0 descriptor layout and offsets.
 - Example kernels match between simulator and RTL testbench.
+- Public example image objects are used unchanged by both simulator and RTL
+  tests rather than duplicated as private test programs.
 - Completion record, IRQ, fault, debug snapshot, and performance flow are
   tested.
 
 ### Phase V2.9: Integration And Release Hardening
+
+Status: Complete for the implementation baseline; formal v2.0 release review is
+tracked separately.
 
 Goal: make the programmable NPU tile release-quality.
 
@@ -427,6 +464,8 @@ Acceptance criteria:
 - Debug, lint, regression, and coverage presets pass.
 - Functional coverage includes frontend lifecycle, ISA decode, vector classes,
   DMA faults, matrix issue, IRQ, and fault paths.
+- ISA metadata class/instruction coverage names are checked against the typed
+  functional coverage registry.
 - Program-level differential tests compare RTL-visible execution against the
   C++ architectural simulator.
 - V2 known limits are documented before release.

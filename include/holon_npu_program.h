@@ -15,6 +15,7 @@ static constexpr uint32_t HOLON_NPU_PROGRAM_DESC_ALIGN              = 0x00000010
 static constexpr uint32_t HOLON_NPU_PROGRAM_IMAGE_ALIGN             = 0x00000004u;
 static constexpr uint32_t HOLON_NPU_PROGRAM_ARGUMENT_ALIGN          = 0x00000010u;
 static constexpr uint32_t HOLON_NPU_PROGRAM_COMPLETION_ALIGN        = 0x00000010u;
+static constexpr uint16_t HOLON_NPU_COMPLETION_RECORD_SIZE          = 0x0020u;
 static constexpr uint8_t HOLON_NPU_PROGRAM_FORMAT_HOLON_V2         = 0x01u;
 static constexpr uint32_t HOLON_NPU_PROGRAM_MEM_MAX_BYTES           = 0x00010000u;
 static constexpr uint32_t HOLON_NPU_LOCAL_MEM_MAX_BYTES             = 0x00040000u;
@@ -47,6 +48,33 @@ static constexpr uint32_t HOLON_NPU_V2_REG_PERF_CYCLE_HI       = 0x064u;
 static constexpr uint32_t HOLON_NPU_V2_REG_PERF_INSTRET_LO     = 0x068u;
 static constexpr uint32_t HOLON_NPU_V2_REG_PERF_INSTRET_HI     = 0x06Cu;
 
+/* V2 register reset values. */
+static constexpr uint32_t HOLON_NPU_V2_RESET_DEVICE_ID           = 0x4E505502u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_ABI_VERSION         = 0x00030000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_ISA_VERSION         = 0x00010000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_CAP0_LO             = 0x0000007Fu;
+static constexpr uint32_t HOLON_NPU_V2_RESET_CAP0_HI             = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_OP_CLASS_LO         = 0x000001FFu;
+static constexpr uint32_t HOLON_NPU_V2_RESET_OP_CLASS_HI         = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_PROGRAM_MEM_BYTES   = 0x00010000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_LOCAL_MEM_BYTES     = 0x00040000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_VECTOR_CAP0         = 0x01010010u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_MATRIX_CAP0         = 0x08201010u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_CONTROL             = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_STATUS              = 0x00000001u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_FAULT_CODE          = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_DEBUG_PC            = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_PROGRAM_DESC_ADDR_LO = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_PROGRAM_DESC_ADDR_HI = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_DOORBELL            = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_IRQ_ENABLE          = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_IRQ_STATUS          = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_IRQ_CLEAR           = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_PERF_CYCLE_LO       = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_PERF_CYCLE_HI       = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_PERF_INSTRET_LO     = 0x00000000u;
+static constexpr uint32_t HOLON_NPU_V2_RESET_PERF_INSTRET_HI     = 0x00000000u;
+
 /* V2 lifecycle status bits. */
 static constexpr uint32_t HOLON_NPU_V2_STATUS_IDLE       = 0x00000001u;
 static constexpr uint32_t HOLON_NPU_V2_STATUS_LOADING    = 0x00000002u;
@@ -70,6 +98,10 @@ static constexpr uint32_t HOLON_NPU_V2_CONTROL_HALT          = 0x00000004u;
 static constexpr uint32_t HOLON_NPU_V2_CONTROL_RESUME        = 0x00000008u;
 static constexpr uint32_t HOLON_NPU_V2_CONTROL_DEBUG_STEP    = 0x00000010u;
 static constexpr uint32_t HOLON_NPU_V2_CONTROL_VALID_MASK    = 0x0000001Fu;
+
+/* V2 doorbell bits. */
+static constexpr uint32_t HOLON_NPU_V2_DOORBELL_START     = 0x00000001u;
+static constexpr uint32_t HOLON_NPU_V2_DOORBELL_VALID_MASK = 0x00000001u;
 
 /* V2 IRQ bits. */
 static constexpr uint32_t HOLON_NPU_V2_IRQ_DONE      = 0x00000001u;
@@ -95,7 +127,8 @@ static constexpr uint64_t HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY    = 0x000000000
 static constexpr uint64_t HOLON_NPU_V2_CAP_ARGUMENT_SCRATCHPAD_COPY = 0x0000000000000004u;
 static constexpr uint64_t HOLON_NPU_V2_CAP_IN_ORDER_DMA_QUEUE      = 0x0000000000000008u;
 static constexpr uint64_t HOLON_NPU_V2_CAP_MATRIX_MICRO_OP         = 0x0000000000000010u;
-static constexpr uint64_t HOLON_NPU_V2_CAP_INTEGER_QUANT_VECTOR    = 0x0000000000000020u;
+static constexpr uint64_t HOLON_NPU_V2_CAP_INTEGER_VECTOR_BASE     = 0x0000000000000020u;
+static constexpr uint64_t HOLON_NPU_V2_CAP_QUANT_VECTOR            = 0x0000000000000040u;
 
 /* Fault codes. */
 static constexpr uint32_t HOLON_NPU_V2_FAULT_NONE                       = 0x00u;
@@ -113,6 +146,10 @@ static constexpr uint32_t HOLON_NPU_V2_FAULT_DMA_REQUEST                = 0x0Bu;
 static constexpr uint32_t HOLON_NPU_V2_FAULT_AXI_READ                   = 0x0Cu;
 static constexpr uint32_t HOLON_NPU_V2_FAULT_AXI_WRITE                  = 0x0Du;
 static constexpr uint32_t HOLON_NPU_V2_FAULT_EXPLICIT_PROGRAM_FAULT     = 0x0Eu;
+
+/* Completion status values. */
+static constexpr uint32_t HOLON_NPU_COMPLETION_STATUS_DONE = 0x00000001u;
+static constexpr uint32_t HOLON_NPU_COMPLETION_STATUS_FAULT = 0x00000002u;
 
 /* Program descriptor offsets. */
 static constexpr uint32_t HOLON_NPU_PROGRAM_DESC_OFF_SIZE_BYTES         = 0x00u;
@@ -134,6 +171,14 @@ static constexpr uint32_t HOLON_NPU_PROGRAM_DESC_OFF_COMPLETION_ADDR    = 0x40u;
 static constexpr uint32_t HOLON_NPU_PROGRAM_DESC_OFF_FLAGS              = 0x48u;
 static constexpr uint32_t HOLON_NPU_PROGRAM_DESC_OFF_RESERVED_4C        = 0x4Cu;
 static constexpr uint32_t HOLON_NPU_PROGRAM_DESC_OFF_RESERVED_TAIL      = 0x50u;
+
+/* Completion record offsets. */
+static constexpr uint32_t HOLON_NPU_COMPLETION_OFF_ABI_VERSION = 0x00u;
+static constexpr uint32_t HOLON_NPU_COMPLETION_OFF_STATUS     = 0x04u;
+static constexpr uint32_t HOLON_NPU_COMPLETION_OFF_FAULT_CODE = 0x08u;
+static constexpr uint32_t HOLON_NPU_COMPLETION_OFF_DEBUG_PC   = 0x0Cu;
+static constexpr uint32_t HOLON_NPU_COMPLETION_OFF_CYCLE_COUNT = 0x10u;
+static constexpr uint32_t HOLON_NPU_COMPLETION_OFF_INSTRET    = 0x18u;
 
 typedef struct holon_npu_program_desc {
     uint16_t size_bytes;
@@ -162,7 +207,17 @@ typedef struct holon_npu_program_desc {
     uint64_t reserved_78;
 } holon_npu_program_desc_t;
 
+typedef struct holon_npu_completion_record {
+    uint32_t abi_version;
+    uint32_t status;
+    uint32_t fault_code;
+    uint32_t debug_pc;
+    uint64_t cycle_count;
+    uint64_t instret;
+} holon_npu_completion_record_t;
+
 static_assert(sizeof(holon_npu_program_desc_t) == HOLON_NPU_PROGRAM_DESC_SIZE);
+static_assert(sizeof(holon_npu_completion_record_t) == HOLON_NPU_COMPLETION_RECORD_SIZE);
 static_assert(HOLON_NPU_V2_ABI_VERSION_RESET == 0x00030000u);
 static_assert(HOLON_NPU_PROGRAM_FORMAT_HOLON_V2 == 0x01u);
 static_assert(HOLON_NPU_ISA_MAJOR == 0x01u);
@@ -185,3 +240,9 @@ static_assert(offsetof(holon_npu_program_desc_t, completion_addr) == HOLON_NPU_P
 static_assert(offsetof(holon_npu_program_desc_t, flags) == HOLON_NPU_PROGRAM_DESC_OFF_FLAGS);
 static_assert(offsetof(holon_npu_program_desc_t, reserved_4c) == HOLON_NPU_PROGRAM_DESC_OFF_RESERVED_4C);
 static_assert(offsetof(holon_npu_program_desc_t, reserved_50) == HOLON_NPU_PROGRAM_DESC_OFF_RESERVED_TAIL);
+static_assert(offsetof(holon_npu_completion_record_t, abi_version) == HOLON_NPU_COMPLETION_OFF_ABI_VERSION);
+static_assert(offsetof(holon_npu_completion_record_t, status) == HOLON_NPU_COMPLETION_OFF_STATUS);
+static_assert(offsetof(holon_npu_completion_record_t, fault_code) == HOLON_NPU_COMPLETION_OFF_FAULT_CODE);
+static_assert(offsetof(holon_npu_completion_record_t, debug_pc) == HOLON_NPU_COMPLETION_OFF_DEBUG_PC);
+static_assert(offsetof(holon_npu_completion_record_t, cycle_count) == HOLON_NPU_COMPLETION_OFF_CYCLE_COUNT);
+static_assert(offsetof(holon_npu_completion_record_t, instret) == HOLON_NPU_COMPLETION_OFF_INSTRET);

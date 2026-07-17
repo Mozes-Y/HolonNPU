@@ -42,7 +42,7 @@ ctest --preset coverage -j 2 --output-on-failure
 python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
-## V2 Planning
+## V2 Implementation
 
 V2 is being implemented as a programmable NPU tile rather than a GEMM
 post-processing extension. The direction is ABI 3.0 program descriptors, a
@@ -50,11 +50,22 @@ replaceable frontend implementation running a stable Holon-owned program ISA,
 integer/quant vector and helper engines, explicit scratchpad/DMA memory, and
 frontend-issued matrix micro-ops reusing the V1 matrix engine.
 
-Current V2 implementation state: machine-checkable ISA/ABI metadata, generated
-program ABI artifacts, a C++26 architectural simulator, ABI 3.0 AXI-Lite
-lifecycle/control RTL, and a descriptor-fetch/validation program loader RTL are
-present. The V2 product top, local program/argument load path, frontend RTL,
-vector RTL, and matrix micro-op issue fabric are still under implementation.
+The current V2 implementation includes machine-checkable ISA/ABI metadata,
+generated ABI artifacts, a C++26 architectural simulator, a public C++26
+program builder/runtime, and an interface-native ABI 3.0 product top. The RTL
+loads program descriptors, code, and arguments; executes Holon frontend-control,
+predicate, vector, quant/helper, matrix, DMA, sync, and system instructions;
+and exposes lifecycle, fault, debug, IRQ, and performance state through
+AXI-Lite. DMA, vector, and matrix engines share local memory through explicit
+request/response interfaces and arbiters.
+
+The integer/quant vector path supports signed and unsigned 8-, 16-, and 32-bit
+operations, predication, saturation, requantization, reductions, select,
+gather, zip/unzip, and 4x4 transpose. The matrix path issues tile-level
+micro-ops to the reused B-weight-stationary systolic array. Program completion
+records are written to system memory and acknowledged before terminal MMIO
+state and IRQ become visible. Program-level RTL tests differential-check
+architectural results against the C++26 simulator.
 
 Planning documents:
 
@@ -70,11 +81,13 @@ Machine-checkable V2 metadata now includes:
   `docs/V2_ISA_REFERENCE.md`
 - Generated program ABI header/reference: `include/holon_npu_program.h`,
   `docs/V2_INTERFACE_REFERENCE.md`
-- C++26 architectural simulator foundation: `sim/model/`
+- C++26 public program runtime: `include/holon_npu_runtime.hpp`,
+  `sw/holon_npu_runtime.cpp`
+- C++26 architectural simulator: `sim/model/`
 
-No V2 product top, local memory loader, frontend RTL, vector RTL, or matrix
-issue fabric is present yet; the current product top remains the V1.5 ABI 2.0
-GEMM accelerator until the V2 loader/frontend phases land.
+The released `npu_top` remains the v1.5 ABI 2.0 top. The V2 implementation is
+available as `npu_v2_top`; it is under release hardening and has not replaced
+the v1.5 release tag.
 
 ## Requirements
 
@@ -92,12 +105,12 @@ and GCC 15.3.0.
 
 ```text
 docs/       Roadmap, architecture, ABI, verification, progress, and ADRs.
-include/    Public C ABI headers for registers and descriptors.
+include/    Generated public C23 ABI headers and the C++26 V2 program runtime.
 rtl/        Product/core SystemVerilog RTL.
 sim/        Verilator C++26 testbenches, V2 model code, and simulation-only SV harnesses.
 spec/       ABI/register/descriptor and ISA schemas used to generate shared outputs.
-sw/         Minimal C driver.
-tests/      Host-side driver tests.
+sw/         C23 driver and C++26 V2 program runtime implementation.
+tests/      Host-side driver, runtime, and architectural-model tests.
 tools/      Project verification utilities.
 ```
 
@@ -108,9 +121,11 @@ Start with `docs/GETTING_STARTED.md` if you want a guided Chinese walkthrough
 of the architecture, code layout, local build flow, testbenches, and GitHub
 Actions CI.
 
-## Architecture
+## Released V1 Architecture
 
-The current product top is `rtl/integration/npu_top.sv`.
+The released v1.5 product top is `rtl/integration/npu_top.sv`. The V2 product
+top under release hardening is `rtl/integration/npu_v2_top.sv` and is described
+in `docs/V2_ARCHITECTURE.md`.
 
 Major blocks:
 
@@ -129,7 +144,7 @@ Major blocks:
 See `docs/ARCHITECTURE.md` and `docs/INTERFACE.md` for the authoritative design
 and ABI details.
 
-## ABI Summary
+## Released V1 ABI Summary
 
 The v1.5 ABI 2.0 contract is defined in one schema:
 
@@ -228,15 +243,12 @@ targets.
 
 ## Software Driver
 
-The minimal driver lives in `sw/` and uses the public headers in `include/`.
-It supports:
-
-- Device binding and capability reads.
-- GEMM descriptor construction with validation.
-- Descriptor submit and status polling.
-- Timeout-based wait.
-- Error-code and performance-counter reads.
-- Clear operations for done, error, and performance counters.
+The current C23 driver in `sw/` targets the V2 ABI 3.0 product path. It binds
+MMIO, reads ISA/engine capabilities, validates and builds program descriptors,
+submits programs, controls halt/resume/debug-step/reset, waits for lifecycle
+completion, and reads fault snapshots, IRQ state, and performance counters.
+The V1.5 GEMM ABI remains available through its generated headers and release
+tag, but the current driver does not expose the old GEMM-submit API.
 
 The driver does not manage cache maintenance, physical address allocation, IRQ
 registration, or OS integration. Firmware or platform code must provide those
@@ -258,6 +270,13 @@ The CTest suite covers:
 - Public product-top descriptor fetch, GEMM execution, IRQ/status, read error,
   write error, read-error recovery, and reset-in-flight recovery.
 - Host-side C driver API behavior.
+- V2 ABI/ISA generation, descriptor compatibility, frontend lifecycle, local
+  memory/DMA ordering, vector/helper semantics, CSR/debug reads, and matrix
+  micro-op faults.
+- Deterministic random vector RTL/model differential programs and signed INT8
+  matrix tiles with padded strides.
+- Public runtime example images and runtime-generated `17x19x23`/`64x64x64`
+  tiled GEMM programs through the integrated V2 RTL tile.
 
 Assertions are native SystemVerilog properties enabled by default in debug,
 regression, and coverage builds with Verilator's `--assert` option. The

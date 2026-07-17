@@ -15,6 +15,8 @@ All notable project-level release changes are recorded here.
   matrix micro-op direction.
 - Added machine-checkable Holon V2 ISA metadata, a generated public ISA header,
   a generated ISA reference document, and ISA metadata/source checks.
+- Added a generated SystemVerilog ISA constants package for RTL consumers of
+  the Holon V2 ISA metadata.
 - Added machine-checkable V2 ABI 3.0 program descriptor metadata, generated
   public program ABI header/reference docs, and V2 ABI schema/source checks.
 - Added the first V2 C++26 architectural simulator foundation with decode,
@@ -30,6 +32,81 @@ All notable project-level release changes are recorded here.
 - Added the first V2 program loader RTL slice for AXI4 descriptor fetch,
   ABI/ISA compatibility validation, descriptor field extraction, and focused
   Verilator tests.
+- Extended the V2 program loader to read program image and argument blocks with
+  32-bit AXI4 narrow bursts and emit local program/data write streams.
+- Added a focused V2 control-plane integration RTL slice connecting AXI-Lite
+  lifecycle control to the program loader, with Verilator and lint coverage.
+- Added the initial V2 local program/data memory RTL boundary behind the loader,
+  including local readback tests and control-plane integration coverage.
+- Added the first V2 reference frontend integration slice, including local
+  program-memory fetch, `system.exit`, `system.fault`, illegal-instruction
+  faulting, and restart-epoch terminal-event gating.
+- Extended V2 ISA metadata with implemented `system.exit`, `system.fault`,
+  `dma.load`, and `dma.store` instruction opcodes plus generated field-layout
+  constants.
+- Added the first frontend-issued V2 DMA load/store fabric, including AXI4 read
+  bursts, AXI4 write bursts, scratchpad writeback/readout, backpressure,
+  local-bounds fault, AXI read/write fault, and frontend-tile program coverage.
+- Added metadata-owned V2 sync ordering instructions for `sync.wait_dma`,
+  `sync.fence.local`, and `sync.fence.dma`, with C++ model execution, RTL
+  frontend retirement, frontend-tile tests, and functional coverage.
+- Added the first V2 data scratchpad port arbiter with a local read
+  valid-ready interface, loader/client write arbitration, host/client read
+  round-robin routing, RTL assertions, and functional coverage.
+- Added metadata-owned V2 vector config/memory/ALU instruction opcodes and the
+  first standalone vector engine RTL slice for type-orthogonal configuration,
+  contiguous local load/store, add/sub/min/max, compare, shift, and vector
+  fault coverage.
+- Connected the reference frontend to the vector engine through a backpressured
+  issue/result contract, added DMA/vector scratchpad arbitration, and added a
+  program-level vector test differential-checked against the C++26 model.
+- Split the V2 integer-vector and quant-vector capability bits and restricted
+  capability/operation-class reset values to functionality present in the
+  current RTL integration.
+- Made vector opcodes type-orthogonal: vector configuration now selects VL,
+  element width, and signedness for generic memory and ALU operations across
+  signed/unsigned i8, i16, and i32 elements.
+- Added a dedicated interface-native local-memory write contract with byte
+  strobes and explicit responses, plus narrow-element RTL/model tests.
+- Added metadata-owned predicate ptrue/load instructions, explicit predicate
+  selection for vector ALU and memory operations, inactive-lane preservation,
+  masked stores, ABI capability reporting, and RTL/model differential tests.
+- Completed the Holon frontend-control path with scalar register arithmetic,
+  aligned local load/store, branches, precise faults, halt/resume, and debug
+  stepping.
+- Completed the integer/quant helper path with saturating arithmetic, select,
+  gather, zip/unzip, 4x4 transpose, reductions, and fixed-point requantization.
+- Added the V2 matrix micro-op engine around the existing B-weight-stationary
+  systolic array, including clear/accumulate/store modes and issue faults.
+- Added the ABI 3.0 product top, AXI write arbitration, and ordered 32-byte
+  completion records that precede terminal MMIO state and IRQ visibility.
+- Defined all program descriptor flag semantics for terminal IRQ policy,
+  counter reset, and fault debug snapshots.
+- Added the public C++26 `holon_npu_runtime` program builder and example vector
+  add, ReLU, reduction, requantization, transpose, and INT8 GEMM programs.
+- Added executable CSR/debug reads for PC, retired count, image size, and active
+  local-memory size, with precise invalid-selector faults in model and RTL.
+- Made ISA metadata coverage machine-checkable against the typed C++ registry
+  and rejected implemented ISA classes without instructions.
+- Added a validated public tiled-GEMM planner that emits firmware-owned M/N/K
+  matrix micro-op traversal, including K-tile accumulation.
+- Added deterministic random vector RTL/model differential programs, random
+  signed INT8 matrix tiles with padded strides, unchanged public runtime-example
+  execution in RTL, and integrated `17x19x23`/`64x64x64` tiled GEMM tests.
+- Expanded V2 module, integration, lint, regression, and functional coverage
+  gates across control, loader, local memory, frontend, DMA, vector, matrix,
+  completion, and product top behavior.
+
+### Changed
+
+- Replaced the initial immediate-limited DMA instruction slice with
+  register-addressed 64-bit system and 32-bit local addressing.
+- Strengthened the RTL ownership gate so every product or simulation
+  SystemVerilog source has exactly one consumed semantic CMake source target.
+- Routed sync instructions through the explicit frontend issue handshake and
+  retired them only after acknowledgement.
+- Unified RTL, C23 driver, and C++26 model validation for wrapped 64-bit memory
+  ranges and joint argument/stack local-memory allocation.
 
 ## v1.5 - 2026-07-06
 

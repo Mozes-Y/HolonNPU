@@ -1,8 +1,9 @@
-# HolonNPU V2 Interface Draft
+# HolonNPU V2 Interface Contract
 
-This document defines the hand-written contract for V2 ABI 3.0. It does not
-replace the generated V1.5 ABI document in `docs/INTERFACE.md` until the product
-RTL migrates to the V2 control plane.
+This document defines the hand-written behavioral contract for V2 ABI 3.0.
+`docs/INTERFACE.md` remains the generated V1.5 ABI 2.0 release contract; V2 uses
+its own schema and generated reference while it proceeds through release
+hardening.
 
 Machine-checkable V2 ABI metadata lives in:
 
@@ -21,7 +22,7 @@ into local program memory and copies the argument block into data scratchpad
 before the frontend executes the Holon ISA program and drives DMA,
 vector/helper, and matrix engines.
 
-Expected ABI properties:
+Current ABI properties:
 
 - ABI major version: 3.
 - Little-endian multi-byte fields.
@@ -53,13 +54,13 @@ The ABI 3.0 descriptor schema defines:
 | `arg_addr` | System-memory address of the kernel argument block. |
 | `arg_size_bytes` | Argument block byte size. |
 | `completion_addr` | Optional system-memory completion/status record. |
-| `local_mem_bytes` | Requested local data scratchpad allocation. |
+| `local_mem_bytes` | Requested local data scratchpad allocation, including arguments and reserved stack/control bytes. |
 | `program_mem_bytes` | Requested program memory footprint. |
-| `stack_bytes` | Optional frontend stack/local control allocation. |
+| `stack_bytes` | Optional region reserved at the top of local data memory; `arg_size_bytes + stack_bytes` must not exceed `local_mem_bytes`. |
 | `reserved` | Must be zero and checked by hardware. |
 
-The exact layout, widths, and reset/required values are schema-owned. RTL must
-consume the generated contract when the V2 loader/control plane is implemented.
+The exact layout, widths, and reset/required values are schema-owned. RTL and
+software consume the generated contract directly.
 
 Compatibility check rules:
 
@@ -73,19 +74,72 @@ Compatibility check rules:
 - Compatibility failures are descriptor validation faults and must not start
   frontend execution.
 
+Capability registers describe implemented hardware, not the eventual V2 ISA
+roadmap. The current RTL advertises program descriptors, local program memory,
+argument scratchpad copy, in-order DMA, integer vector, quant vector, and matrix
+micro-op support. Its implemented operation classes are frontend control,
+predicate, vector, quantization, matrix, DMA, CSR/debug, sync, and system. `VECTOR_CAP0`
+reports max VL 16, one iterative execution lane, and one predicate register.
+`MATRIX_CAP0` reports a 16x16 tile, 32-bit accumulation, and 8-bit operands.
+
 Current RTL implementation note: `npu_v2_program_loader_core` fetches the
 128-byte descriptor over AXI4, performs the compatibility/alignment/bounds
-checks above, and exposes validated descriptor fields to the future program
-image/argument loader. It does not yet copy program code or arguments into local
-memory.
+checks above, then reads the program image and argument block through 32-bit AXI4
+narrow bursts. It emits typed valid-ready local write streams that
+`npu_v2_local_memory_core` stores into local program memory and data scratchpad.
 
-## Control Plane Direction
+`npu_v2_control_plane_core` is the integration boundary between the
+AXI-Lite lifecycle registers and the program loader. A doorbell starts descriptor
+loading through the loader, loader completion moves lifecycle state to
+`RUNNING`, loader/local-memory faults become lifecycle `FAULT` before frontend
+execution, and loaded local words are exposed through frontend-facing local
+read ports.
 
-The V2 AXI-Lite control plane should preserve the V1 shape where useful but
-change the backend meaning from GEMM descriptor execution to frontend lifecycle
-execution.
+`npu_v2_frontend_tile_core` extends that slice with the reference frontend,
+DMA issue consumer, and integer vector engine. The frontend's metadata-owned
+`dma.load` and `dma.store` instructions drive the DMA issue channel,
+`npu_v2_dma_fabric_core` performs system-to-scratchpad AXI4 reads and
+scratchpad-to-system AXI4 writes, and `npu_v2_data_port_arbiter_core` arbitrates
+loader/client data writes plus host/debug and engine/client valid-ready data
+reads into the shared data scratchpad. A second interface-native arbiter merges
+DMA and vector local-memory traffic. Vector instructions use a backpressured
+issue/result contract and retire only after the vector result is accepted.
+The tile also integrates quant/helper operations, frontend-control execution,
+and the matrix micro-op engine. `npu_v2_top` is the flattened SoC pin boundary;
+all connections beneath that boundary remain interface-native. The host-visible
+contract is the ABI 3.0 program descriptor and lifecycle register model.
 
-Required register groups:
+## Descriptor Flags
+
+| Flag | Behavior |
+| ---- | -------- |
+| `IRQ_ON_DONE` | Allows a successful program terminal event to set the DONE IRQ cause. |
+| `IRQ_ON_FAULT` | Allows a trusted running program fault to set the FAULT IRQ cause. Descriptor/load faults always raise FAULT IRQ because their flags are not trusted. |
+| `CLEAR_PERF_ON_START` | Clears cycle and retired-instruction counters after loading and before frontend execution. |
+| `DEBUG_SNAPSHOT_ON_FAULT` | Records the faulting frontend PC; otherwise the completion/MMIO debug PC is zero for program faults. |
+
+Unknown flag bits are descriptor validation faults.
+
+## Completion Record
+
+`completion_addr=0` disables the system-memory completion record. A nonzero
+address must be 16-byte aligned and identifies a 32-byte record containing ABI
+version, terminal status, fault code, debug PC, cycle count, and retired
+instruction count. The generated layout is authoritative.
+
+For a validated program, the completion writer receives the terminal snapshot,
+writes all record beats over AXI4, and waits for the write response before
+`DONE`/`FAULT` and IRQ become visible through MMIO. A completion write response
+error replaces the program terminal result with `AXI_WRITE` fault. Descriptor,
+compatibility, or load failures do not write a completion record because their
+descriptor address and flags are not yet trusted.
+
+## Control Plane
+
+The V2 AXI-Lite control plane preserves useful V1 concepts while changing the
+backend from GEMM descriptor execution to frontend lifecycle execution.
+
+Register groups:
 
 - device identity and ABI version;
 - capability registers for ISA version, vector lanes, max vector length, local
@@ -146,7 +200,8 @@ Lifecycle rules:
   and has no state side effect.
 - Soft reset cancels active work, clears engine events, and returns to `IDLE`.
 - Halt requests during DMA or matrix work become visible only after the frontend
-  reaches a precise wait, fence, or instruction boundary.
+  reaches a precise `sync.wait_dma`, `sync.fence.local`, `sync.fence.dma`, or
+  instruction boundary.
 - Resume is valid only from `HALTED`.
 - Debug step is valid only from `HALTED` if implemented.
 - Faults have priority over done. Descriptor validation faults have priority
@@ -177,9 +232,9 @@ Minimum fault classes:
 
 Fault codes must be generated from the ABI schema and covered by tests.
 
-## Software API Direction
+## Software API
 
-The V2 C23 driver should provide a program-oriented API:
+The V2 C23 driver provides a program-oriented API:
 
 | Function Class | Purpose |
 | -------------- | ------- |
@@ -208,11 +263,14 @@ Program visibility rules:
   entering `RUNNING`; frontend instruction fetch does not read system memory
   directly in the first V2 release.
 - DMA completion events make DMA writes to local memory visible to later local
-  reads after frontend `wait` or `fence` instructions.
+  reads after frontend `sync.wait_dma`, `sync.fence.local`, or `sync.fence.dma`
+  instructions. In the current in-order DMA implementation, each DMA
+  instruction retires after completion, so these sync instructions are explicit
+  order points rather than separate engine commands.
 - Vector and matrix local-memory writes become visible to DMA stores after
-  frontend `fence` instructions.
-- Completion records in system memory are architecturally valid only after the
-  hardware reports `DONE` or `FAULT`.
+  frontend `sync.fence.local` or `sync.fence.dma` instructions.
+- Completion records in system memory are architecturally valid before the
+  associated `DONE` or `FAULT` MMIO status becomes visible.
 
 ## Compatibility Policy
 

@@ -110,7 +110,7 @@ function(holon_npu_collect_sv_sources output_var)
 endfunction()
 
 function(holon_npu_add_verilated_executable)
-  cmake_parse_arguments(ARG "" "TARGET;CPP;TOP;PREFIX" "RTL_TARGETS" ${ARGN})
+  cmake_parse_arguments(ARG "" "TARGET;CPP;TOP;PREFIX" "RTL_TARGETS;EXTRA_GENERATED_CLASSES;LIBRARIES" ${ARGN})
 
   holon_npu_collect_sv_sources(verilator_sources ${ARG_RTL_TARGETS})
 
@@ -127,7 +127,7 @@ function(holon_npu_add_verilated_executable)
       FILES sim/tb_coverage.hpp
   )
   holon_npu_target_options(${ARG_TARGET})
-  target_link_libraries(${ARG_TARGET} PRIVATE holon_npu_public_headers)
+  target_link_libraries(${ARG_TARGET} PRIVATE holon_npu_public_headers ${ARG_LIBRARIES})
 
   if(NOT HOLON_NPU_ENABLE_COVERAGE)
     target_sources(${ARG_TARGET} PRIVATE ${VERILATOR_ROOT}/include/verilated_cov.cpp)
@@ -151,6 +151,37 @@ function(holon_npu_add_verilated_executable)
     ${verilate_feature_args}
     VERILATOR_ARGS ${HOLON_NPU_VERILATOR_ARGS}
   )
+
+  if(ARG_EXTRA_GENERATED_CLASSES)
+    set(generated_prefix ${ARG_PREFIX})
+    if(NOT generated_prefix)
+      set(generated_prefix V${ARG_TOP})
+    endif()
+
+    foreach(generated_class IN LISTS ARG_EXTRA_GENERATED_CLASSES)
+      set(generated_dir ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${ARG_TARGET}.dir/${generated_prefix}.dir)
+      set(generated_sources
+        ${generated_dir}/${generated_prefix}_${generated_class}__0.cpp
+        ${generated_dir}/${generated_prefix}_${generated_class}__Slow.cpp
+        ${generated_dir}/${generated_prefix}_${generated_class}__0__Slow.cpp
+      )
+      get_target_property(existing_sources ${ARG_TARGET} SOURCES)
+      if(NOT existing_sources)
+        set(existing_sources)
+      endif()
+      set(missing_generated_sources)
+      foreach(generated_source IN LISTS generated_sources)
+        list(FIND existing_sources ${generated_source} generated_source_index)
+        if(generated_source_index EQUAL -1)
+          list(APPEND missing_generated_sources ${generated_source})
+        endif()
+      endforeach()
+      if(missing_generated_sources)
+        set_source_files_properties(${missing_generated_sources} PROPERTIES GENERATED TRUE)
+        target_sources(${ARG_TARGET} PRIVATE ${missing_generated_sources})
+      endif()
+    endforeach()
+  endif()
 endfunction()
 
 function(holon_npu_add_ctest)
@@ -191,7 +222,9 @@ function(holon_npu_add_lint_test)
   holon_npu_test_labels(${ARG_TEST} ${ARG_LABELS})
   set_tests_properties(
     ${ARG_TEST}
-    PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      RESOURCE_LOCK holon_npu_build_tree
   )
 endfunction()
 
@@ -216,6 +249,20 @@ target_sources(holon_npu_driver PRIVATE sw/holon_npu_driver.c)
 target_compile_features(holon_npu_driver PUBLIC c_std_23)
 target_link_libraries(holon_npu_driver PUBLIC holon_npu_public_headers)
 
+add_library(holon_npu_runtime)
+target_sources(
+  holon_npu_runtime
+  PRIVATE
+    sw/holon_npu_runtime.cpp
+  PUBLIC
+    FILE_SET runtime_headers
+    TYPE HEADERS
+    BASE_DIRS include
+    FILES include/holon_npu_runtime.hpp
+)
+target_compile_features(holon_npu_runtime PUBLIC cxx_std_26)
+target_link_libraries(holon_npu_runtime PUBLIC holon_npu_public_headers)
+
 add_library(holon_npu_v2_model)
 target_sources(
   holon_npu_v2_model
@@ -228,9 +275,10 @@ target_sources(
     FILES sim/model/holon_npu_v2_model.hpp
 )
 target_compile_features(holon_npu_v2_model PUBLIC cxx_std_26)
-target_link_libraries(holon_npu_v2_model PUBLIC holon_npu_public_headers)
+target_link_libraries(holon_npu_v2_model PUBLIC holon_npu_runtime)
 
 holon_npu_add_sv_source_target(holon_npu_rtl_pkg rtl/common/npu_pkg.sv)
+holon_npu_add_sv_source_target(holon_npu_rtl_isa_pkg rtl/common/npu_isa_pkg.sv)
 holon_npu_add_sv_source_target(holon_npu_rtl_v2_pkg rtl/common/npu_v2_pkg.sv)
 holon_npu_add_sv_source_target(
   holon_npu_rtl_interfaces
@@ -271,6 +319,135 @@ holon_npu_add_sv_source_target(holon_npu_rtl_v2_loader rtl/control/npu_v2_progra
 target_link_libraries(holon_npu_rtl_v2_loader INTERFACE holon_npu_rtl_v2_pkg holon_npu_rtl_interfaces)
 
 holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_completion
+  rtl/control/npu_v2_completion_writer.sv
+)
+target_link_libraries(
+  holon_npu_rtl_v2_completion
+  INTERFACE
+    holon_npu_rtl_v2_pkg
+    holon_npu_rtl_interfaces
+)
+
+holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_write_arbiter
+  rtl/integration/npu_v2_axi_write_arbiter.sv
+)
+target_link_libraries(
+  holon_npu_rtl_v2_write_arbiter
+  INTERFACE
+    holon_npu_rtl_interfaces
+)
+
+holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_localmem_interfaces
+  rtl/localmem/npu_v2_localmem_rd_if.sv
+  rtl/localmem/npu_v2_localmem_wr_if.sv
+)
+target_link_libraries(holon_npu_rtl_v2_localmem_interfaces INTERFACE holon_npu_rtl_interfaces)
+
+holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_localmem
+  rtl/localmem/npu_v2_local_memory.sv
+)
+target_link_libraries(holon_npu_rtl_v2_localmem INTERFACE holon_npu_rtl_v2_localmem_interfaces)
+
+holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_data_port_arbiter
+  rtl/localmem/npu_v2_data_port_arbiter.sv
+)
+target_link_libraries(
+  holon_npu_rtl_v2_data_port_arbiter
+  INTERFACE holon_npu_rtl_v2_localmem_interfaces
+)
+
+holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_engine_data_arbiter
+  rtl/localmem/npu_v2_engine_data_arbiter.sv
+)
+target_link_libraries(
+  holon_npu_rtl_v2_engine_data_arbiter
+  INTERFACE holon_npu_rtl_v2_localmem_interfaces
+)
+target_link_libraries(holon_npu_rtl_v2_loader INTERFACE holon_npu_rtl_v2_localmem_interfaces)
+
+holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_frontend_interface
+  rtl/frontend/npu_frontend_if.sv
+)
+
+holon_npu_add_sv_source_target(
+  holon_npu_rtl_v2_frontend
+  rtl/frontend/npu_reference_frontend.sv
+)
+target_link_libraries(
+  holon_npu_rtl_v2_frontend
+  INTERFACE
+    holon_npu_rtl_v2_frontend_interface
+    holon_npu_rtl_v2_pkg
+    holon_npu_rtl_isa_pkg
+    holon_npu_rtl_v2_localmem_interfaces
+)
+
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_vector rtl/vector/npu_v2_vector_engine.sv)
+target_link_libraries(
+  holon_npu_rtl_v2_vector
+  INTERFACE
+    holon_npu_rtl_v2_pkg
+    holon_npu_rtl_isa_pkg
+    holon_npu_rtl_interfaces
+    holon_npu_rtl_v2_localmem_interfaces
+)
+
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_matrix rtl/matrix/npu_v2_matrix_engine.sv)
+target_link_libraries(
+  holon_npu_rtl_v2_matrix
+  INTERFACE
+    holon_npu_rtl_v2_pkg
+    holon_npu_rtl_isa_pkg
+    holon_npu_rtl_interfaces
+    holon_npu_rtl_v2_localmem_interfaces
+    holon_npu_rtl_matrix
+)
+
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_dma rtl/dma/npu_v2_dma_fabric.sv)
+target_link_libraries(
+  holon_npu_rtl_v2_dma
+  INTERFACE
+    holon_npu_rtl_v2_pkg
+    holon_npu_rtl_interfaces
+    holon_npu_rtl_v2_frontend_interface
+    holon_npu_rtl_v2_localmem_interfaces
+)
+
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_control_plane rtl/integration/npu_v2_control_plane.sv)
+target_link_libraries(
+  holon_npu_rtl_v2_control_plane
+  INTERFACE
+    holon_npu_rtl_v2_control
+    holon_npu_rtl_v2_loader
+    holon_npu_rtl_v2_localmem
+    holon_npu_rtl_v2_data_port_arbiter
+)
+
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_frontend_tile rtl/integration/npu_v2_frontend_tile.sv)
+target_link_libraries(
+  holon_npu_rtl_v2_frontend_tile
+  INTERFACE
+    holon_npu_rtl_v2_control_plane
+    holon_npu_rtl_v2_frontend
+    holon_npu_rtl_v2_dma
+    holon_npu_rtl_v2_completion
+    holon_npu_rtl_v2_write_arbiter
+    holon_npu_rtl_v2_engine_data_arbiter
+    holon_npu_rtl_v2_vector
+    holon_npu_rtl_v2_matrix
+)
+
+holon_npu_add_sv_source_target(holon_npu_rtl_v2_top rtl/integration/npu_v2_top.sv)
+target_link_libraries(holon_npu_rtl_v2_top INTERFACE holon_npu_rtl_v2_frontend_tile)
+
+holon_npu_add_sv_source_target(
   holon_npu_rtl_dma
   rtl/dma/npu_axi4_read_dma.sv
   rtl/dma/npu_axi4_write_dma.sv
@@ -282,10 +459,9 @@ target_link_libraries(holon_npu_rtl_command INTERFACE holon_npu_rtl_dma)
 
 holon_npu_add_sv_source_target(
   holon_npu_rtl_gemm
-  rtl/datapath/npu_gemm_tile_scratchpad.sv
   rtl/integration/npu_gemm_accelerator.sv
 )
-target_link_libraries(holon_npu_rtl_gemm INTERFACE holon_npu_rtl_dma holon_npu_rtl_matrix)
+target_link_libraries(holon_npu_rtl_gemm INTERFACE holon_npu_rtl_dma holon_npu_rtl_datapath)
 
 holon_npu_add_sv_source_target(holon_npu_rtl_top rtl/integration/npu_top.sv)
 target_link_libraries(
@@ -320,6 +496,65 @@ holon_npu_add_sv_source_target(
   sim/rtl/control/npu_v2_program_loader_test_wrapper.sv
 )
 target_link_libraries(holon_npu_sim_v2_loader INTERFACE holon_npu_rtl_v2_loader)
+
+holon_npu_add_sv_source_target(
+  holon_npu_sim_v2_completion
+  sim/rtl/control/npu_v2_completion_writer_test_wrapper.sv
+)
+target_link_libraries(holon_npu_sim_v2_completion INTERFACE holon_npu_rtl_v2_completion)
+
+holon_npu_add_sv_source_target(
+  holon_npu_sim_v2_localmem
+  sim/rtl/localmem/npu_v2_local_memory_test_wrapper.sv
+)
+target_link_libraries(
+  holon_npu_sim_v2_localmem
+  INTERFACE
+    holon_npu_rtl_v2_localmem
+    holon_npu_rtl_v2_data_port_arbiter
+)
+
+holon_npu_add_sv_source_target(
+  holon_npu_sim_v2_control_plane
+  sim/rtl/integration/npu_v2_control_plane_test_wrapper.sv
+)
+target_link_libraries(holon_npu_sim_v2_control_plane INTERFACE holon_npu_rtl_v2_control_plane)
+
+holon_npu_add_sv_source_target(
+  holon_npu_sim_v2_frontend_tile
+  sim/rtl/integration/npu_v2_frontend_tile_test_wrapper.sv
+)
+target_link_libraries(holon_npu_sim_v2_frontend_tile INTERFACE holon_npu_rtl_v2_frontend_tile)
+
+holon_npu_add_sv_source_target(
+  holon_npu_sim_v2_dma
+  sim/rtl/dma/npu_v2_dma_fabric_test_wrapper.sv
+)
+target_link_libraries(holon_npu_sim_v2_dma INTERFACE holon_npu_rtl_v2_dma)
+
+holon_npu_add_sv_source_target(
+  holon_npu_sim_v2_vector
+  sim/rtl/vector/npu_v2_vector_engine_test_wrapper.sv
+)
+target_link_libraries(
+  holon_npu_sim_v2_vector
+  INTERFACE
+    holon_npu_rtl_v2_vector
+    holon_npu_rtl_v2_localmem
+    holon_npu_rtl_v2_data_port_arbiter
+)
+
+holon_npu_add_sv_source_target(
+  holon_npu_sim_v2_matrix
+  sim/rtl/matrix/npu_v2_matrix_engine_test_wrapper.sv
+)
+target_link_libraries(
+  holon_npu_sim_v2_matrix
+  INTERFACE
+    holon_npu_rtl_v2_matrix
+    holon_npu_rtl_v2_localmem
+    holon_npu_rtl_v2_data_port_arbiter
+)
 
 holon_npu_add_sv_source_target(
   holon_npu_sim_dma_read
@@ -526,6 +761,144 @@ holon_npu_add_lint_target(
 holon_npu_add_lint_test(TEST v2_loader_rtl_lint TARGET v2_loader_rtl_lint LABELS lint)
 
 holon_npu_add_verilated_executable(
+  TARGET npu_v2_completion_writer_tb
+  CPP sim/v2_completion_writer_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_completion
+  TOP npu_v2_completion_writer_test_wrapper
+  PREFIX Vnpu_v2_completion_writer
+)
+holon_npu_add_ctest(
+  TEST npu_v2_completion_writer
+  TARGET npu_v2_completion_writer_tb
+  VERILATED
+  LABELS fast
+)
+
+holon_npu_add_lint_target(
+  TARGET v2_completion_writer_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_completion
+  TOP npu_v2_completion_writer_test_wrapper
+)
+holon_npu_add_lint_test(
+  TEST v2_completion_writer_rtl_lint
+  TARGET v2_completion_writer_rtl_lint
+  LABELS lint
+)
+
+holon_npu_add_verilated_executable(
+  TARGET npu_v2_local_memory_tb
+  CPP sim/v2_local_memory_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_localmem
+  TOP npu_v2_local_memory_test_wrapper
+  PREFIX Vnpu_v2_local_memory
+)
+holon_npu_add_ctest(TEST npu_v2_local_memory TARGET npu_v2_local_memory_tb VERILATED LABELS fast)
+
+holon_npu_add_lint_target(
+  TARGET v2_local_memory_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_localmem
+  TOP npu_v2_local_memory_test_wrapper
+)
+holon_npu_add_lint_test(TEST v2_local_memory_rtl_lint TARGET v2_local_memory_rtl_lint LABELS lint)
+
+holon_npu_add_verilated_executable(
+  TARGET npu_v2_dma_fabric_tb
+  CPP sim/v2_dma_fabric_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_dma
+  TOP npu_v2_dma_fabric_test_wrapper
+  PREFIX Vnpu_v2_dma_fabric
+)
+holon_npu_add_ctest(TEST npu_v2_dma_fabric TARGET npu_v2_dma_fabric_tb VERILATED LABELS fast)
+
+holon_npu_add_lint_target(
+  TARGET v2_dma_fabric_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_dma
+  TOP npu_v2_dma_fabric_test_wrapper
+)
+holon_npu_add_lint_test(TEST v2_dma_fabric_rtl_lint TARGET v2_dma_fabric_rtl_lint LABELS lint)
+
+holon_npu_add_verilated_executable(
+  TARGET npu_v2_control_plane_tb
+  CPP sim/v2_control_plane_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_control_plane
+  TOP npu_v2_control_plane_test_wrapper
+  PREFIX Vnpu_v2_control_plane
+)
+holon_npu_add_ctest(TEST npu_v2_control_plane TARGET npu_v2_control_plane_tb VERILATED LABELS fast)
+
+holon_npu_add_lint_target(
+  TARGET v2_control_plane_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_control_plane
+  TOP npu_v2_control_plane_test_wrapper
+)
+holon_npu_add_lint_test(TEST v2_control_plane_rtl_lint TARGET v2_control_plane_rtl_lint LABELS lint)
+
+holon_npu_add_verilated_executable(
+  TARGET npu_v2_frontend_tile_tb
+  CPP sim/v2_frontend_tile_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_frontend_tile
+  TOP npu_v2_frontend_tile_test_wrapper
+  PREFIX Vnpu_v2_frontend_tile
+  LIBRARIES holon_npu_v2_model
+)
+holon_npu_add_ctest(TEST npu_v2_frontend_tile TARGET npu_v2_frontend_tile_tb VERILATED LABELS fast)
+
+holon_npu_add_verilated_executable(
+  TARGET npu_v2_top_tb
+  CPP sim/v2_top_tb.cpp
+  RTL_TARGETS holon_npu_rtl_v2_top
+  TOP npu_v2_top
+  PREFIX Vnpu_v2_top
+)
+holon_npu_add_ctest(TEST npu_v2_top TARGET npu_v2_top_tb VERILATED LABELS fast)
+
+holon_npu_add_lint_target(
+  TARGET v2_frontend_tile_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_frontend_tile
+  TOP npu_v2_frontend_tile_test_wrapper
+)
+holon_npu_add_lint_test(TEST v2_frontend_tile_rtl_lint TARGET v2_frontend_tile_rtl_lint LABELS lint)
+
+holon_npu_add_lint_target(
+  TARGET v2_top_rtl_lint
+  RTL_TARGETS holon_npu_rtl_v2_top
+  TOP npu_v2_top
+)
+holon_npu_add_lint_test(TEST v2_top_rtl_lint TARGET v2_top_rtl_lint LABELS lint)
+
+holon_npu_add_verilated_executable(
+  TARGET npu_v2_vector_engine_tb
+  CPP sim/v2_vector_engine_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_vector
+  TOP npu_v2_vector_engine_test_wrapper
+  PREFIX Vnpu_v2_vector_engine
+)
+holon_npu_add_ctest(TEST npu_v2_vector_engine TARGET npu_v2_vector_engine_tb VERILATED LABELS fast)
+
+holon_npu_add_lint_target(
+  TARGET v2_vector_engine_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_vector
+  TOP npu_v2_vector_engine_test_wrapper
+)
+holon_npu_add_lint_test(TEST v2_vector_engine_rtl_lint TARGET v2_vector_engine_rtl_lint LABELS lint)
+
+holon_npu_add_verilated_executable(
+  TARGET npu_v2_matrix_engine_tb
+  CPP sim/v2_matrix_engine_tb.cpp
+  RTL_TARGETS holon_npu_sim_v2_matrix
+  TOP npu_v2_matrix_engine_test_wrapper
+  PREFIX Vnpu_v2_matrix_engine
+)
+holon_npu_add_ctest(TEST npu_v2_matrix_engine TARGET npu_v2_matrix_engine_tb VERILATED LABELS fast)
+
+holon_npu_add_lint_target(
+  TARGET v2_matrix_engine_rtl_lint
+  RTL_TARGETS holon_npu_sim_v2_matrix
+  TOP npu_v2_matrix_engine_test_wrapper
+)
+holon_npu_add_lint_test(TEST v2_matrix_engine_rtl_lint TARGET v2_matrix_engine_rtl_lint LABELS lint)
+
+holon_npu_add_verilated_executable(
   TARGET npu_read_dma_tb
   CPP sim/read_dma_tb.cpp
   RTL_TARGETS holon_npu_sim_dma_read
@@ -617,6 +990,12 @@ holon_npu_target_options(holon_npu_v2_model_test)
 target_link_libraries(holon_npu_v2_model_test PRIVATE holon_npu_v2_model)
 holon_npu_add_ctest(TEST holon_npu_v2_model TARGET holon_npu_v2_model_test LABELS fast)
 
+add_executable(holon_npu_v2_runtime_test)
+target_sources(holon_npu_v2_runtime_test PRIVATE tests/v2_runtime_test.cpp)
+holon_npu_target_options(holon_npu_v2_runtime_test)
+target_link_libraries(holon_npu_v2_runtime_test PRIVATE holon_npu_runtime holon_npu_v2_model)
+holon_npu_add_ctest(TEST holon_npu_v2_runtime TARGET holon_npu_v2_runtime_test LABELS fast)
+
 if(HOLON_NPU_ENABLE_COVERAGE)
   holon_npu_add_python_check(
     TARGET coverage_generate_check
@@ -630,7 +1009,7 @@ if(HOLON_NPU_ENABLE_COVERAGE)
     coverage_check
     PROPERTIES
       DEPENDS
-        "npu_smoke;npu_common;npu_pe;npu_array;npu_tiling;npu_control;npu_v2_control;npu_v2_loader;npu_read_dma;npu_write_dma;npu_command;npu_gemm;npu_top"
+        "npu_smoke;npu_common;npu_pe;npu_array;npu_tiling;npu_control;npu_v2_control;npu_v2_loader;npu_v2_completion_writer;npu_v2_local_memory;npu_v2_dma_fabric;npu_v2_control_plane;npu_v2_frontend_tile;npu_v2_top;npu_v2_vector_engine;npu_v2_matrix_engine;npu_read_dma;npu_write_dma;npu_command;npu_gemm;npu_top"
   )
 endif()
 
@@ -641,6 +1020,16 @@ add_custom_target(
     matrix_rtl_lint
     datapath_rtl_lint
     control_rtl_lint
+    v2_control_rtl_lint
+    v2_loader_rtl_lint
+    v2_completion_writer_rtl_lint
+    v2_local_memory_rtl_lint
+    v2_dma_fabric_rtl_lint
+    v2_control_plane_rtl_lint
+    v2_frontend_tile_rtl_lint
+    v2_top_rtl_lint
+    v2_vector_engine_rtl_lint
+    v2_matrix_engine_rtl_lint
     dma_rtl_lint
     command_rtl_lint
     integration_rtl_lint

@@ -1,5 +1,6 @@
 #include "holon_npu_driver.h"
 
+#include <stddef.h>
 #include <string.h>
 
 static uint32_t holon_npu_reg_index(uint32_t offset) {
@@ -22,6 +23,10 @@ static int holon_npu_is_aligned_u32(uint32_t value, uint32_t alignment) {
     return (value & (alignment - 1U)) == 0U;
 }
 
+static int holon_npu_range_fits_u64(uint64_t start, uint64_t byte_count) {
+    return byte_count <= UINT64_MAX - start;
+}
+
 static int holon_npu_dev_valid(const holon_npu_dev_t* dev) {
     return (dev != NULL) && (dev->regs != NULL);
 }
@@ -31,9 +36,9 @@ static uint64_t holon_npu_read_counter64(
     uint32_t lo_offset,
     uint32_t hi_offset
 ) {
-    uint32_t hi_before = 0;
-    uint32_t lo = 0;
-    uint32_t hi_after = 0;
+    uint32_t hi_before;
+    uint32_t lo;
+    uint32_t hi_after;
 
     do {
         hi_before = holon_npu_read32(dev, hi_offset);
@@ -42,6 +47,24 @@ static uint64_t holon_npu_read_counter64(
     } while (hi_before != hi_after);
 
     return ((uint64_t)hi_after << 32) | lo;
+}
+
+static holon_npu_result_t holon_npu_write_control(
+    const holon_npu_dev_t* dev,
+    uint32_t command,
+    uint32_t required_status
+) {
+    uint32_t status;
+
+    if (!holon_npu_dev_valid(dev)) {
+        return HOLON_NPU_E_ARG;
+    }
+    status = holon_npu_read32(dev, HOLON_NPU_V2_REG_STATUS);
+    if ((status & required_status) == 0U) {
+        return HOLON_NPU_E_STATE;
+    }
+    holon_npu_write32(dev, HOLON_NPU_V2_REG_CONTROL, command);
+    return HOLON_NPU_OK;
 }
 
 holon_npu_result_t holon_npu_init(holon_npu_dev_t* dev, volatile void* base) {
@@ -58,99 +81,122 @@ holon_npu_result_t holon_npu_get_caps(const holon_npu_dev_t* dev, holon_npu_caps
         return HOLON_NPU_E_ARG;
     }
 
-    caps->device_id = holon_npu_read32(dev, HOLON_NPU_REG_DEVICE_ID);
-    caps->abi_version = holon_npu_read32(dev, HOLON_NPU_REG_ABI_VERSION);
-    caps->cap0 = holon_npu_read32(dev, HOLON_NPU_REG_CAP0);
-    caps->cap1 = holon_npu_read32(dev, HOLON_NPU_REG_CAP1);
+    caps->device_id = holon_npu_read32(dev, HOLON_NPU_V2_REG_DEVICE_ID);
+    caps->abi_version = holon_npu_read32(dev, HOLON_NPU_V2_REG_ABI_VERSION);
+    caps->isa_version = holon_npu_read32(dev, HOLON_NPU_V2_REG_ISA_VERSION);
+    caps->capabilities = holon_npu_read_counter64(
+        dev,
+        HOLON_NPU_V2_REG_CAP0_LO,
+        HOLON_NPU_V2_REG_CAP0_HI
+    );
+    caps->operation_classes = holon_npu_read_counter64(
+        dev,
+        HOLON_NPU_V2_REG_OP_CLASS_LO,
+        HOLON_NPU_V2_REG_OP_CLASS_HI
+    );
+    caps->program_mem_bytes = holon_npu_read32(dev, HOLON_NPU_V2_REG_PROGRAM_MEM_BYTES);
+    caps->local_mem_bytes = holon_npu_read32(dev, HOLON_NPU_V2_REG_LOCAL_MEM_BYTES);
+    caps->vector_cap0 = holon_npu_read32(dev, HOLON_NPU_V2_REG_VECTOR_CAP0);
+    caps->matrix_cap0 = holon_npu_read32(dev, HOLON_NPU_V2_REG_MATRIX_CAP0);
     return HOLON_NPU_OK;
 }
 
-holon_npu_result_t holon_npu_build_gemm_desc(
-    holon_npu_gemm_desc_t* desc,
-    const holon_npu_gemm_config_t* cfg
+holon_npu_result_t holon_npu_build_program_desc(
+    holon_npu_program_desc_t* desc,
+    const holon_npu_program_config_t* config
 ) {
-    uint32_t min_c_stride = 0;
-
-    if ((desc == NULL) || (cfg == NULL)) {
+    if ((desc == NULL) || (config == NULL)) {
         return HOLON_NPU_E_ARG;
     }
-
-    if ((cfg->flags & ~HOLON_NPU_DESC_FLAG_VALID_MASK) != 0U) {
-        return HOLON_NPU_E_ARG;
-    }
-
-    if ((cfg->m == 0U) || (cfg->n == 0U) || (cfg->k == 0U)) {
-        return HOLON_NPU_E_ARG;
-    }
-
-    if ((cfg->m > UINT32_C(65535)) ||
-        (cfg->n > UINT32_C(65535)) ||
-        (cfg->k > UINT32_C(65535))) {
-        return HOLON_NPU_E_ARG;
-    }
-
-    min_c_stride = cfg->n * UINT32_C(4);
-    if (!holon_npu_is_aligned_u64(cfg->a_addr, HOLON_NPU_TENSOR_ALIGN) ||
-        !holon_npu_is_aligned_u64(cfg->b_addr, HOLON_NPU_TENSOR_ALIGN) ||
-        !holon_npu_is_aligned_u64(cfg->c_addr, HOLON_NPU_TENSOR_ALIGN) ||
-        !holon_npu_is_aligned_u32(cfg->a_row_stride_bytes, HOLON_NPU_TENSOR_ALIGN) ||
-        !holon_npu_is_aligned_u32(cfg->b_row_stride_bytes, HOLON_NPU_TENSOR_ALIGN) ||
-        !holon_npu_is_aligned_u32(cfg->c_row_stride_bytes, HOLON_NPU_TENSOR_ALIGN) ||
-        (cfg->a_row_stride_bytes < cfg->k) ||
-        (cfg->b_row_stride_bytes < cfg->n) ||
-        (cfg->c_row_stride_bytes < min_c_stride)) {
+    if ((config->flags & ~HOLON_NPU_PROGRAM_FLAG_VALID_MASK) != 0U ||
+        !holon_npu_is_aligned_u64(config->code_addr, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
+        !holon_npu_is_aligned_u32(config->code_size_bytes, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
+        !holon_npu_is_aligned_u32(config->entry_pc, HOLON_NPU_ISA_INSTRUCTION_BYTES) ||
+        !holon_npu_is_aligned_u64(config->arg_addr, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
+        !holon_npu_is_aligned_u32(config->arg_size_bytes, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
+        ((config->completion_addr != 0U) &&
+         !holon_npu_is_aligned_u64(config->completion_addr, HOLON_NPU_PROGRAM_COMPLETION_ALIGN)) ||
+        !holon_npu_range_fits_u64(config->code_addr, config->code_size_bytes) ||
+        !holon_npu_range_fits_u64(config->arg_addr, config->arg_size_bytes) ||
+        ((config->completion_addr != 0U) &&
+         !holon_npu_range_fits_u64(config->completion_addr, HOLON_NPU_COMPLETION_RECORD_SIZE)) ||
+        (config->code_size_bytes == 0U) ||
+        (config->entry_pc >= config->code_size_bytes) ||
+        (config->program_mem_bytes < config->code_size_bytes) ||
+        (config->program_mem_bytes > HOLON_NPU_PROGRAM_MEM_MAX_BYTES) ||
+        (config->local_mem_bytes < config->arg_size_bytes) ||
+        (config->local_mem_bytes > HOLON_NPU_LOCAL_MEM_MAX_BYTES) ||
+        (config->stack_bytes > HOLON_NPU_PROGRAM_STACK_MAX_BYTES) ||
+        ((uint64_t)config->arg_size_bytes + config->stack_bytes > config->local_mem_bytes)) {
         return HOLON_NPU_E_ARG;
     }
 
     memset(desc, 0, sizeof(*desc));
-    desc->size_bytes = (uint16_t)HOLON_NPU_DESC_SIZE;
-    desc->version = (uint8_t)HOLON_NPU_ABI_MAJOR;
-    desc->opcode = (uint8_t)HOLON_NPU_OPCODE_GEMM_I8I8I32;
-    desc->flags = cfg->flags;
-    desc->m = cfg->m;
-    desc->n = cfg->n;
-    desc->k = cfg->k;
-    desc->a_addr = cfg->a_addr;
-    desc->b_addr = cfg->b_addr;
-    desc->c_addr = cfg->c_addr;
-    desc->a_row_stride_bytes = cfg->a_row_stride_bytes;
-    desc->b_row_stride_bytes = cfg->b_row_stride_bytes;
-    desc->c_row_stride_bytes = cfg->c_row_stride_bytes;
+    desc->size_bytes = HOLON_NPU_PROGRAM_DESC_SIZE;
+    desc->version = HOLON_NPU_V2_ABI_MAJOR;
+    desc->program_format = HOLON_NPU_PROGRAM_FORMAT_HOLON_V2;
+    desc->holon_isa_major = HOLON_NPU_ISA_MAJOR;
+    desc->holon_isa_minor = HOLON_NPU_ISA_MINOR;
+    desc->required_caps = config->required_caps;
+    desc->required_op_classes = config->required_op_classes;
+    desc->code_addr = config->code_addr;
+    desc->code_size_bytes = config->code_size_bytes;
+    desc->entry_pc = config->entry_pc;
+    desc->arg_addr = config->arg_addr;
+    desc->arg_size_bytes = config->arg_size_bytes;
+    desc->local_mem_bytes = config->local_mem_bytes;
+    desc->program_mem_bytes = config->program_mem_bytes;
+    desc->stack_bytes = config->stack_bytes;
+    desc->completion_addr = config->completion_addr;
+    desc->flags = config->flags;
     return HOLON_NPU_OK;
 }
 
-holon_npu_result_t holon_npu_submit(const holon_npu_dev_t* dev, uint64_t desc_pa) {
-    uint32_t status = 0;
+holon_npu_result_t holon_npu_submit_program(const holon_npu_dev_t* dev, uint64_t desc_pa) {
+    uint32_t status;
 
-    if (!holon_npu_dev_valid(dev) || !holon_npu_is_aligned_u64(desc_pa, HOLON_NPU_DESC_ALIGN)) {
+    if (!holon_npu_dev_valid(dev) ||
+        !holon_npu_is_aligned_u64(desc_pa, HOLON_NPU_PROGRAM_DESC_ALIGN) ||
+        !holon_npu_range_fits_u64(desc_pa, HOLON_NPU_PROGRAM_DESC_SIZE)) {
         return HOLON_NPU_E_ARG;
     }
 
-    status = holon_npu_read32(dev, HOLON_NPU_REG_STATUS);
-    if ((status & HOLON_NPU_STATUS_BUSY) != 0U) {
+    status = holon_npu_read32(dev, HOLON_NPU_V2_REG_STATUS);
+    if ((status & (HOLON_NPU_V2_STATUS_LOADING |
+                   HOLON_NPU_V2_STATUS_RUNNING |
+                   HOLON_NPU_V2_STATUS_HALTED)) != 0U) {
         return HOLON_NPU_E_BUSY;
     }
+    if ((status & HOLON_NPU_V2_STATUS_IDLE) == 0U) {
+        return HOLON_NPU_E_STATE;
+    }
 
-    holon_npu_write32(dev, HOLON_NPU_REG_DESC_ADDR_LO, (uint32_t)(desc_pa & UINT64_C(0xFFFFFFFF)));
-    holon_npu_write32(dev, HOLON_NPU_REG_DESC_ADDR_HI, (uint32_t)(desc_pa >> 32));
-    holon_npu_write32(dev, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START);
+    holon_npu_write32(
+        dev,
+        HOLON_NPU_V2_REG_PROGRAM_DESC_ADDR_LO,
+        (uint32_t)(desc_pa & UINT64_C(0xFFFFFFFF))
+    );
+    holon_npu_write32(dev, HOLON_NPU_V2_REG_PROGRAM_DESC_ADDR_HI, (uint32_t)(desc_pa >> 32));
+    holon_npu_write32(dev, HOLON_NPU_V2_REG_DOORBELL, HOLON_NPU_V2_DOORBELL_START);
     return HOLON_NPU_OK;
 }
 
 holon_npu_result_t holon_npu_poll(const holon_npu_dev_t* dev, holon_npu_status_t* status) {
-    uint32_t raw = 0;
+    uint32_t raw;
 
     if (!holon_npu_dev_valid(dev) || (status == NULL)) {
         return HOLON_NPU_E_ARG;
     }
 
-    raw = holon_npu_read32(dev, HOLON_NPU_REG_STATUS);
+    raw = holon_npu_read32(dev, HOLON_NPU_V2_REG_STATUS);
     status->raw = raw;
-    status->idle = (raw & HOLON_NPU_STATUS_IDLE) != 0U;
-    status->busy = (raw & HOLON_NPU_STATUS_BUSY) != 0U;
-    status->done = (raw & HOLON_NPU_STATUS_DONE) != 0U;
-    status->error = (raw & HOLON_NPU_STATUS_ERROR) != 0U;
-    status->irq_pending = (raw & HOLON_NPU_STATUS_IRQ_PENDING) != 0U;
+    status->idle = (raw & HOLON_NPU_V2_STATUS_IDLE) != 0U;
+    status->loading = (raw & HOLON_NPU_V2_STATUS_LOADING) != 0U;
+    status->running = (raw & HOLON_NPU_V2_STATUS_RUNNING) != 0U;
+    status->halted = (raw & HOLON_NPU_V2_STATUS_HALTED) != 0U;
+    status->done = (raw & HOLON_NPU_V2_STATUS_DONE) != 0U;
+    status->fault = (raw & HOLON_NPU_V2_STATUS_FAULT) != 0U;
+    status->irq_pending = (raw & HOLON_NPU_V2_STATUS_IRQ_PENDING) != 0U;
     return HOLON_NPU_OK;
 }
 
@@ -165,49 +211,85 @@ holon_npu_result_t holon_npu_wait(
         return HOLON_NPU_E_ARG;
     }
 
-    for (uint32_t poll = 0; poll <= timeout_polls; poll++) {
+    for (uint32_t poll = 0; poll <= timeout_polls; ++poll) {
         holon_npu_result_t result = holon_npu_poll(dev, &local_status);
         if (result != HOLON_NPU_OK) {
             return result;
         }
-
         if (final_status != NULL) {
             *final_status = local_status;
         }
-
-        if (local_status.done || local_status.error) {
+        if (local_status.done || local_status.fault) {
             return HOLON_NPU_OK;
         }
-
         if (poll == UINT32_MAX) {
             break;
         }
     }
-
     return HOLON_NPU_E_TIMEOUT;
 }
 
-holon_npu_result_t holon_npu_error(const holon_npu_dev_t* dev, uint32_t* error_code) {
-    if (!holon_npu_dev_valid(dev) || (error_code == NULL)) {
+holon_npu_result_t holon_npu_halt(const holon_npu_dev_t* dev) {
+    return holon_npu_write_control(dev, HOLON_NPU_V2_CONTROL_HALT, HOLON_NPU_V2_STATUS_RUNNING);
+}
+
+holon_npu_result_t holon_npu_resume(const holon_npu_dev_t* dev) {
+    return holon_npu_write_control(dev, HOLON_NPU_V2_CONTROL_RESUME, HOLON_NPU_V2_STATUS_HALTED);
+}
+
+holon_npu_result_t holon_npu_debug_step(const holon_npu_dev_t* dev) {
+    return holon_npu_write_control(dev, HOLON_NPU_V2_CONTROL_DEBUG_STEP, HOLON_NPU_V2_STATUS_HALTED);
+}
+
+holon_npu_result_t holon_npu_soft_reset(const holon_npu_dev_t* dev) {
+    if (!holon_npu_dev_valid(dev)) {
         return HOLON_NPU_E_ARG;
     }
-
-    *error_code = holon_npu_read32(dev, HOLON_NPU_REG_ERROR_CODE);
+    holon_npu_write32(dev, HOLON_NPU_V2_REG_CONTROL, HOLON_NPU_V2_CONTROL_SOFT_RESET);
     return HOLON_NPU_OK;
 }
 
-holon_npu_result_t holon_npu_clear(const holon_npu_dev_t* dev, uint32_t mask) {
-    uint32_t clear_mask = 0;
+holon_npu_result_t holon_npu_clear_terminal(const holon_npu_dev_t* dev) {
+    return holon_npu_write_control(
+        dev,
+        HOLON_NPU_V2_CONTROL_CLEAR_TERMINAL,
+        HOLON_NPU_V2_STATUS_DONE | HOLON_NPU_V2_STATUS_FAULT
+    );
+}
 
-    if (!holon_npu_dev_valid(dev) || ((mask & ~HOLON_NPU_CLEAR_VALID_MASK) != 0U)) {
+holon_npu_result_t holon_npu_get_fault_snapshot(
+    const holon_npu_dev_t* dev,
+    holon_npu_fault_snapshot_t* snapshot
+) {
+    if (!holon_npu_dev_valid(dev) || (snapshot == NULL)) {
         return HOLON_NPU_E_ARG;
     }
+    snapshot->code = holon_npu_read32(dev, HOLON_NPU_V2_REG_FAULT_CODE);
+    snapshot->pc = holon_npu_read32(dev, HOLON_NPU_V2_REG_DEBUG_PC);
+    return HOLON_NPU_OK;
+}
 
-    clear_mask = mask & (HOLON_NPU_CLEAR_DONE | HOLON_NPU_CLEAR_ERROR | HOLON_NPU_CLEAR_PERF);
-    if (clear_mask != 0U) {
-        holon_npu_write32(dev, HOLON_NPU_REG_CLEAR, clear_mask);
+holon_npu_result_t holon_npu_set_irq_enable(const holon_npu_dev_t* dev, uint32_t mask) {
+    if (!holon_npu_dev_valid(dev) || ((mask & ~HOLON_NPU_V2_IRQ_VALID_MASK) != 0U)) {
+        return HOLON_NPU_E_ARG;
     }
+    holon_npu_write32(dev, HOLON_NPU_V2_REG_IRQ_ENABLE, mask);
+    return HOLON_NPU_OK;
+}
 
+holon_npu_result_t holon_npu_get_irq_status(const holon_npu_dev_t* dev, uint32_t* status) {
+    if (!holon_npu_dev_valid(dev) || (status == NULL)) {
+        return HOLON_NPU_E_ARG;
+    }
+    *status = holon_npu_read32(dev, HOLON_NPU_V2_REG_IRQ_STATUS) & HOLON_NPU_V2_IRQ_VALID_MASK;
+    return HOLON_NPU_OK;
+}
+
+holon_npu_result_t holon_npu_clear_irq(const holon_npu_dev_t* dev, uint32_t mask) {
+    if (!holon_npu_dev_valid(dev) || ((mask & ~HOLON_NPU_V2_IRQ_VALID_MASK) != 0U)) {
+        return HOLON_NPU_E_ARG;
+    }
+    holon_npu_write32(dev, HOLON_NPU_V2_REG_IRQ_CLEAR, mask);
     return HOLON_NPU_OK;
 }
 
@@ -215,18 +297,15 @@ holon_npu_result_t holon_npu_read_perf(const holon_npu_dev_t* dev, holon_npu_per
     if (!holon_npu_dev_valid(dev) || (perf == NULL)) {
         return HOLON_NPU_E_ARG;
     }
-
     perf->cycles = holon_npu_read_counter64(
         dev,
-        HOLON_NPU_REG_PERF_CYCLES_LO,
-        HOLON_NPU_REG_PERF_CYCLES_HI
+        HOLON_NPU_V2_REG_PERF_CYCLE_LO,
+        HOLON_NPU_V2_REG_PERF_CYCLE_HI
     );
-    perf->busy_cycles = holon_npu_read_counter64(
+    perf->instructions_retired = holon_npu_read_counter64(
         dev,
-        HOLON_NPU_REG_PERF_BUSY_LO,
-        HOLON_NPU_REG_PERF_BUSY_HI
+        HOLON_NPU_V2_REG_PERF_INSTRET_LO,
+        HOLON_NPU_V2_REG_PERF_INSTRET_HI
     );
-    perf->desc_count = holon_npu_read32(dev, HOLON_NPU_REG_PERF_DESC_COUNT);
-    perf->error_count = holon_npu_read32(dev, HOLON_NPU_REG_PERF_ERROR_COUNT);
     return HOLON_NPU_OK;
 }

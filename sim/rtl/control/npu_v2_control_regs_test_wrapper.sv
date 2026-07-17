@@ -32,6 +32,10 @@ module npu_v2_control_regs_test_wrapper #(
     input  logic                  frontend_halted_i,
     input  logic [31:0]           frontend_debug_pc_i,
     input  logic [63:0]           frontend_instret_i,
+    input  logic                  irq_on_done_i,
+    input  logic                  irq_on_fault_i,
+    input  logic                  debug_snapshot_on_fault_i,
+    input  logic                  clear_perf_on_start_i,
 
     output logic                  program_start_o,
     output logic [63:0]           program_desc_addr_o,
@@ -40,6 +44,7 @@ module npu_v2_control_regs_test_wrapper #(
     output logic                  resume_o,
     output logic                  debug_step_o,
     output logic                  clear_perf_o,
+    output logic [63:0]           perf_cycle_o,
     output logic                  irq_o
 );
 
@@ -81,6 +86,10 @@ module npu_v2_control_regs_test_wrapper #(
         .frontend_halted_i(frontend_halted_i),
         .frontend_debug_pc_i(frontend_debug_pc_i),
         .frontend_instret_i(frontend_instret_i),
+        .irq_on_done_i(irq_on_done_i),
+        .irq_on_fault_i(irq_on_fault_i),
+        .debug_snapshot_on_fault_i(debug_snapshot_on_fault_i),
+        .clear_perf_on_start_i(clear_perf_on_start_i),
         .program_start_o(program_start_o),
         .program_desc_addr_o(program_desc_addr_o),
         .soft_reset_o(soft_reset_o),
@@ -88,6 +97,7 @@ module npu_v2_control_regs_test_wrapper #(
         .resume_o(resume_o),
         .debug_step_o(debug_step_o),
         .clear_perf_o(clear_perf_o),
+        .perf_cycle_o(perf_cycle_o),
         .irq_o(irq_o)
     );
 

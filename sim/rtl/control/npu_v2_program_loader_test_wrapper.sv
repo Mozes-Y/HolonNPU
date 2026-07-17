@@ -1,3 +1,5 @@
+/* verilator lint_off DECLFILENAME */
+
 module npu_v2_program_loader_test_wrapper #(
     parameter int unsigned ADDR_W = 64,
     parameter int unsigned DATA_W = 128
@@ -29,6 +31,16 @@ module npu_v2_program_loader_test_wrapper #(
     output logic [63:0]             completion_addr_o,
     output logic [31:0]             flags_o,
 
+    output logic                    program_wr_valid_o,
+    input  logic                    program_wr_ready_i,
+    output logic [31:0]             program_wr_addr_o,
+    output logic [31:0]             program_wr_data_o,
+
+    output logic                    data_wr_valid_o,
+    input  logic                    data_wr_ready_i,
+    output logic [31:0]             data_wr_addr_o,
+    output logic [31:0]             data_wr_data_o,
+
     output logic [ADDR_W-1:0]       m_axi_araddr_o,
     output logic [7:0]              m_axi_arlen_o,
     output logic [2:0]              m_axi_arsize_o,
@@ -53,6 +65,16 @@ module npu_v2_program_loader_test_wrapper #(
         .aresetn_i(rst_ni)
     );
 
+    npu_v2_localmem_wr_if program_wr_if (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni)
+    );
+
+    npu_v2_localmem_wr_if data_wr_if (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni)
+    );
+
     assign m_axi_araddr_o = axi_if.araddr;
     assign m_axi_arlen_o = axi_if.arlen;
     assign m_axi_arsize_o = axi_if.arsize;
@@ -65,6 +87,24 @@ module npu_v2_program_loader_test_wrapper #(
     assign axi_if.rlast = m_axi_rlast_i;
     assign axi_if.rvalid = m_axi_rvalid_i;
     assign m_axi_rready_o = axi_if.rready;
+
+    assign program_wr_valid_o = program_wr_if.req_valid;
+    assign program_wr_addr_o = program_wr_if.req_addr;
+    assign program_wr_data_o = program_wr_if.req_data;
+
+    assign data_wr_valid_o = data_wr_if.req_valid;
+    assign data_wr_addr_o = data_wr_if.req_addr;
+    assign data_wr_data_o = data_wr_if.req_data;
+
+    npu_v2_program_loader_ready_sink_test_wrapper u_program_wr_sink (
+        .ready_i(program_wr_ready_i),
+        .local_wr(program_wr_if)
+    );
+
+    npu_v2_program_loader_ready_sink_test_wrapper u_data_wr_sink (
+        .ready_i(data_wr_ready_i),
+        .local_wr(data_wr_if)
+    );
 
     npu_v2_program_loader_core #(
         .ADDR_W(ADDR_W),
@@ -94,7 +134,29 @@ module npu_v2_program_loader_test_wrapper #(
         .stack_bytes_o(stack_bytes_o),
         .completion_addr_o(completion_addr_o),
         .flags_o(flags_o),
+        .program_wr(program_wr_if),
+        .data_wr(data_wr_if),
         .m_axi(axi_if)
     );
 
 endmodule
+
+module npu_v2_program_loader_ready_sink_test_wrapper (
+    input logic ready_i,
+    npu_v2_localmem_wr_if.slave local_wr
+);
+
+    assign local_wr.req_ready = ready_i;
+    assign local_wr.resp_error = 1'b0;
+
+    always_ff @(posedge local_wr.clk_i or negedge local_wr.rst_ni) begin
+        if (!local_wr.rst_ni) begin
+            local_wr.resp_valid <= 1'b0;
+        end else begin
+            local_wr.resp_valid <= local_wr.req_valid && local_wr.req_ready;
+        end
+    end
+
+endmodule
+
+/* verilator lint_on DECLFILENAME */

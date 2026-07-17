@@ -17,6 +17,266 @@
   "common_masks": {
     "class": "0xF0000000"
   },
+  "field_layout": {
+    "opcode_shift": 24,
+    "rd_shift": 20,
+    "rs1_shift": 16,
+    "rs2_shift": 12,
+    "field_mask": "0x0000000F",
+    "imm_mask": "0x00000FFF"
+  },
+  "encoding_constants": [
+    {
+      "name": "SCALAR_REGISTER_COUNT",
+      "value": "0x00000010",
+      "description": "Number of 32-bit scalar registers in the V2 architectural frontend state; s0 is hardwired to zero."
+    },
+    {
+      "name": "SCALAR_BRANCH_SCALE",
+      "value": "0x00000004",
+      "description": "Byte scale applied to signed imm12 branch displacements relative to the current PC."
+    },
+    {
+      "name": "CSR_PC",
+      "value": "0x00000000",
+      "description": "Read-only CSR containing the PC of the executing csr.read instruction."
+    },
+    {
+      "name": "CSR_INSTRET_LO",
+      "value": "0x00000001",
+      "description": "Read-only CSR containing retired-instruction counter bits [31:0] before csr.read retires."
+    },
+    {
+      "name": "CSR_INSTRET_HI",
+      "value": "0x00000002",
+      "description": "Read-only CSR containing retired-instruction counter bits [63:32] before csr.read retires."
+    },
+    {
+      "name": "CSR_PROGRAM_SIZE_BYTES",
+      "value": "0x00000003",
+      "description": "Read-only CSR containing the loaded program image size in bytes."
+    },
+    {
+      "name": "CSR_LOCAL_MEM_BYTES",
+      "value": "0x00000004",
+      "description": "Read-only CSR containing the active program's local scratchpad allocation in bytes."
+    },
+    {
+      "name": "VTYPE_VL_MINUS_ONE_MASK",
+      "value": "0x0000003F",
+      "description": "Vector length minus one in vector_config.set immediate bits [5:0]."
+    },
+    {
+      "name": "VTYPE_SEW_SHIFT",
+      "value": "0x00000006",
+      "description": "Selected element-width encoding shift in vector_config.set immediate."
+    },
+    {
+      "name": "VTYPE_SEW_MASK",
+      "value": "0x000000C0",
+      "description": "Selected element-width encoding mask in vector_config.set immediate."
+    },
+    {
+      "name": "VTYPE_SIGNED",
+      "value": "0x00000100",
+      "description": "Signed integer interpretation bit in vector_config.set immediate."
+    },
+    {
+      "name": "VTYPE_ROUND_SHIFT",
+      "value": "0x00000009",
+      "description": "Rounding-mode encoding shift in vector_config.set immediate."
+    },
+    {
+      "name": "VTYPE_ROUND_MASK",
+      "value": "0x00000600",
+      "description": "Rounding-mode encoding mask in vector_config.set immediate."
+    },
+    {
+      "name": "VTYPE_SATURATE",
+      "value": "0x00000800",
+      "description": "Saturating arithmetic enable bit in vector_config.set immediate."
+    },
+    {
+      "name": "VTYPE_SEW_8",
+      "value": "0x00000000",
+      "description": "Eight-bit vector element-width encoding."
+    },
+    {
+      "name": "VTYPE_SEW_16",
+      "value": "0x00000001",
+      "description": "Sixteen-bit vector element-width encoding."
+    },
+    {
+      "name": "VTYPE_SEW_32",
+      "value": "0x00000002",
+      "description": "Thirty-two-bit vector element-width encoding."
+    },
+    {
+      "name": "VTYPE_ROUND_RNE",
+      "value": "0x00000000",
+      "description": "Round-to-nearest, ties-to-even mode encoding."
+    },
+    {
+      "name": "VECTOR_PREDICATE_MASK",
+      "value": "0x0000000F",
+      "description": "Predicate-register selector in vector ALU immediate bits [3:0]."
+    },
+    {
+      "name": "VECTOR_PREDICATE_RESERVED_MASK",
+      "value": "0x00000FF0",
+      "description": "Reserved vector ALU immediate bits that must be zero."
+    },
+    {
+      "name": "PREDICATE_WORD_BYTES",
+      "value": "0x00000004",
+      "description": "Bytes loaded by the initial bit-packed predicate load instruction."
+    },
+    {
+      "name": "DMA_WORD_BYTES",
+      "value": "0x00000004",
+      "description": "Granularity of frontend-issued DMA transfers."
+    },
+    {
+      "name": "DMA_MAX_WORDS",
+      "value": "0x00001000",
+      "description": "Maximum words transferred by one DMA instruction using the 12-bit count-minus-one field."
+    },
+    {
+      "name": "QUANT_COMMAND_BYTES",
+      "value": "0x00000018",
+      "description": "Size of the local per-tensor requantization command block."
+    },
+    {
+      "name": "QUANT_COMMAND_ALIGN",
+      "value": "0x00000004",
+      "description": "Required local alignment of a requantization command block."
+    },
+    {
+      "name": "QUANT_COMMAND_MULTIPLIER_OFFSET",
+      "value": "0x00000000",
+      "description": "Byte offset of the signed fixed-point multiplier."
+    },
+    {
+      "name": "QUANT_COMMAND_SHIFT_OFFSET",
+      "value": "0x00000004",
+      "description": "Byte offset of the unsigned right shift in the range 0 through 31."
+    },
+    {
+      "name": "QUANT_COMMAND_ZERO_POINT_OFFSET",
+      "value": "0x00000008",
+      "description": "Byte offset of the signed output zero point."
+    },
+    {
+      "name": "QUANT_COMMAND_CLAMP_MIN_OFFSET",
+      "value": "0x0000000C",
+      "description": "Byte offset of the signed inclusive clamp minimum."
+    },
+    {
+      "name": "QUANT_COMMAND_CLAMP_MAX_OFFSET",
+      "value": "0x00000010",
+      "description": "Byte offset of the signed inclusive clamp maximum."
+    },
+    {
+      "name": "QUANT_COMMAND_RESERVED_OFFSET",
+      "value": "0x00000014",
+      "description": "Byte offset of the required-zero reserved command word."
+    },
+    {
+      "name": "MATRIX_COMMAND_BYTES",
+      "value": "0x00000020",
+      "description": "Size and required alignment of a local matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_A_OFFSET",
+      "value": "0x00000000",
+      "description": "Byte offset of local A base in a matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_B_OFFSET",
+      "value": "0x00000004",
+      "description": "Byte offset of local B base in a matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_C_OFFSET",
+      "value": "0x00000008",
+      "description": "Byte offset of local C store base in a matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_A_STRIDE_OFFSET",
+      "value": "0x0000000C",
+      "description": "Byte offset of A row stride in a matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_B_STRIDE_OFFSET",
+      "value": "0x00000010",
+      "description": "Byte offset of B row stride in a matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_C_STRIDE_OFFSET",
+      "value": "0x00000014",
+      "description": "Byte offset of C row stride in a matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_SHAPE_OFFSET",
+      "value": "0x00000018",
+      "description": "Byte offset of packed M/N/K/flags in a matrix command block."
+    },
+    {
+      "name": "MATRIX_COMMAND_RESERVED_OFFSET",
+      "value": "0x0000001C",
+      "description": "Byte offset of the required-zero reserved command word."
+    },
+    {
+      "name": "MATRIX_SHAPE_M_SHIFT",
+      "value": "0x00000000",
+      "description": "Active M shift in the packed matrix shape word."
+    },
+    {
+      "name": "MATRIX_SHAPE_N_SHIFT",
+      "value": "0x00000008",
+      "description": "Active N shift in the packed matrix shape word."
+    },
+    {
+      "name": "MATRIX_SHAPE_K_SHIFT",
+      "value": "0x00000010",
+      "description": "Active K shift in the packed matrix shape word."
+    },
+    {
+      "name": "MATRIX_SHAPE_FLAGS_SHIFT",
+      "value": "0x00000018",
+      "description": "Command flags shift in the packed matrix shape word."
+    },
+    {
+      "name": "MATRIX_DIMENSION_MASK",
+      "value": "0x000000FF",
+      "description": "Mask for each active matrix tile dimension."
+    },
+    {
+      "name": "MATRIX_MAX_DIMENSION",
+      "value": "0x00000010",
+      "description": "Maximum active M, N, or K in the first matrix implementation."
+    },
+    {
+      "name": "MATRIX_FLAG_CLEAR",
+      "value": "0x00000001",
+      "description": "Clear the selected accumulator before this matrix product."
+    },
+    {
+      "name": "MATRIX_FLAG_ACCUMULATE",
+      "value": "0x00000002",
+      "description": "Accumulate this product into an already-valid selected accumulator."
+    },
+    {
+      "name": "MATRIX_FLAG_STORE",
+      "value": "0x00000004",
+      "description": "Store the selected accumulator to local C after this product."
+    },
+    {
+      "name": "MATRIX_FLAGS_VALID_MASK",
+      "value": "0x00000007",
+      "description": "Valid first-generation matrix command flag bits."
+    }
+  ],
   "instruction_classes": [
     {
       "name": "FRONTEND_CONTROL",
@@ -36,7 +296,7 @@
       "coverage": "isa_class_predicate",
       "fault": "ILLEGAL_INSTRUCTION",
       "semantics": "predicate",
-      "description": "Predicate register operations, mask generation, mask combine, and active-lane tests."
+      "description": "Predicate register initialization and aligned bit-packed mask load."
     },
     {
       "name": "VECTOR_CONFIG",
@@ -46,7 +306,7 @@
       "coverage": "isa_class_vector_config",
       "fault": "VECTOR_CONFIG_FAULT",
       "semantics": "vector_config",
-      "description": "Vector length, element width, grouping, rounding, saturation, and predicate behavior."
+      "description": "Vector length, element width, signedness, rounding, and saturation configuration."
     },
     {
       "name": "VECTOR_ALU",
@@ -66,7 +326,7 @@
       "coverage": "isa_class_vector_memory",
       "fault": "LOCAL_MEMORY_BOUNDS",
       "semantics": "vector_memory",
-      "description": "Scratchpad vector load, store, strided access, and local tile movement."
+      "description": "Contiguous scratchpad vector load and store under explicit predication."
     },
     {
       "name": "VECTOR_PERMUTE",
@@ -86,7 +346,7 @@
       "coverage": "isa_class_vector_reduction",
       "fault": "UNSUPPORTED_OPERATION_CLASS",
       "semantics": "vector_reduction",
-      "description": "Integer sum, min, max, any, all, and narrow or widen reduction helpers."
+      "description": "Predicated integer sum, minimum, and maximum reductions."
     },
     {
       "name": "QUANTIZATION",
@@ -106,13 +366,13 @@
       "coverage": "isa_class_matrix",
       "fault": "MATRIX_ISSUE_FAULT",
       "semantics": "matrix_micro_op",
-      "description": "Matrix tile load, issue, accumulate, store, and completion-event instructions for the INT8 matrix engine."
+      "description": "Local-command-block issue for synchronous INT8 matrix tile operations."
     },
     {
       "name": "DMA",
       "value": "0x90000000",
       "mask": "0xF0000000",
-      "format": "sysaddr_spmaddr_size_event",
+      "format": "sysaddr64_regs_spmaddr_reg_words12",
       "coverage": "isa_class_dma",
       "fault": "DMA_REQUEST_FAULT",
       "semantics": "dma_command",
@@ -122,11 +382,11 @@
       "name": "CSR_DEBUG",
       "value": "0xA0000000",
       "mask": "0xF0000000",
-      "format": "rd_csr_rs1_imm",
+      "format": "scalar_rd_csr_imm12",
       "coverage": "isa_class_csr_debug",
       "fault": "ILLEGAL_INSTRUCTION",
       "semantics": "csr_debug",
-      "description": "Frontend CSRs, fault reporting, performance counters, and debug snapshots."
+      "description": "Read-only frontend architectural state and performance-counter snapshots."
     },
     {
       "name": "SYNC",
@@ -136,7 +396,7 @@
       "coverage": "isa_class_sync",
       "fault": "ILLEGAL_INSTRUCTION",
       "semantics": "sync",
-      "description": "Wait, fence.local, fence.dma, engine barrier, and event signaling instructions."
+      "description": "DMA wait plus local-memory and DMA ordering instructions."
     },
     {
       "name": "SYSTEM",
@@ -146,7 +406,7 @@
       "coverage": "isa_class_system",
       "fault": "EXPLICIT_PROGRAM_FAULT",
       "semantics": "system",
-      "description": "Program exit, explicit fault, halt, and privileged lifecycle operations."
+      "description": "Program exit and explicit-fault operations; host MMIO owns halt and debug lifecycle control."
     }
   ],
   "reserved_classes": [
@@ -167,6 +427,418 @@
       "value": "0xF0000000",
       "mask": "0xF0000000",
       "description": "Reserved for implementation-independent expansion."
+    }
+  ],
+  "instructions": [
+    {
+      "name": "FRONTEND_CONTROL_MOVI",
+      "class": "FRONTEND_CONTROL",
+      "opcode": "0x0",
+      "format": "scalar_rd_simm12",
+      "coverage": "v2_frontend_control_movi",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Write the sign-extended imm12 value to scalar register rd; writes to hardwired-zero s0 are discarded and rs1/rs2 must be zero.",
+      "description": "Materialize a small signed scalar constant without consuming program-local data memory."
+    },
+    {
+      "name": "FRONTEND_CONTROL_ADD",
+      "class": "FRONTEND_CONTROL",
+      "opcode": "0x1",
+      "format": "scalar_rd_rs1_rs2",
+      "coverage": "v2_frontend_control_add",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Write scalar rs1 plus scalar rs2 modulo 2^32 to rd; imm12 must be zero and writes to s0 are discarded.",
+      "description": "Type-independent scalar address and loop arithmetic."
+    },
+    {
+      "name": "FRONTEND_CONTROL_ADDI",
+      "class": "FRONTEND_CONTROL",
+      "opcode": "0x2",
+      "format": "scalar_rd_rs1_simm12",
+      "coverage": "v2_frontend_control_addi",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Write scalar rs1 plus sign-extended imm12 modulo 2^32 to rd; rs2 must be zero and writes to s0 are discarded.",
+      "description": "Scalar pointer increment and loop-counter update."
+    },
+    {
+      "name": "FRONTEND_CONTROL_LOAD",
+      "class": "FRONTEND_CONTROL",
+      "opcode": "0x3",
+      "format": "scalar_rd_base_simm12",
+      "coverage": "v2_frontend_control_load",
+      "fault": "LOCAL_MEMORY_BOUNDS",
+      "semantics": "Load one aligned little-endian 32-bit word from data scratchpad address scalar rs1 plus sign-extended imm12 into rd; rs2 must be zero and writes to s0 are discarded.",
+      "description": "Frontend scalar access to program arguments, loop metadata, and command construction state."
+    },
+    {
+      "name": "FRONTEND_CONTROL_STORE",
+      "class": "FRONTEND_CONTROL",
+      "opcode": "0x4",
+      "format": "scalar_rs2_base_simm12",
+      "coverage": "v2_frontend_control_store",
+      "fault": "LOCAL_MEMORY_BOUNDS",
+      "semantics": "Store scalar rs2 as one aligned little-endian 32-bit word to data scratchpad address scalar rs1 plus sign-extended imm12; rd must be zero.",
+      "description": "Frontend scalar write path for kernel metadata and scalar results."
+    },
+    {
+      "name": "FRONTEND_CONTROL_BEQ",
+      "class": "FRONTEND_CONTROL",
+      "opcode": "0x5",
+      "format": "scalar_branch_rs1_rs2_simm12",
+      "coverage": "v2_frontend_control_beq",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "If scalar rs1 equals scalar rs2, set PC to current PC plus sign-extended imm12 multiplied by four; otherwise advance by one instruction. rd must be zero and the taken target must identify a complete instruction in the current program image.",
+      "description": "General scalar equality branch with instruction-scaled PC-relative displacement."
+    },
+    {
+      "name": "FRONTEND_CONTROL_BNE",
+      "class": "FRONTEND_CONTROL",
+      "opcode": "0x6",
+      "format": "scalar_branch_rs1_rs2_simm12",
+      "coverage": "v2_frontend_control_bne",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "If scalar rs1 differs from scalar rs2, set PC to current PC plus sign-extended imm12 multiplied by four; otherwise advance by one instruction. rd must be zero and the taken target must identify a complete instruction in the current program image.",
+      "description": "General scalar inequality branch used for deterministic frontend loops."
+    },
+    {
+      "name": "PREDICATE_PTRUE",
+      "class": "PREDICATE",
+      "opcode": "0x0",
+      "format": "predicate_rd",
+      "coverage": "v2_predicate_ptrue",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "Set predicate register rd active for lanes [0, VL) and inactive for all other implementation lanes.",
+      "description": "VLA all-active predicate generation using current vector length."
+    },
+    {
+      "name": "PREDICATE_LOAD",
+      "class": "PREDICATE",
+      "opcode": "0x1",
+      "format": "predicate_mem_imm12",
+      "coverage": "v2_predicate_load",
+      "fault": "LOCAL_MEMORY_BOUNDS",
+      "semantics": "Load one little-endian 32-bit bit-packed predicate word from aligned local scratchpad address imm into predicate register rd.",
+      "description": "Initial scalable predicate materialization path; implementations with VL max above 32 will extend the memory format in a later ISA minor revision."
+    },
+    {
+      "name": "VECTOR_CONFIG_SET",
+      "class": "VECTOR_CONFIG",
+      "opcode": "0x0",
+      "format": "vector_config_imm12",
+      "coverage": "v2_vector_config_set",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "Set VL, element width, signedness, rounding, and saturation state from one explicit immediate configuration word.",
+      "description": "Vector configuration is orthogonal to operation opcodes so data-width expansion does not consume opcode space."
+    },
+    {
+      "name": "VECTOR_MEMORY_LOAD",
+      "class": "VECTOR_MEMORY",
+      "opcode": "0x0",
+      "format": "vector_mem_vd_pred_imm12",
+      "coverage": "v2_vector_load",
+      "fault": "LOCAL_MEMORY_BOUNDS",
+      "semantics": "Load active lanes selected by predicate register rs1 from VL contiguous little-endian elements using configured SEW and signedness; inactive destination lanes are preserved.",
+      "description": "Width-generic V2 vector scratchpad load instruction."
+    },
+    {
+      "name": "VECTOR_MEMORY_STORE",
+      "class": "VECTOR_MEMORY",
+      "opcode": "0x1",
+      "format": "vector_mem_vs_pred_imm12",
+      "coverage": "v2_vector_store",
+      "fault": "LOCAL_MEMORY_BOUNDS",
+      "semantics": "Store active lanes selected by predicate register rs1 using configured SEW and byte strobes; inactive lanes perform no memory write.",
+      "description": "Width-generic V2 vector scratchpad store instruction."
+    },
+    {
+      "name": "VECTOR_ALU_ADD",
+      "class": "VECTOR_ALU",
+      "opcode": "0x0",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_add",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane integer add selected by immediate predicate register bits [3:0], using configured SEW and signedness with wraparound unless saturation is enabled.",
+      "description": "Width-generic V2 integer vector add instruction."
+    },
+    {
+      "name": "VECTOR_ALU_SUB",
+      "class": "VECTOR_ALU",
+      "opcode": "0x1",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_sub",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane integer subtract using configured SEW and signedness with wraparound unless saturation is enabled.",
+      "description": "Width-generic V2 integer vector subtract instruction."
+    },
+    {
+      "name": "VECTOR_ALU_MIN",
+      "class": "VECTOR_ALU",
+      "opcode": "0x2",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_min",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane minimum using configured SEW and signedness.",
+      "description": "Width-generic V2 integer vector minimum instruction."
+    },
+    {
+      "name": "VECTOR_ALU_MAX",
+      "class": "VECTOR_ALU",
+      "opcode": "0x3",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_max",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane maximum using configured SEW and signedness.",
+      "description": "Width-generic V2 integer vector maximum instruction."
+    },
+    {
+      "name": "VECTOR_ALU_EQ",
+      "class": "VECTOR_ALU",
+      "opcode": "0x4",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_eq",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane equality compare using configured SEW, writing canonical element value one or zero.",
+      "description": "Width-generic V2 integer vector equality compare instruction."
+    },
+    {
+      "name": "VECTOR_ALU_LT",
+      "class": "VECTOR_ALU",
+      "opcode": "0x5",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_lt",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane less-than compare using configured SEW and signedness, writing canonical one or zero.",
+      "description": "Width-generic V2 integer vector less-than compare instruction."
+    },
+    {
+      "name": "VECTOR_ALU_SHL",
+      "class": "VECTOR_ALU",
+      "opcode": "0x6",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_shl",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane logical left shift; shift-count width follows configured SEW.",
+      "description": "Width-generic V2 integer vector shift-left instruction."
+    },
+    {
+      "name": "VECTOR_ALU_SRL",
+      "class": "VECTOR_ALU",
+      "opcode": "0x7",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_srl",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane logical right shift; shift-count width follows configured SEW.",
+      "description": "Width-generic V2 integer vector logical shift-right instruction."
+    },
+    {
+      "name": "VECTOR_ALU_SRA",
+      "class": "VECTOR_ALU",
+      "opcode": "0x8",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_sra",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Per-active-lane arithmetic right shift of the configured signed element width.",
+      "description": "Width-generic V2 signed vector arithmetic shift-right instruction."
+    },
+    {
+      "name": "VECTOR_ALU_SELECT",
+      "class": "VECTOR_ALU",
+      "opcode": "0x9",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_alu_select",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "For every lane below VL, select vs1 when the immediate predicate bit is active and vs2 otherwise; unlike governing-predicate ALU operations, every lane below VL is written.",
+      "description": "SVE-style predicate select with no implicit merge dependency on the old destination."
+    },
+    {
+      "name": "VECTOR_PERMUTE_GATHER",
+      "class": "VECTOR_PERMUTE",
+      "opcode": "0x0",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_permute_gather",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "For each active lane selected by the immediate predicate, read vs1 at the unsigned lane index held in vs2; every active index must be less than VL and inactive destination lanes are preserved.",
+      "description": "General register-lane gather used to express shuffle, transpose, and tile-movement permutations."
+    },
+    {
+      "name": "VECTOR_PERMUTE_ZIP_LO",
+      "class": "VECTOR_PERMUTE",
+      "opcode": "0x1",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_permute_zip_lo",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "For even VL, interleave the lower VL/2 lanes of vs1 and vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
+      "description": "Lower-half lane packing primitive analogous to the first half of a scalable zip operation."
+    },
+    {
+      "name": "VECTOR_PERMUTE_ZIP_HI",
+      "class": "VECTOR_PERMUTE",
+      "opcode": "0x2",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_permute_zip_hi",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "For even VL, interleave the upper VL/2 lanes of vs1 and vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
+      "description": "Upper-half lane packing primitive paired with zip.lo."
+    },
+    {
+      "name": "VECTOR_PERMUTE_UNZIP_EVEN",
+      "class": "VECTOR_PERMUTE",
+      "opcode": "0x3",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_permute_unzip_even",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "For even VL, concatenate the even lanes of vs1 followed by the even lanes of vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
+      "description": "Lane unpacking primitive that reconstructs the first source from zip.lo and zip.hi results."
+    },
+    {
+      "name": "VECTOR_PERMUTE_UNZIP_ODD",
+      "class": "VECTOR_PERMUTE",
+      "opcode": "0x4",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_permute_unzip_odd",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "For even VL, concatenate the odd lanes of vs1 followed by the odd lanes of vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
+      "description": "Lane unpacking primitive that reconstructs the second source from zip.lo and zip.hi results."
+    },
+    {
+      "name": "VECTOR_PERMUTE_TRANSPOSE4",
+      "class": "VECTOR_PERMUTE",
+      "opcode": "0x5",
+      "format": "vector_alu_vd_vs1_vs2",
+      "coverage": "v2_vector_permute_transpose4",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "With VL exactly 16 and rs2 equal to zero, treat vs1 as one row-major 4x4 tile and write its transpose to vd under the immediate predicate; inactive destination lanes are preserved.",
+      "description": "Explicit in-register 4x4 transpose helper for tensor tile movement."
+    },
+    {
+      "name": "VECTOR_REDUCTION_SUM",
+      "class": "VECTOR_REDUCTION",
+      "opcode": "0x0",
+      "format": "vector_reduce_vd_vs_pred",
+      "coverage": "v2_vector_reduce_sum",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "Reduce active source lanes selected by the immediate predicate with configured-width wraparound addition into destination lane zero; an empty active set produces zero.",
+      "description": "Predicate-aware integer sum reduction."
+    },
+    {
+      "name": "VECTOR_REDUCTION_MIN",
+      "class": "VECTOR_REDUCTION",
+      "opcode": "0x1",
+      "format": "vector_reduce_vd_vs_pred",
+      "coverage": "v2_vector_reduce_min",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "Reduce active source lanes using configured signedness into destination lane zero; an empty active set produces the greatest representable configured element.",
+      "description": "Predicate-aware integer minimum reduction."
+    },
+    {
+      "name": "VECTOR_REDUCTION_MAX",
+      "class": "VECTOR_REDUCTION",
+      "opcode": "0x2",
+      "format": "vector_reduce_vd_vs_pred",
+      "coverage": "v2_vector_reduce_max",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "Reduce active source lanes using configured signedness into destination lane zero; an empty active set produces the least representable configured element.",
+      "description": "Predicate-aware integer maximum reduction."
+    },
+    {
+      "name": "QUANTIZATION_REQUANTIZE",
+      "class": "QUANTIZATION",
+      "opcode": "0x0",
+      "format": "quant_vd_vs_pred_imm12",
+      "coverage": "v2_quantization_requantize",
+      "fault": "VECTOR_CONFIG_FAULT",
+      "semantics": "For active lanes selected by predicate rs2, multiply signed or unsigned source rs1 by the command multiplier, right shift with round-to-nearest ties-to-even, add zero point, clamp inclusively, canonicalize to configured SEW/signedness, and preserve inactive destination lanes. The aligned local command block at imm contains multiplier, shift, zero point, clamp minimum, clamp maximum, and a required-zero word.",
+      "description": "Per-tensor fixed-point requantization, clipping, saturation, and narrowing helper."
+    },
+    {
+      "name": "MATRIX_GEMM",
+      "class": "MATRIX",
+      "opcode": "0x0",
+      "format": "matrix_accumulator_imm12",
+      "coverage": "v2_matrix_gemm_program",
+      "fault": "MATRIX_ISSUE_FAULT",
+      "semantics": "Issue one active INT8 MxK by KxN tile product described by the aligned local command block at imm to accumulator rd; rs1 and rs2 must be zero.",
+      "description": "Frontend-issued B-weight-stationary INT8 matrix tile micro-op."
+    },
+    {
+      "name": "CSR_DEBUG_READ",
+      "class": "CSR_DEBUG",
+      "opcode": "0x0",
+      "format": "scalar_rd_csr_imm12",
+      "coverage": "v2_csr_debug_read",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Read the read-only frontend CSR selected by imm12 into scalar register rd; rs1 and rs2 must be zero, writes to s0 are discarded, and an unknown CSR selector faults precisely without retiring.",
+      "description": "Architectural frontend state and retired-instruction snapshot read."
+    },
+    {
+      "name": "SYSTEM_EXIT",
+      "class": "SYSTEM",
+      "opcode": "0x0",
+      "format": "system_imm",
+      "coverage": "v2_frontend_system_exit",
+      "fault": "NONE",
+      "semantics": "Terminate the active Holon program with DONE.",
+      "description": "Program terminal success instruction."
+    },
+    {
+      "name": "SYSTEM_FAULT",
+      "class": "SYSTEM",
+      "opcode": "0x1",
+      "format": "system_imm",
+      "coverage": "v2_frontend_system_fault",
+      "fault": "EXPLICIT_PROGRAM_FAULT",
+      "semantics": "Terminate the active Holon program with a software-provided fault code.",
+      "description": "Program terminal explicit fault instruction."
+    },
+    {
+      "name": "DMA_LOAD",
+      "class": "DMA",
+      "opcode": "0x0",
+      "format": "dma_regs_words12",
+      "coverage": "v2_frontend_dma_load_program",
+      "fault": "DMA_REQUEST_FAULT",
+      "semantics": "Copy imm12+1 aligned 32-bit words from the 64-bit system address in {scalar[rs1], scalar[rd]} into local scratchpad at the 32-bit byte address in scalar[rs2].",
+      "description": "Register-addressed frontend-issued DMA system-to-scratchpad load instruction."
+    },
+    {
+      "name": "DMA_STORE",
+      "class": "DMA",
+      "opcode": "0x1",
+      "format": "dma_regs_words12",
+      "coverage": "v2_frontend_dma_store_program",
+      "fault": "DMA_REQUEST_FAULT",
+      "semantics": "Copy imm12+1 aligned 32-bit words from local scratchpad at the 32-bit byte address in scalar[rs2] into the 64-bit system address in {scalar[rs1], scalar[rd]}.",
+      "description": "Register-addressed frontend-issued DMA scratchpad-to-system store instruction."
+    },
+    {
+      "name": "SYNC_WAIT_DMA",
+      "class": "SYNC",
+      "opcode": "0x0",
+      "format": "sync_order_point",
+      "coverage": "v2_frontend_sync_wait_dma",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Wait until all prior frontend-issued DMA commands have completed and their effects are architecturally visible.",
+      "description": "DMA completion ordering point. In the first in-order DMA implementation, DMA instructions already retire after completion, so this instruction retires as an explicit no-op order point."
+    },
+    {
+      "name": "SYNC_FENCE_LOCAL",
+      "class": "SYNC",
+      "opcode": "0x1",
+      "format": "sync_order_point",
+      "coverage": "v2_frontend_sync_fence_local",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Order prior local memory writes before later local memory reads or engine issue.",
+      "description": "Local scratchpad ordering point for future multi-client local-memory arbitration."
+    },
+    {
+      "name": "SYNC_FENCE_DMA",
+      "class": "SYNC",
+      "opcode": "0x2",
+      "format": "sync_order_point",
+      "coverage": "v2_frontend_sync_fence_dma",
+      "fault": "ILLEGAL_INSTRUCTION",
+      "semantics": "Order prior local memory writes before later DMA stores and order prior DMA loads before later consumers.",
+      "description": "DMA/local-memory ordering point for frontend-visible transfer ordering."
     }
   ],
   "architectural_state": {

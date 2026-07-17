@@ -15,6 +15,7 @@ CMAKE = REPO_ROOT / "CMakeLists.txt"
 
 ALLOWED_FLATTENED_MODULES = {
     "npu_top",
+    "npu_v2_top",
     "npu_common_smoke_top",
     "npu_systolic_array_test_top",
     "npu_tiling_datapath_test_top",
@@ -23,21 +24,13 @@ ALLOWED_FLATTENED_MODULES = {
     "npu_write_dma_test_top",
 }
 
-PRODUCT_SOURCE_TARGETS = {
-    "holon_npu_rtl_common",
-    "holon_npu_rtl_control",
-    "holon_npu_rtl_v2_control",
-    "holon_npu_rtl_v2_loader",
-    "holon_npu_rtl_v2_pkg",
-    "holon_npu_rtl_command",
-    "holon_npu_rtl_datapath",
-    "holon_npu_rtl_dma",
-    "holon_npu_rtl_gemm",
-    "holon_npu_rtl_interfaces",
-    "holon_npu_rtl_matrix",
-    "holon_npu_rtl_pe",
-    "holon_npu_rtl_pkg",
-    "holon_npu_rtl_top",
+INTERFACE_DEFINITIONS = {
+    "npu_vr_if": "rtl/common/npu_vr_if.sv",
+    "npu_axi4_if": "rtl/common/npu_axi4_if.sv",
+    "npu_axi_lite_if": "rtl/common/npu_axi_lite_if.sv",
+    "npu_frontend_if": "rtl/frontend/npu_frontend_if.sv",
+    "npu_v2_localmem_rd_if": "rtl/localmem/npu_v2_localmem_rd_if.sv",
+    "npu_v2_localmem_wr_if": "rtl/localmem/npu_v2_localmem_wr_if.sv",
 }
 
 EXPECTED_INTERFACE_USERS = {
@@ -48,21 +41,61 @@ EXPECTED_INTERFACE_USERS = {
         "rtl/dma/npu_axi4_read_dma.sv",
         "rtl/dma/npu_axi4_write_dma.sv",
         "rtl/command/npu_command_processor.sv",
+        "rtl/integration/npu_v2_frontend_tile.sv",
         "rtl/integration/npu_gemm_accelerator.sv",
         "rtl/integration/npu_top.sv",
+        "rtl/matrix/npu_v2_matrix_engine.sv",
+        "rtl/vector/npu_v2_vector_engine.sv",
     },
     "npu_axi4_if": {
         "rtl/control/npu_v2_program_loader.sv",
+        "rtl/control/npu_v2_completion_writer.sv",
+        "rtl/dma/npu_v2_dma_fabric.sv",
         "rtl/dma/npu_axi4_read_dma.sv",
         "rtl/dma/npu_axi4_write_dma.sv",
         "rtl/command/npu_command_processor.sv",
+        "rtl/integration/npu_v2_axi_write_arbiter.sv",
+        "rtl/integration/npu_v2_control_plane.sv",
+        "rtl/integration/npu_v2_frontend_tile.sv",
+        "rtl/integration/npu_v2_top.sv",
         "rtl/integration/npu_gemm_accelerator.sv",
         "rtl/integration/npu_top.sv",
     },
     "npu_axi_lite_if": {
         "rtl/control/npu_control_regs.sv",
         "rtl/control/npu_v2_control_regs.sv",
+        "rtl/integration/npu_v2_control_plane.sv",
+        "rtl/integration/npu_v2_frontend_tile.sv",
+        "rtl/integration/npu_v2_top.sv",
         "rtl/integration/npu_top.sv",
+    },
+    "npu_frontend_if": {
+        "rtl/dma/npu_v2_dma_fabric.sv",
+        "rtl/frontend/npu_reference_frontend.sv",
+        "rtl/integration/npu_v2_frontend_tile.sv",
+    },
+    "npu_v2_localmem_rd_if": {
+        "rtl/dma/npu_v2_dma_fabric.sv",
+        "rtl/frontend/npu_reference_frontend.sv",
+        "rtl/integration/npu_v2_control_plane.sv",
+        "rtl/integration/npu_v2_frontend_tile.sv",
+        "rtl/localmem/npu_v2_data_port_arbiter.sv",
+        "rtl/localmem/npu_v2_engine_data_arbiter.sv",
+        "rtl/localmem/npu_v2_local_memory.sv",
+        "rtl/matrix/npu_v2_matrix_engine.sv",
+        "rtl/vector/npu_v2_vector_engine.sv",
+    },
+    "npu_v2_localmem_wr_if": {
+        "rtl/control/npu_v2_program_loader.sv",
+        "rtl/dma/npu_v2_dma_fabric.sv",
+        "rtl/frontend/npu_reference_frontend.sv",
+        "rtl/integration/npu_v2_control_plane.sv",
+        "rtl/integration/npu_v2_frontend_tile.sv",
+        "rtl/localmem/npu_v2_data_port_arbiter.sv",
+        "rtl/localmem/npu_v2_engine_data_arbiter.sv",
+        "rtl/localmem/npu_v2_local_memory.sv",
+        "rtl/matrix/npu_v2_matrix_engine.sv",
+        "rtl/vector/npu_v2_vector_engine.sv",
     },
 }
 
@@ -114,12 +147,19 @@ def extract_modules(text: str) -> list[tuple[str, str]]:
     return modules
 
 
-def cmake_sv_source_target_bodies(text: str) -> dict[str, str]:
-    bodies: dict[str, str] = {}
-    pattern = re.compile(r"holon_npu_add_sv_source_target\(\s*([A-Za-z0-9_]+)(.*?)\n\)", re.S)
+def cmake_sv_source_targets(text: str) -> tuple[dict[str, set[str]], list[str]]:
+    targets: dict[str, set[str]] = {}
+    duplicates: list[str] = []
+    pattern = re.compile(
+        r"\bholon_npu_add_sv_source_target\s*\(\s*([A-Za-z0-9_]+)\s*(.*?)\)",
+        re.S,
+    )
     for match in pattern.finditer(text):
-        bodies[match.group(1)] = match.group(2)
-    return bodies
+        name = match.group(1)
+        if name in targets:
+            duplicates.append(name)
+        targets[name] = set(re.findall(r"[A-Za-z0-9_./-]+\.sv", match.group(2)))
+    return targets, duplicates
 
 
 def main() -> int:
@@ -127,7 +167,7 @@ def main() -> int:
     files = {rel(path): read(path) for path in sv_files()}
 
     for interface_name, expected_paths in EXPECTED_INTERFACE_USERS.items():
-        definition = f"rtl/common/{interface_name}.sv"
+        definition = INTERFACE_DEFINITIONS[interface_name]
         actual_paths = {
             path
             for path, text in files.items()
@@ -171,23 +211,36 @@ def main() -> int:
                     )
 
     cmake = read(CMAKE)
-    source_targets = cmake_sv_source_target_bodies(cmake)
+    source_targets, duplicate_targets = cmake_sv_source_targets(cmake)
+    for name in duplicate_targets:
+        fail(errors, f"CMake source target {name} is declared more than once")
 
-    for target_name in PRODUCT_SOURCE_TARGETS:
-        body = source_targets.get(target_name, "")
-        if "sim/rtl/" in body:
-            fail(errors, f"{target_name} includes a sim/rtl test harness source")
-        for suffix in ("_test_wrapper.sv", "_test_top.sv", "_smoke_top.sv"):
-            if suffix in body:
-                fail(errors, f"{target_name} includes a {suffix} source")
+    for target_name, sources in source_targets.items():
+        if len(re.findall(rf"\b{re.escape(target_name)}\b", cmake)) < 2:
+            fail(errors, f"SystemVerilog source target {target_name} is declared but never consumed")
+        if target_name.startswith("holon_npu_rtl_"):
+            invalid = sorted(source for source in sources if not is_core_rtl(source))
+        elif target_name.startswith("holon_npu_sim_"):
+            invalid = sorted(source for source in sources if not is_sim_harness(source))
+        else:
+            fail(errors, f"unclassified SystemVerilog source target {target_name}")
+            invalid = []
+        for source in invalid:
+            fail(errors, f"{target_name} owns source outside its directory boundary: {source}")
 
-    harness_sources = sorted(path for path in files if is_sim_harness(path))
-    for path in harness_sources:
-        target_names = [name for name, body in source_targets.items() if path in body]
-        if not target_names:
-            fail(errors, f"{path} is not referenced by any CMake source target")
-        if not any(name.startswith("holon_npu_sim_") for name in target_names):
-            fail(errors, f"{path} is not referenced by a simulation CMake source target")
+    for path in sorted(files):
+        owners = sorted(name for name, sources in source_targets.items() if path in sources)
+        expected_prefix = "holon_npu_rtl_" if is_core_rtl(path) else "holon_npu_sim_"
+        if len(owners) != 1:
+            owner_text = ", ".join(owners) if owners else "none"
+            fail(errors, f"{path} must have exactly one CMake source owner; found {owner_text}")
+        elif not owners[0].startswith(expected_prefix):
+            fail(errors, f"{path} is owned by wrong target class {owners[0]}")
+
+    for target_name, sources in source_targets.items():
+        for source in sorted(sources):
+            if source not in files:
+                fail(errors, f"{target_name} references missing SystemVerilog source {source}")
 
     if errors:
         print("RTL interface usage check failed:")

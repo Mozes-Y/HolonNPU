@@ -10,6 +10,7 @@ package npu_v2_pkg;
     localparam int unsigned NPU_V2_PROGRAM_IMAGE_ALIGN            = 4;
     localparam int unsigned NPU_V2_PROGRAM_ARGUMENT_ALIGN         = 16;
     localparam int unsigned NPU_V2_PROGRAM_COMPLETION_ALIGN       = 16;
+    localparam int unsigned NPU_V2_COMPLETION_RECORD_SIZE         = 32;
     localparam int unsigned NPU_V2_PROGRAM_FORMAT_HOLON_V2        = 1;
     localparam int unsigned NPU_V2_PROGRAM_MEM_MAX_BYTES          = 65536;
     localparam int unsigned NPU_V2_LOCAL_MEM_MAX_BYTES            = 262144;
@@ -46,13 +47,13 @@ package npu_v2_pkg;
     localparam logic [31:0] NPU_V2_RESET_DEVICE_ID           = 32'h4E505502;
     localparam logic [31:0] NPU_V2_RESET_ABI_VERSION         = 32'h00030000;
     localparam logic [31:0] NPU_V2_RESET_ISA_VERSION         = 32'h00010000;
-    localparam logic [31:0] NPU_V2_RESET_CAP0_LO             = 32'h0000003F;
+    localparam logic [31:0] NPU_V2_RESET_CAP0_LO             = 32'h0000007F;
     localparam logic [31:0] NPU_V2_RESET_CAP0_HI             = 32'h00000000;
     localparam logic [31:0] NPU_V2_RESET_OP_CLASS_LO         = 32'h000001FF;
     localparam logic [31:0] NPU_V2_RESET_OP_CLASS_HI         = 32'h00000000;
     localparam logic [31:0] NPU_V2_RESET_PROGRAM_MEM_BYTES   = 32'h00010000;
     localparam logic [31:0] NPU_V2_RESET_LOCAL_MEM_BYTES     = 32'h00040000;
-    localparam logic [31:0] NPU_V2_RESET_VECTOR_CAP0         = 32'h08100100;
+    localparam logic [31:0] NPU_V2_RESET_VECTOR_CAP0         = 32'h01010010;
     localparam logic [31:0] NPU_V2_RESET_MATRIX_CAP0         = 32'h08201010;
     localparam logic [31:0] NPU_V2_RESET_CONTROL             = 32'h00000000;
     localparam logic [31:0] NPU_V2_RESET_STATUS              = 32'h00000001;
@@ -93,6 +94,10 @@ package npu_v2_pkg;
     localparam logic [31:0] NPU_V2_CONTROL_DEBUG_STEP    = 32'h00000010;
     localparam logic [31:0] NPU_V2_CONTROL_VALID_MASK    = 32'h0000001F;
 
+    // V2 doorbell bits.
+    localparam logic [31:0] NPU_V2_DOORBELL_START     = 32'h00000001;
+    localparam logic [31:0] NPU_V2_DOORBELL_VALID_MASK = 32'h00000001;
+
     // V2 IRQ bits.
     localparam logic [31:0] NPU_V2_IRQ_DONE      = 32'h00000001;
     localparam logic [31:0] NPU_V2_IRQ_FAULT     = 32'h00000002;
@@ -117,7 +122,8 @@ package npu_v2_pkg;
     localparam logic [63:0] NPU_V2_CAP_ARGUMENT_SCRATCHPAD_COPY = 64'h0000000000000004;
     localparam logic [63:0] NPU_V2_CAP_IN_ORDER_DMA_QUEUE      = 64'h0000000000000008;
     localparam logic [63:0] NPU_V2_CAP_MATRIX_MICRO_OP         = 64'h0000000000000010;
-    localparam logic [63:0] NPU_V2_CAP_INTEGER_QUANT_VECTOR    = 64'h0000000000000020;
+    localparam logic [63:0] NPU_V2_CAP_INTEGER_VECTOR_BASE     = 64'h0000000000000020;
+    localparam logic [63:0] NPU_V2_CAP_QUANT_VECTOR            = 64'h0000000000000040;
 
     // V2 fault codes.
     localparam logic [31:0] NPU_V2_FAULT_NONE                       = 32'h00000000;
@@ -135,6 +141,10 @@ package npu_v2_pkg;
     localparam logic [31:0] NPU_V2_FAULT_AXI_READ                   = 32'h0000000C;
     localparam logic [31:0] NPU_V2_FAULT_AXI_WRITE                  = 32'h0000000D;
     localparam logic [31:0] NPU_V2_FAULT_EXPLICIT_PROGRAM_FAULT     = 32'h0000000E;
+
+    // V2 completion status values.
+    localparam logic [31:0] NPU_V2_COMPLETION_STATUS_DONE = 32'h00000001;
+    localparam logic [31:0] NPU_V2_COMPLETION_STATUS_FAULT = 32'h00000002;
 
     // V2 program descriptor offsets.
     localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_SIZE_BYTES         = 0;
@@ -156,6 +166,14 @@ package npu_v2_pkg;
     localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_FLAGS              = 72;
     localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_RESERVED_4C        = 76;
     localparam int unsigned NPU_V2_PROGRAM_DESC_OFF_RESERVED_TAIL      = 80;
+
+    // V2 completion record offsets.
+    localparam int unsigned NPU_V2_COMPLETION_OFF_ABI_VERSION = 0;
+    localparam int unsigned NPU_V2_COMPLETION_OFF_STATUS     = 4;
+    localparam int unsigned NPU_V2_COMPLETION_OFF_FAULT_CODE = 8;
+    localparam int unsigned NPU_V2_COMPLETION_OFF_DEBUG_PC   = 12;
+    localparam int unsigned NPU_V2_COMPLETION_OFF_CYCLE_COUNT = 16;
+    localparam int unsigned NPU_V2_COMPLETION_OFF_INSTRET    = 24;
 
 endpackage
 /* verilator lint_on UNUSEDPARAM */

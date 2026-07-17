@@ -1,142 +1,96 @@
 # HolonNPU Progress
 
-This file records the current project state and latest verification result.
-Detailed historical logs live in Git history and `CHANGELOG.md`.
+This page records the current implementation state and latest verified gate.
+Git history and `CHANGELOG.md` retain detailed chronology.
 
 ## Current Status
 
-- Last updated: 2026-07-08.
-- Current baseline: v1.5 final V1-generation release baseline complete; V2.0
-  programmable NPU tile architecture definition is complete and committed.
-- Product datapath: v1.1 B-weight-stationary INT8 GEMM with ABI 2.0.
-- Planned V2 direction: ABI 3.0 program descriptors, replaceable frontend
-  implementation, stable Holon-owned program ISA, integer/quant vector/helper
-  engine, explicit scratchpad/DMA memory model, and frontend-issued matrix
-  micro-ops.
-- Build baseline: CMake 4.0+, Ninja, C23 driver/API headers, C++26
-  Verilator testbenches.
-- Source-of-truth baseline: `spec/holon_npu_abi.json` generates
-  `rtl/common/npu_pkg.sv`, public C ABI headers, and `docs/INTERFACE.md`.
-- RTL boundary baseline: product RTL uses SystemVerilog interfaces internally;
-  flattened wrappers are simulation-only harnesses under `sim/rtl/`.
+- Last updated: 2026-07-16.
+- Released baseline: v1.5, ABI 2.0 descriptor-driven INT8 GEMM.
+- Development baseline: V2 programmable NPU tile, ABI 3.0 and Holon ISA 1.0.
+- V2 roadmap phases V2.0 through V2.9 are implemented; release hardening is
+  green in Debug, lint, Regression, and Coverage configurations.
 
-## Completed Engineering Baseline
+## Implemented V2 Baseline
 
-- Roadmap-first governance and documentation structure are in place.
-- Public ABI, descriptor layout, register map, status/error codes, interrupts,
-  and software API contract are generated or documented.
-- Common RTL infrastructure, AXI-Lite control, AXI4 DMA, command processor,
-  tiled GEMM accelerator, product top, and C driver are implemented.
-- Matrix engine uses B-weight-stationary PE weights, A wavefront input, streamed
-  psum output, and signed INT32 accumulation.
-- Native SystemVerilog assertions and coverpoints protect key valid-ready,
-  AXI-Lite, AXI4, control, DMA, command, GEMM, and top-level invariants.
-- Functional coverage is typed in C++ and gated through coverage manifests;
-  Verilator structural coverage artifacts are generated for inspection.
-- CMake is target-centric for source ownership, uses `FILE_SET HEADERS` for
-  public headers, and separates build, lint, test, regression, and coverage.
-- V2 architecture documents define the programmable NPU tile direction, complete
-  Holon ISA ownership, ABI 3.0 program descriptor draft, local-memory ordering,
-  frontend lifecycle, matrix micro-op contract, and V2 verification expansion.
-- V2.1 has started with machine-checkable Holon ISA metadata in
-  `spec/holon_npu_isa.json`, generated public ISA header/reference docs, and
-  ISA metadata/generated-source checks.
-- V2.1 now also includes machine-checkable ABI 3.0 program metadata in
-  `spec/holon_npu_v2_abi.json`, generated public program ABI
-  header/reference docs, generated RTL ABI constants in
-  `rtl/common/npu_v2_pkg.sv`, and V2 ABI schema/generated-source checks.
-- V2.2 has started with a stdlib-only C++26 architectural simulator foundation
-  under `sim/model/`. The initial model covers ISA class decode/disassemble,
-  ABI 3.0 program descriptor validation, program image/argument loading,
-  frontend PC/state/fault progression, local scratchpad, in-order DMA
-  load/store events, predicate inactive-lane behavior, vector register state,
-  `i32` vector load/store/add/sub/min/max/compare/shift, matrix
-  `i8*i8->i32` micro-op effects, deterministic random vector programs, and
-  reusable C++ program-builder assembly helpers.
-- V2.3 has started with an interface-native ABI 3.0 AXI-Lite control/lifecycle
-  RTL skeleton in `rtl/control/npu_v2_control_regs.sv` plus simulation-only
-  wrapper/test coverage under `sim/rtl/control/` and `sim/v2_control_tb.cpp`.
-- V2.3 now also includes an interface-native program descriptor
-  fetch/validation loader in `rtl/control/npu_v2_program_loader.sv`, generated
-  RTL descriptor offsets in `npu_v2_pkg.sv`, and focused Verilator coverage in
-  `sim/v2_loader_tb.cpp`.
+- `spec/holon_npu_isa.json` and `spec/holon_npu_v2_abi.json` own the V2 ISA,
+  register map, program descriptor, capabilities, faults, flags, and completion
+  record. Generated C23/SystemVerilog/docs outputs byte-check cleanly.
+- The C++26 architectural simulator models descriptor loading, frontend state,
+  local memory, DMA ordering, predicate/vector state, quant helpers, and matrix
+  micro-ops. The public `holon_npu_runtime` target owns encoders,
+  `program_builder`, capability metadata, and example kernels.
+- `npu_v2_top` integrates ABI 3.0 AXI-Lite control, program loader, local
+  program/data memory, reference Holon frontend, DMA, integer/quant vector
+  helpers, B-weight-stationary matrix micro-ops, completion writer, and AXI
+  arbitration.
+- Frontend control supports scalar arithmetic, aligned local load/store,
+  branches, read-only architectural CSR/debug state, precise fault state,
+  halt/resume, debug stepping, and explicit backpressured sync-issue retirement.
+- Frontend-issued DMA uses register-provided 64-bit system and 32-bit local
+  addresses with 1-to-4096-word commands; integrated tests exercise addresses
+  beyond the former 12-bit immediate range and reject wrapped system ranges.
+- Descriptor validation rejects wrapped descriptor/code/argument/completion
+  ranges and requires arguments plus the reserved frontend stack to fit within
+  the requested local-memory allocation. RTL, driver, and model apply the same
+  rules.
+- Vector/helper execution supports signed/unsigned 8-, 16-, and 32-bit data,
+  explicit predicates and tails, wrap/saturating arithmetic, compare/select,
+  shifts, gather, zip/unzip, 4x4 transpose, reductions, and requantization.
+- Matrix execution reuses the V1 systolic array behind a tile-level
+  clear/accumulate/store micro-op contract; firmware-visible behavior does not
+  depend on internal wavefront timing. The public runtime emits M/N/K tile
+  traversal, including K-tile accumulation, for arbitrary valid GEMM shapes.
+- Optional 32-byte completion records are acknowledged in system memory before
+  terminal MMIO status or IRQ. AXI completion write failure becomes a precise
+  `AXI_WRITE` fault.
+- Product RTL is interface-native. Flattened SystemVerilog exists only at the
+  SoC pin boundary or in simulation harnesses under `sim/rtl/`.
+- Every product and harness SystemVerilog file has exactly one consumed
+  semantic CMake source owner; direct interface dependencies are declared on
+  the target that uses them.
+- ISA metadata coverage names are checked against the typed C++ registry.
+  Integrated tests execute deterministic random vector programs, random signed
+  INT8 matrix tiles with padded strides, public example images, and
+  `17x19x23`/`64x64x64` runtime-generated tiled GEMM programs against reference
+  results.
 
-## Latest Verification Matrix
+## Latest Verification
 
-The latest completed V2 metadata/model/control/loader gate passed with:
+| Gate | Result |
+| ---- | ------ |
+| Generated V1 ABI | `python3 tools/gen_abi.py --check` passed |
+| Generated V2 ISA | `python3 tools/gen_isa.py --check` passed |
+| ISA metadata | `python3 tools/check_isa.py` passed |
+| Generated V2 ABI | `python3 tools/gen_v2_abi.py --check` passed |
+| V2 ABI schema | `python3 tools/check_v2_abi.py` passed |
+| RTL ownership | `python3 tools/check_rtl_interface_usage.py` passed |
+| Macro policy | `python3 tools/check_macro_policy.py` passed |
+| Whitespace | `git diff --check` passed |
+| Debug build/tests | Build passed; `30/30` tests passed |
+| RTL lint | `18/18` tests passed |
+| Regression | RelWithDebInfo build passed; `50/50` tests passed |
+| Coverage | Instrumented build passed; `51/51` tests passed |
+| Coverage gate | `21` raw files; all `168` required functional points hit |
 
-| Area | Command | Result |
-| ---- | ------- | ------ |
-| ABI source | `python3 tools/gen_abi.py --check` | Passed |
-| ISA source | `python3 tools/gen_isa.py --check` | Passed |
-| ISA metadata | `python3 tools/check_isa.py` | Passed |
-| V2 ABI source | `python3 tools/gen_v2_abi.py --check` | Passed, including generated RTL package |
-| V2 ABI schema | `python3 tools/check_v2_abi.py` | Passed |
-| Macro policy | `python3 tools/check_macro_policy.py` | Passed |
-| RTL boundaries | `python3 tools/check_rtl_interface_usage.py` | Passed |
-| Whitespace | `git diff --check` | Passed |
-| V2 doc whitespace | trailing-whitespace scan for `docs/V2_*.md` | Passed |
-| V2 stale terms | grep for legacy scalar/vector boundary wording | Passed: no hits |
-| V2 required terms | grep for V2 ISA/ABI/lifecycle/ordering/model terms | Passed |
-| Debug build | `cmake --preset debug && cmake --build --preset debug --parallel 2` | Passed |
-| Focused V2 ABI/ISA tests | `ctest --preset debug -R 'v2_abi\|isa\|holon_npu_driver' --output-on-failure` | Passed `5/5` |
-| V2 model build | `cmake --build --preset debug --target holon_npu_v2_model_test --parallel 2` | Passed |
-| V2 model test | `ctest --preset debug -R holon_npu_v2_model --output-on-failure` | Passed `1/1`, including ABI 3.0 descriptor loading, DMA events, predicate vector ALU compare/shift, deterministic random vector programs, program-builder assembly helpers, and matrix micro-op effects |
-| V2 control build | `cmake --build --preset debug --target npu_v2_control_tb --parallel 2` | Passed |
-| V2 control test | `ctest --preset debug -R npu_v2_control --output-on-failure` | Passed `1/1`, including lifecycle, IRQ, halt/resume/debug-step, soft reset, and descriptor alignment fault |
-| V2 control lint | `cmake --build --preset debug --target v2_control_rtl_lint --parallel 2` | Passed |
-| V2 loader build | `cmake --build --preset debug --target npu_v2_loader_tb --parallel 2` | Passed |
-| V2 loader test | `ctest --preset debug -R npu_v2_loader --output-on-failure` | Passed `1/1`, including descriptor fetch, compatibility validation, alignment/bounds faults, and AXI read fault |
-| V2 loader lint | `cmake --build --preset debug --target v2_loader_rtl_lint --parallel 2` | Passed |
-| Debug tests | `ctest --preset debug --output-on-failure` | Passed `21/21` |
-| Lint tests | `ctest --preset lint --output-on-failure` | Passed `10/10` |
-| Regression build | `cmake --preset regression && cmake --build --preset regression --parallel 2` | Passed |
-| Regression tests | `ctest --preset regression --output-on-failure` | Passed `33/33` |
-| Coverage build | `cmake --preset coverage && cmake --build --preset coverage --parallel 2` | Passed |
-| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `34/34` |
-| Coverage gate | `python3 tools/check_coverage.py --build-dir build/coverage` | Passed: 13 raw files, 55 functional points |
+## Known Limits
 
-The latest completed V1.5 release gate passed with:
+- V2 supports integer/quant execution only; BF16, FP8, coherent cache, IOMMU,
+  multiple contexts, multiple program queues, graph scheduling, and multi-NPU
+  scaling remain out of first-release scope.
+- One program is active at a time. DMA engines execute one command/AXI
+  transaction at a time with in-order completion.
+- Host software owns physical allocation, address translation, and platform
+  cache maintenance around descriptors, code, arguments, tensors, and
+  completion records.
+- Structural coverage reports are generated but have no percentage threshold;
+  required functional coverage is the hard gate.
+- Verification uses Verilator simulation/lint. FPGA/ASIC synthesis, timing, CDC,
+  and physical implementation are not part of the current gate.
 
-| Area | Command | Result |
-| ---- | ------- | ------ |
-| Presets | `python3 -m json.tool CMakePresets.json` | Passed |
-| ABI source | `python3 tools/gen_abi.py --check` | Passed |
-| RTL boundaries | `python3 tools/check_rtl_interface_usage.py` | Passed |
-| Macro policy | `python3 tools/check_macro_policy.py` | Passed |
-| Whitespace | `git diff --check` | Passed |
-| Debug build | `cmake --preset debug && cmake --build --preset debug --parallel 2` | Passed |
-| Lint target | `cmake --build --preset debug --target lint --parallel 2` | Passed |
-| Debug tests | `ctest --preset debug --output-on-failure` | Passed `16/16` |
-| Lint tests | `ctest --preset lint --output-on-failure` | Passed `8/8` |
-| Regression build | `cmake --preset regression && cmake --build --preset regression --parallel 2` | Passed |
-| Regression tests | `ctest --preset regression --output-on-failure` | Passed `26/26` |
-| Coverage build | `cmake --preset coverage && cmake --build --preset coverage --parallel 2` | Passed |
-| Coverage tests | `ctest --preset coverage --output-on-failure` | Passed `27/27` |
-| Coverage gate | `python3 tools/check_coverage.py --build-dir build/coverage` | Passed: 11 raw files, 55 functional points |
+## Next Step
 
-## Active Limitations
-
-- The V2 ABI 3.0 control/lifecycle RTL and descriptor fetch/validation loader
-  exist, but they are not yet connected to a V2 product top, program
-  image/argument local-memory loader, frontend, vector RTL, or matrix micro-op
-  issue fabric.
-- GEMM only in the current product top; no V2 frontend RTL, vector RTL, BF16,
-  FP8, graph scheduler, or post-processing engine is implemented. The V2 C++
-  model is a simulator foundation, not product RTL.
-- One descriptor may be active at a time.
-- AXI4 DMA supports one outstanding read or write burst per engine.
-- Tensor and descriptor accesses must satisfy the documented alignment
-  requirements.
-- Structural coverage reports are produced, but only functional coverage points
-  are hard-gated today.
-- RTL is validated through Verilator simulation and lint; no FPGA/ASIC
-  synthesis flow is part of the current gate.
-
-## Next Engineering Step
-
-- Continue V2 Phase V2.3 by connecting the control block to the descriptor
-  loader and adding program image/argument loading behind the ABI 3.0 lifecycle.
-- Keep expanding the V2 C++ architectural simulator with additional vector
-  operation classes and richer matrix edge cases so RTL can differential-test
-  against it as soon as the frontend path lands.
+Prepare the V2 release audit: independent code review, synthesis-oriented lint
+and CDC planning, performance characterization, and a formal v2.0 release
+checklist. New architectural scope must enter the roadmap and decision log
+before implementation.

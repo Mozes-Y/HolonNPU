@@ -64,9 +64,13 @@ def generated_header(schema: dict[str, Any]) -> str:
     abi = schema["abi"]
     constants = schema["constants"]
     descriptor = schema["descriptor"]
+    completion_record = schema["completion_record"]
     registers = schema["registers"]
 
     register_constants = [(f"HOLON_NPU_V2_REG_{reg['name']}", reg["offset"]) for reg in registers]
+    register_reset_constants = [
+        (f"HOLON_NPU_V2_RESET_{reg['name']}", reg["reset"]) for reg in registers
+    ]
     lifecycle_constants = [
         (f"HOLON_NPU_V2_STATUS_{state['name']}", state["value"])
         for state in schema["lifecycle_states"]
@@ -75,6 +79,8 @@ def generated_header(schema: dict[str, Any]) -> str:
     flag_constants.append(("HOLON_NPU_PROGRAM_FLAG_VALID_MASK", schema["flags_valid_mask"]))
     control_constants = [(f"HOLON_NPU_V2_CONTROL_{entry['name']}", entry["value"]) for entry in schema["control_bits"]]
     control_constants.append(("HOLON_NPU_V2_CONTROL_VALID_MASK", schema["control_valid_mask"]))
+    doorbell_constants = [(f"HOLON_NPU_V2_DOORBELL_{entry['name']}", entry["value"]) for entry in schema["doorbell_bits"]]
+    doorbell_constants.append(("HOLON_NPU_V2_DOORBELL_VALID_MASK", schema["doorbell_valid_mask"]))
     irq_constants = [(f"HOLON_NPU_V2_IRQ_{entry['name']}", entry["value"]) for entry in schema["irq_bits"]]
     irq_constants.append(("HOLON_NPU_V2_IRQ_VALID_MASK", schema["irq_valid_mask"]))
     op_class_constants = [
@@ -86,10 +92,18 @@ def generated_header(schema: dict[str, Any]) -> str:
         for entry in schema["capabilities"]
     ]
     fault_constants = [(f"HOLON_NPU_V2_FAULT_{fault['name']}", fault["value"]) for fault in schema["faults"]]
+    completion_status_constants = [
+        (f"HOLON_NPU_COMPLETION_STATUS_{status['name']}", status["value"])
+        for status in schema["completion_status"]
+    ]
     offset_constants = [
         (f"HOLON_NPU_PROGRAM_DESC_OFF_{field['macro_suffix']}", field["offset"])
         for field in descriptor["fields"]
         if "macro_suffix" in field
+    ]
+    completion_offset_constants = [
+        (f"HOLON_NPU_COMPLETION_OFF_{field['macro_suffix']}", field["offset"])
+        for field in completion_record["fields"]
     ]
 
     lines = [
@@ -110,6 +124,7 @@ def generated_header(schema: dict[str, Any]) -> str:
         c_const("uint32_t", "HOLON_NPU_PROGRAM_IMAGE_ALIGN", constants["program_image_align"], pad=42),
         c_const("uint32_t", "HOLON_NPU_PROGRAM_ARGUMENT_ALIGN", constants["argument_align"], pad=42),
         c_const("uint32_t", "HOLON_NPU_PROGRAM_COMPLETION_ALIGN", constants["completion_align"], pad=42),
+        c_const("uint16_t", "HOLON_NPU_COMPLETION_RECORD_SIZE", constants["completion_record_size"], width=4, pad=42),
         c_const("uint8_t", "HOLON_NPU_PROGRAM_FORMAT_HOLON_V2", constants["program_format_holon_v2"], width=2, pad=42),
         c_const("uint32_t", "HOLON_NPU_PROGRAM_MEM_MAX_BYTES", constants["program_mem_max_bytes"], pad=42),
         c_const("uint32_t", "HOLON_NPU_LOCAL_MEM_MAX_BYTES", constants["local_mem_max_bytes"], pad=42),
@@ -119,14 +134,18 @@ def generated_header(schema: dict[str, Any]) -> str:
 
     for title, consts, type_name, width in (
         ("V2 register offsets", register_constants, "uint32_t", 3),
+        ("V2 register reset values", register_reset_constants, "uint32_t", 8),
         ("V2 lifecycle status bits", lifecycle_constants, "uint32_t", 8),
         ("Program descriptor flags", flag_constants, "uint32_t", 8),
         ("V2 control bits", control_constants, "uint32_t", 8),
+        ("V2 doorbell bits", doorbell_constants, "uint32_t", 8),
         ("V2 IRQ bits", irq_constants, "uint32_t", 8),
         ("Required operation class bits", op_class_constants, "uint64_t", 16),
         ("Capability bits", capability_constants, "uint64_t", 16),
         ("Fault codes", fault_constants, "uint32_t", 2),
+        ("Completion status values", completion_status_constants, "uint32_t", 8),
         ("Program descriptor offsets", offset_constants, "uint32_t", 2),
+        ("Completion record offsets", completion_offset_constants, "uint32_t", 2),
     ):
         lines.append(f"/* {title}. */")
         pad = max(len(name) for name, _ in consts)
@@ -139,9 +158,15 @@ def generated_header(schema: dict[str, Any]) -> str:
         lines.append(f"    {field['ctype']} {field['name']};")
     lines.extend([f"}} {descriptor['typedef_name']};", ""])
 
+    lines.append(f"typedef struct {completion_record['struct_name']} {{")
+    for field in completion_record["fields"]:
+        lines.append(f"    {field['ctype']} {field['name']};")
+    lines.extend([f"}} {completion_record['typedef_name']};", ""])
+
     lines.extend(
         [
             f"static_assert(sizeof({descriptor['typedef_name']}) == HOLON_NPU_PROGRAM_DESC_SIZE);",
+            f"static_assert(sizeof({completion_record['typedef_name']}) == HOLON_NPU_COMPLETION_RECORD_SIZE);",
             f"static_assert(HOLON_NPU_V2_ABI_VERSION_RESET == {c_hex(abi['version_reset'])});",
             "static_assert(HOLON_NPU_PROGRAM_FORMAT_HOLON_V2 == 0x01u);",
             "static_assert(HOLON_NPU_ISA_MAJOR == 0x01u);",
@@ -154,6 +179,11 @@ def generated_header(schema: dict[str, Any]) -> str:
                 f"static_assert(offsetof({descriptor['typedef_name']}, {field['name']}) == "
                 f"HOLON_NPU_PROGRAM_DESC_OFF_{suffix});"
             )
+    for field in completion_record["fields"]:
+        lines.append(
+            f"static_assert(offsetof({completion_record['typedef_name']}, {field['name']}) == "
+            f"HOLON_NPU_COMPLETION_OFF_{field['macro_suffix']});"
+        )
 
     lines.append("")
     return "\n".join(lines)
@@ -163,6 +193,7 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
     abi = schema["abi"]
     constants = schema["constants"]
     descriptor = schema["descriptor"]
+    completion_record = schema["completion_record"]
     registers = schema["registers"]
 
     register_offsets = [(f"NPU_V2_REG_{reg['name']}", reg["offset"]) for reg in registers]
@@ -175,6 +206,8 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
     flag_constants.append(("NPU_V2_PROGRAM_FLAG_VALID_MASK", schema["flags_valid_mask"]))
     control_constants = [(f"NPU_V2_CONTROL_{entry['name']}", entry["value"]) for entry in schema["control_bits"]]
     control_constants.append(("NPU_V2_CONTROL_VALID_MASK", schema["control_valid_mask"]))
+    doorbell_constants = [(f"NPU_V2_DOORBELL_{entry['name']}", entry["value"]) for entry in schema["doorbell_bits"]]
+    doorbell_constants.append(("NPU_V2_DOORBELL_VALID_MASK", schema["doorbell_valid_mask"]))
     irq_constants = [(f"NPU_V2_IRQ_{entry['name']}", entry["value"]) for entry in schema["irq_bits"]]
     irq_constants.append(("NPU_V2_IRQ_VALID_MASK", schema["irq_valid_mask"]))
     op_class_constants = [
@@ -186,10 +219,18 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
         for entry in schema["capabilities"]
     ]
     fault_constants = [(f"NPU_V2_FAULT_{fault['name']}", fault["value"]) for fault in schema["faults"]]
+    completion_status_constants = [
+        (f"NPU_V2_COMPLETION_STATUS_{status['name']}", status["value"])
+        for status in schema["completion_status"]
+    ]
     offset_constants = [
         (f"NPU_V2_PROGRAM_DESC_OFF_{field['macro_suffix']}", field["offset"])
         for field in descriptor["fields"]
         if "macro_suffix" in field
+    ]
+    completion_offset_constants = [
+        (f"NPU_V2_COMPLETION_OFF_{field['macro_suffix']}", field["offset"])
+        for field in completion_record["fields"]
     ]
 
     lines = [
@@ -205,6 +246,7 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
         sv_const_int("NPU_V2_PROGRAM_IMAGE_ALIGN", constants["program_image_align"], pad=38),
         sv_const_int("NPU_V2_PROGRAM_ARGUMENT_ALIGN", constants["argument_align"], pad=38),
         sv_const_int("NPU_V2_PROGRAM_COMPLETION_ALIGN", constants["completion_align"], pad=38),
+        sv_const_int("NPU_V2_COMPLETION_RECORD_SIZE", constants["completion_record_size"], pad=38),
         sv_const_int("NPU_V2_PROGRAM_FORMAT_HOLON_V2", constants["program_format_holon_v2"], pad=38),
         sv_const_int("NPU_V2_PROGRAM_MEM_MAX_BYTES", constants["program_mem_max_bytes"], pad=38),
         sv_const_int("NPU_V2_LOCAL_MEM_MAX_BYTES", constants["local_mem_max_bytes"], pad=38),
@@ -218,10 +260,12 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
         ("lifecycle status bits", lifecycle_constants, 32),
         ("program flags", flag_constants, 32),
         ("control bits", control_constants, 32),
+        ("doorbell bits", doorbell_constants, 32),
         ("IRQ bits", irq_constants, 32),
         ("operation classes", op_class_constants, 64),
         ("capabilities", capability_constants, 64),
         ("fault codes", fault_constants, 32),
+        ("completion status values", completion_status_constants, 32),
     ):
         lines.append(f"    // V2 {title}.")
         pad = max(len(name) for name, _ in consts)
@@ -235,6 +279,12 @@ def generated_sv_package(schema: dict[str, Any]) -> str:
         lines.append(sv_const_int(name, value, pad=pad))
     lines.append("")
 
+    lines.append("    // V2 completion record offsets.")
+    pad = max(len(name) for name, _ in completion_offset_constants)
+    for name, value in completion_offset_constants:
+        lines.append(sv_const_int(name, value, pad=pad))
+    lines.append("")
+
     lines.extend(["endpackage", "/* verilator lint_on UNUSEDPARAM */", ""])
     return "\n".join(lines)
 
@@ -243,6 +293,7 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
     abi = schema["abi"]
     constants = schema["constants"]
     descriptor = schema["descriptor"]
+    completion_record = schema["completion_record"]
     lines = [
         f"<!-- {BANNER} -->",
         "# HolonNPU V2 ABI 3.0 Reference",
@@ -257,7 +308,8 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
         f"- Program descriptor size: `{constants['program_desc_size']}` bytes.",
         f"- Program descriptor alignment: `{constants['program_desc_align']}` bytes.",
         f"- Program image alignment: `{constants['program_image_align']}` bytes.",
-        f"- Argument/completion alignment: `{constants['argument_align']}` / `{constants['completion_align']}` bytes.",
+            f"- Argument/completion alignment: `{constants['argument_align']}` / `{constants['completion_align']}` bytes.",
+            f"- Completion record size: `{constants['completion_record_size']}` bytes.",
         "",
         "## ABI Rules",
         "",
@@ -310,6 +362,35 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Completion Record Layout",
+            "",
+            "| Offset | Field | C Type | Required | Description |",
+            "| ------ | ----- | ------ | -------- | ----------- |",
+        ]
+    )
+    for field in completion_record["fields"]:
+        lines.append(
+            f"| `{md_desc_offset(field['offset'])}` | `{field['name']}` | `{field['ctype']}` | "
+            f"`{field['required']}` | {field['description']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Completion Status Values",
+            "",
+            "| Name | Value | Description |",
+            "| ---- | ----- | ----------- |",
+        ]
+    )
+    for status in schema["completion_status"]:
+        lines.append(
+            f"| `{status['name']}` | `{md_hex(status['value'])}` | {status['description']} |"
+        )
+
+    lines.extend(
+        [
+            "",
             "## Program Flags",
             "",
             "| Name | Value | Description |",
@@ -322,6 +403,7 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
 
     for title, key, mask_key in (
         ("Control Bits", "control_bits", "control_valid_mask"),
+        ("Doorbell Bits", "doorbell_bits", "doorbell_valid_mask"),
         ("IRQ Bits", "irq_bits", "irq_valid_mask"),
     ):
         lines.extend(

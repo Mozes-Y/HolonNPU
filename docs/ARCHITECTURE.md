@@ -1,7 +1,7 @@
 # HolonNPU Architecture
 
-This document describes the v1 architecture that later RTL phases must
-implement. Interfaces and ABI details are frozen in `docs/INTERFACE.md`.
+This document describes the released v1.5 architecture. Its generated interface
+and ABI details are frozen in `docs/INTERFACE.md`.
 
 ## Scope
 
@@ -12,14 +12,14 @@ and writes INT32 results back to system memory. v1.5 keeps ABI 2.0 values
 unchanged while making the ABI generated from a schema and adding assertions and
 coverage gates around the existing architecture.
 
-V2 architecture planning is tracked separately in:
+The implemented V2 programmable-tile architecture is tracked separately in:
 
 - `docs/V2_ARCHITECTURE.md`
 - `docs/V2_ISA.md`
 - `docs/V2_INTERFACE.md`
 
-Those documents describe the planned programmable NPU tile. They are not claims
-about current V1.5 RTL behavior.
+Those documents and the V2 schemas describe ABI 3.0 RTL under release
+hardening. They do not alter the v1.5 release contract.
 
 ## ABI Source Of Truth
 
@@ -296,40 +296,20 @@ Phase 9 implementation:
 - `stage_o` exposes idle, load A, load B, compute, store, done, and error stages
   so wave dumps and tests can locate each major operation.
 
-### Software Driver
+### Released V1 ABI And Current Software Driver
 
-Responsibilities:
+The released V1.5 contract remains generated in `include/holon_npu_regs.h`,
+`include/holon_npu_desc.h`, and `docs/INTERFACE.md`. The current branch has
+migrated `sw/holon_npu_driver.*` to the V2 ABI 3.0 program model. It builds and
+submits `holon_npu_program_desc_t`, reports lifecycle/fault/debug state, and
+controls halt, resume, debug-step, reset, IRQ, and performance counters. The
+legacy V1 GEMM driver implementation remains available from the v1.5 release
+tag rather than through compatibility aliases in the current API.
 
-- Provide a minimal C API for firmware and host tests.
-- Share the frozen register and descriptor ABI through common headers.
-- Build 128-byte GEMM descriptors with all reserved fields zeroed.
-- Reject invalid arguments before touching MMIO where software can validate the
-  condition locally.
-- Submit one descriptor by writing descriptor address registers and
-  `DOORBELL.START`.
-- Poll or wait for done/error, read terminal error code, clear sticky state, and
-  read performance counters.
+### Implemented V2 Programmable NPU Tile
 
-Phase 10 implementation:
-
-- `include/holon_npu_regs.h` defines the v1 register offsets, status bits,
-  interrupt bits, clear masks, reset constants, and hardware error codes.
-- `include/holon_npu_desc.h` defines `holon_npu_gemm_desc_t` and
-  `holon_npu_gemm_config_t`, with compile-time descriptor size and offset checks.
-- `sw/holon_npu_driver.h` exposes the driver API and result/status/performance
-  types.
-- `sw/holon_npu_driver.c` implements init, capability reads, descriptor build,
-  submit, poll, wait, error read, clear, and performance read operations.
-- `holon_npu_submit` checks descriptor physical address alignment and
-  `STATUS.BUSY` before writing descriptor address registers or doorbell.
-- `holon_npu_build_gemm_desc` validates descriptor flags, dimensions, tensor
-  address alignment, row-stride alignment, and minimum row strides before
-  filling the descriptor.
-
-### Planned V2 Programmable NPU Tile
-
-V2 is not a small vector post-processing block attached after GEMM. It is
-planned as a programmable NPU tile:
+V2 is a programmable NPU tile, not a vector post-processing block attached
+after GEMM:
 
 - a replaceable frontend implementation runs Holon programs;
 - Holon vector/matrix instructions use a project-owned ISA rather than RVV/RVC
@@ -340,11 +320,9 @@ planned as a programmable NPU tile:
   matrix micro-ops;
 - explicit scratchpad/local memory plus AXI4 DMA remains the memory model.
 
-Phase ownership:
-
-- Not part of V1.5 RTL.
-- V2 implementation must begin from the roadmap, decision log, ABI schema, and
-  dedicated V2 documents.
+The active V2 implementation and contracts are described in
+`docs/V2_ARCHITECTURE.md`, `docs/V2_ISA.md`, and `docs/V2_INTERFACE.md`.
+`npu_v2_top` is independent of the released V1.5 `npu_top` path.
 
 ## v1 Execution Flow
 
@@ -416,12 +394,13 @@ Core boundary convention:
   Verilator/C++ tests.
 - Product/internal RTL connects bus-like protocols through SystemVerilog
   interfaces and modports, not ad hoc flattened signal bundles.
-- `npu_top.sv` is the only product pin-boundary adapter. It is not used as an
-  internal connection scheme.
+- `npu_top.sv` and `npu_v2_top.sv` are the V1 and V2 product pin-boundary
+  adapters. Neither is used as an internal connection scheme.
 - Flattened `*_test_wrapper.sv` modules exist only for Verilator/C++ testbench
   access under `sim/rtl/` and are not part of the product RTL architecture.
-- `tools/check_rtl_interface_usage.py` enforces interface usage and prevents
-  test harnesses from entering `rtl/` or product source sets.
+- `tools/check_rtl_interface_usage.py` enforces interface usage, requires every
+  SystemVerilog file to have exactly one consumed CMake source owner, and
+  prevents test harnesses from entering `rtl/` or product source sets.
 
 Valid-ready convention:
 
@@ -469,6 +448,11 @@ Phase 9 integration:
 
 - None for v1.5.
 - V2 architecture, ISA metadata, ABI 3.0 program metadata, C++ model, AXI-Lite
-  control/lifecycle RTL, and descriptor fetch/validation loader RTL are
-  present. V2 product top, program image/argument local loading, frontend,
-  vector RTL, and matrix micro-op issue fabric remain open.
+  control/lifecycle RTL, program loader RTL, initial local-memory storage,
+  focused control-plane/frontend integration RTL, data scratchpad arbiters,
+  and the first reference frontend system/DMA-load/store/sync-order instruction
+  path are present. The integer vector engine supports type-orthogonal signed
+  and unsigned 8-, 16-, and 32-bit operations plus explicit predicate ptrue/
+  load and masked execution. The final V2 product top, quant/reduction/permute
+  vector expansion, matrix-aware local-memory fabric, and matrix micro-op issue
+  fabric remain open.

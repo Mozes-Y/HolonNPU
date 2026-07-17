@@ -14,6 +14,7 @@
       "Program descriptor base addresses must be 16-byte aligned.",
       "Program images must be 4-byte aligned.",
       "Argument blocks and completion records must be 16-byte aligned.",
+      "A nonzero completion record is fully acknowledged by AXI before DONE, FAULT, or completion IRQ becomes visible through AXI-Lite.",
       "Program compatibility must be checked before frontend execution starts.",
       "Reserved fields must be zero."
     ]
@@ -24,6 +25,7 @@
     "program_image_align": 4,
     "argument_align": 16,
     "completion_align": 16,
+    "completion_record_size": 32,
     "program_format_holon_v2": 1,
     "program_mem_max_bytes": 65536,
     "local_mem_max_bytes": 262144,
@@ -89,6 +91,15 @@
     }
   ],
   "control_valid_mask": "0x0000001F",
+  "doorbell_bits": [
+    {
+      "name": "START",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Start loading the program descriptor at the programmed system address."
+    }
+  ],
+  "doorbell_valid_mask": "0x00000001",
   "irq_bits": [
     {
       "name": "DONE",
@@ -190,9 +201,14 @@
       "description": "Frontend-issued INT8 matrix micro-ops supported."
     },
     {
-      "name": "INTEGER_QUANT_VECTOR",
+      "name": "INTEGER_VECTOR_BASE",
       "value": "0x0000000000000020",
-      "description": "Integer and quantized vector/helper operations supported."
+      "description": "Baseline integer vector configuration, local-memory, ALU, compare, and shift operations supported."
+    },
+    {
+      "name": "QUANT_VECTOR",
+      "value": "0x0000000000000040",
+      "description": "Quantized vector/helper operations supported."
     }
   ],
   "lifecycle_states": [
@@ -258,7 +274,7 @@
       "name": "CAP0_LO",
       "offset": "0x00C",
       "access": "RO",
-      "reset": "0x0000003F",
+      "reset": "0x0000007F",
       "description": "Implemented V2 capability bits [31:0]."
     },
     {
@@ -300,7 +316,7 @@
       "name": "VECTOR_CAP0",
       "offset": "0x024",
       "access": "RO",
-      "reset": "0x08100100",
+      "reset": "0x01010010",
       "description": "Vector baseline: [15:0] max VL, [23:16] lanes, [31:24] predicate registers."
     },
     {
@@ -486,6 +502,78 @@
       "description": "Program explicitly raised a fault."
     }
   ],
+  "completion_status": [
+    {
+      "name": "DONE",
+      "value": "0x00000001",
+      "description": "The program completed successfully."
+    },
+    {
+      "name": "FAULT",
+      "value": "0x00000002",
+      "description": "The program terminated with the accompanying fault code."
+    }
+  ],
+  "completion_record": {
+    "struct_name": "holon_npu_completion_record",
+    "typedef_name": "holon_npu_completion_record_t",
+    "fields": [
+      {
+        "name": "abi_version",
+        "offset": "0x00",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "0x00030000",
+        "macro_suffix": "ABI_VERSION",
+        "description": "ABI version that defines this record layout."
+      },
+      {
+        "name": "status",
+        "offset": "0x04",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "DONE or FAULT",
+        "macro_suffix": "STATUS",
+        "description": "Exactly one terminal completion status value."
+      },
+      {
+        "name": "fault_code",
+        "offset": "0x08",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "NONE for DONE",
+        "macro_suffix": "FAULT_CODE",
+        "description": "ABI fault code, or NONE when status is DONE."
+      },
+      {
+        "name": "debug_pc",
+        "offset": "0x0C",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "Precise terminal PC",
+        "macro_suffix": "DEBUG_PC",
+        "description": "Precise frontend PC at successful exit or fault."
+      },
+      {
+        "name": "cycle_count",
+        "offset": "0x10",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "Execution snapshot",
+        "macro_suffix": "CYCLE_COUNT",
+        "description": "Program cycle counter captured before completion writeback."
+      },
+      {
+        "name": "instret",
+        "offset": "0x18",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "Execution snapshot",
+        "macro_suffix": "INSTRET",
+        "description": "Retired Holon instruction count captured at termination."
+      }
+    ]
+  },
   "descriptor": {
     "struct_name": "holon_npu_program_desc",
     "typedef_name": "holon_npu_program_desc_t",
@@ -603,9 +691,9 @@
         "offset": "0x34",
         "ctype": "uint32_t",
         "width": 32,
-        "required": "<= local max",
+        "required": "arg size + stack size <= requested local size <= local max",
         "macro_suffix": "LOCAL_MEM_BYTES",
-        "description": "Requested data scratchpad bytes."
+        "description": "Requested data scratchpad bytes, including argument and reserved stack/control regions."
       },
       {
         "name": "program_mem_bytes",
@@ -621,9 +709,9 @@
         "offset": "0x3C",
         "ctype": "uint32_t",
         "width": 32,
-        "required": "<= stack max",
+        "required": "<= stack max and arg size + stack size <= requested local size",
         "macro_suffix": "STACK_BYTES",
-        "description": "Requested frontend stack/control bytes."
+        "description": "Bytes reserved at the top of the requested data scratchpad for frontend stack/control use."
       },
       {
         "name": "completion_addr",

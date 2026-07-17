@@ -23,6 +23,20 @@ def c_const(type_name: str, name: str, value: int | str, width: int = 8, pad: in
     return f"static constexpr {type_name} {name}{spacer}= {c_hex(value, width)};"
 
 
+def sv_hex(value: int | str, width: int = 8) -> str:
+    return f"32'h{as_int(value):0{width}X}"
+
+
+def sv_param(type_name: str, name: str, value: int | str, width: int = 8, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"    localparam {type_name} {name}{spacer}= {sv_hex(value, width)};"
+
+
+def sv_opcode_param(name: str, value: int | str, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"    localparam logic [3:0] {name}{spacer}= 4'h{as_int(value):01X};"
+
+
 def load_schema(path: Path = ISA_SCHEMA_PATH) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         schema = json.load(f)
@@ -36,13 +50,19 @@ def load_schema(path: Path = ISA_SCHEMA_PATH) -> dict[str, Any]:
 
 def generated_header(schema: dict[str, Any]) -> str:
     isa = schema["isa"]
+    common_masks = schema["common_masks"]
+    field_layout = schema["field_layout"]
     classes = schema["instruction_classes"]
     reserved = schema["reserved_classes"]
+    instructions = schema["instructions"]
+    encoding_constants = schema["encoding_constants"]
 
     class_names = [(f"HOLON_NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in classes]
     masks = [(f"HOLON_NPU_ISA_CLASS_{entry['name']}_MASK", entry["mask"]) for entry in classes]
     reserved_names = [(f"HOLON_NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in reserved]
-    all_constants = class_names + masks + reserved_names
+    opcode_names = [(f"HOLON_NPU_ISA_OPCODE_{entry['name']}", entry["opcode"]) for entry in instructions]
+    encoding_names = [(f"HOLON_NPU_ISA_{entry['name']}", entry["value"]) for entry in encoding_constants]
+    all_constants = class_names + masks + reserved_names + opcode_names + encoding_names
     pad = max(len(name) for name, _ in all_constants)
 
     lines = [
@@ -55,6 +75,13 @@ def generated_header(schema: dict[str, Any]) -> str:
         c_const("uint8_t", "HOLON_NPU_ISA_MINOR", isa["minor"], width=2, pad=34),
         c_const("uint8_t", "HOLON_NPU_ISA_INSTRUCTION_BYTES", isa["alignment_bytes"], width=2, pad=34),
         c_const("uint8_t", "HOLON_NPU_ISA_INSTRUCTION_BITS", isa["instruction_bits"], width=2, pad=34),
+        c_const("uint8_t", "HOLON_NPU_ISA_OPCODE_SHIFT", field_layout["opcode_shift"], width=2, pad=34),
+        c_const("uint8_t", "HOLON_NPU_ISA_RD_SHIFT", field_layout["rd_shift"], width=2, pad=34),
+        c_const("uint8_t", "HOLON_NPU_ISA_RS1_SHIFT", field_layout["rs1_shift"], width=2, pad=34),
+        c_const("uint8_t", "HOLON_NPU_ISA_RS2_SHIFT", field_layout["rs2_shift"], width=2, pad=34),
+        c_const("uint32_t", "HOLON_NPU_ISA_CLASS_MASK", common_masks["class"], pad=34),
+        c_const("uint32_t", "HOLON_NPU_ISA_FIELD_MASK", field_layout["field_mask"], pad=34),
+        c_const("uint32_t", "HOLON_NPU_ISA_IMM_MASK", field_layout["imm_mask"], pad=34),
         "",
     ]
 
@@ -65,6 +92,12 @@ def generated_header(schema: dict[str, Any]) -> str:
         lines.append(c_const("uint32_t", name, value, pad=pad))
     lines.append("")
     for name, value in reserved_names:
+        lines.append(c_const("uint32_t", name, value, pad=pad))
+    lines.append("")
+    for name, value in opcode_names:
+        lines.append(c_const("uint8_t", name, value, width=2, pad=pad))
+    lines.append("")
+    for name, value in encoding_names:
         lines.append(c_const("uint32_t", name, value, pad=pad))
 
     lines.extend(
@@ -82,8 +115,64 @@ def generated_header(schema: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def generated_sv_pkg(schema: dict[str, Any]) -> str:
+    isa = schema["isa"]
+    common_masks = schema["common_masks"]
+    field_layout = schema["field_layout"]
+    classes = schema["instruction_classes"]
+    reserved = schema["reserved_classes"]
+    instructions = schema["instructions"]
+    encoding_constants = schema["encoding_constants"]
+
+    class_names = [(f"NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in classes]
+    masks = [(f"NPU_ISA_CLASS_{entry['name']}_MASK", entry["mask"]) for entry in classes]
+    reserved_names = [(f"NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in reserved]
+    opcode_names = [(f"NPU_ISA_OPCODE_{entry['name']}", entry["opcode"]) for entry in instructions]
+    encoding_names = [(f"NPU_ISA_{entry['name']}", entry["value"]) for entry in encoding_constants]
+    all_constants = class_names + masks + reserved_names + opcode_names + encoding_names
+    pad = max(len(name) for name, _ in all_constants)
+
+    lines = [
+        f"// {BANNER}",
+        "/* verilator lint_off UNUSEDPARAM */",
+        "package npu_isa_pkg;",
+        f"    localparam int unsigned NPU_ISA_MAJOR             = {as_int(isa['major'])};",
+        f"    localparam int unsigned NPU_ISA_MINOR             = {as_int(isa['minor'])};",
+        f"    localparam int unsigned NPU_ISA_INSTRUCTION_BYTES = {as_int(isa['alignment_bytes'])};",
+        f"    localparam int unsigned NPU_ISA_INSTRUCTION_BITS  = {as_int(isa['instruction_bits'])};",
+        f"    localparam int unsigned NPU_ISA_OPCODE_SHIFT      = {as_int(field_layout['opcode_shift'])};",
+        f"    localparam int unsigned NPU_ISA_RD_SHIFT          = {as_int(field_layout['rd_shift'])};",
+        f"    localparam int unsigned NPU_ISA_RS1_SHIFT         = {as_int(field_layout['rs1_shift'])};",
+        f"    localparam int unsigned NPU_ISA_RS2_SHIFT         = {as_int(field_layout['rs2_shift'])};",
+        f"    localparam logic [31:0] NPU_ISA_CLASS_MASK        = {sv_hex(common_masks['class'])};",
+        f"    localparam logic [31:0] NPU_ISA_FIELD_MASK        = {sv_hex(field_layout['field_mask'])};",
+        f"    localparam logic [31:0] NPU_ISA_IMM_MASK          = {sv_hex(field_layout['imm_mask'])};",
+        "",
+    ]
+
+    for name, value in class_names:
+        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
+    lines.append("")
+    for name, value in masks:
+        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
+    lines.append("")
+    for name, value in reserved_names:
+        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
+    lines.append("")
+    for name, value in opcode_names:
+        lines.append(sv_opcode_param(name, value, pad=pad))
+    lines.append("")
+    for name, value in encoding_names:
+        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
+
+    lines.extend(["", "endpackage", "/* verilator lint_on UNUSEDPARAM */", ""])
+    return "\n".join(lines)
+
+
 def generated_reference_md(schema: dict[str, Any]) -> str:
     isa = schema["isa"]
+    common_masks = schema["common_masks"]
+    field_layout = schema["field_layout"]
     lines = [
         f"<!-- {BANNER} -->",
         "# HolonNPU V2 ISA Reference",
@@ -98,6 +187,16 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
         f"- Instruction alignment: {isa['alignment_bytes']} bytes.",
         f"- Ownership: {isa['ownership']}",
         "",
+        "## Initial Field Layout",
+        "",
+        f"- Opcode shift: {field_layout['opcode_shift']}.",
+        f"- Destination/local-offset field shift: {field_layout['rd_shift']}.",
+        f"- Source/count field shift: {field_layout['rs1_shift']}.",
+        f"- Source/reserved field shift: {field_layout['rs2_shift']}.",
+        f"- Class mask: `{c_hex(common_masks['class'])}`.",
+        f"- 4-bit field mask: `{c_hex(field_layout['field_mask'])}`.",
+        f"- 12-bit immediate mask: `{c_hex(field_layout['imm_mask'])}`.",
+        "",
         "## Instruction Classes",
         "",
         "| Class | Value | Mask | Format | Fault | Coverage | Semantics | Description |",
@@ -108,6 +207,36 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
             f"| `{entry['name']}` | `{c_hex(entry['value'])}` | `{c_hex(entry['mask'])}` | "
             f"`{entry['format']}` | `{entry['fault']}` | `{entry['coverage']}` | "
             f"`{entry['semantics']}` | {entry['description']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Encoding Constants",
+            "",
+            "| Name | Value | Description |",
+            "| ---- | ----- | ----------- |",
+        ]
+    )
+    for entry in schema["encoding_constants"]:
+        lines.append(
+            f"| `{entry['name']}` | `{c_hex(entry['value'])}` | {entry['description']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Implemented Instructions",
+            "",
+            "| Instruction | Class | Opcode | Format | Fault | Coverage | Semantics | Description |",
+            "| ----------- | ----- | ------ | ------ | ----- | -------- | --------- | ----------- |",
+        ]
+    )
+    for entry in schema["instructions"]:
+        lines.append(
+            f"| `{entry['name']}` | `{entry['class']}` | `{c_hex(entry['opcode'], width=2)}` | "
+            f"`{entry['format']}` | `{entry['fault']}` | `{entry['coverage']}` | "
+            f"{entry['semantics']} | {entry['description']} |"
         )
 
     lines.extend(
@@ -141,6 +270,7 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
 def render_all(schema: dict[str, Any]) -> dict[str, str]:
     return {
         "include/holon_npu_isa.h": generated_header(schema),
+        "rtl/common/npu_isa_pkg.sv": generated_sv_pkg(schema),
         "docs/V2_ISA_REFERENCE.md": generated_reference_md(schema),
     }
 

@@ -46,6 +46,10 @@ void clear_inputs(Vnpu_v2_control_regs& dut) {
     dut.frontend_halted_i = 0;
     dut.frontend_debug_pc_i = 0;
     dut.frontend_instret_i = 0;
+    dut.irq_on_done_i = 1;
+    dut.irq_on_fault_i = 1;
+    dut.debug_snapshot_on_fault_i = 1;
+    dut.clear_perf_on_start_i = 0;
 }
 
 void reset(Vnpu_v2_control_regs& dut) {
@@ -216,15 +220,15 @@ bool test_reset_values(Vnpu_v2_control_regs& dut) {
     reset(dut);
 
     bool ok = true;
-    ok &= expect_eq("DEVICE_ID", axil_read(dut, HOLON_NPU_V2_REG_DEVICE_ID), 0x4E50'5502U);
+    ok &= expect_eq("DEVICE_ID", axil_read(dut, HOLON_NPU_V2_REG_DEVICE_ID), HOLON_NPU_V2_RESET_DEVICE_ID);
     ok &= expect_eq("ABI_VERSION", axil_read(dut, HOLON_NPU_V2_REG_ABI_VERSION), HOLON_NPU_V2_ABI_VERSION_RESET);
-    ok &= expect_eq("ISA_VERSION", axil_read(dut, HOLON_NPU_V2_REG_ISA_VERSION), 0x0001'0000U);
-    ok &= expect_eq("CAP0_LO", axil_read(dut, HOLON_NPU_V2_REG_CAP0_LO), 0x0000'003FU);
-    ok &= expect_eq("OP_CLASS_LO", axil_read(dut, HOLON_NPU_V2_REG_OP_CLASS_LO), 0x0000'01FFU);
-    ok &= expect_eq("PROGRAM_MEM_BYTES", axil_read(dut, HOLON_NPU_V2_REG_PROGRAM_MEM_BYTES), 0x0001'0000U);
-    ok &= expect_eq("LOCAL_MEM_BYTES", axil_read(dut, HOLON_NPU_V2_REG_LOCAL_MEM_BYTES), 0x0004'0000U);
-    ok &= expect_eq("VECTOR_CAP0", axil_read(dut, HOLON_NPU_V2_REG_VECTOR_CAP0), 0x0810'0100U);
-    ok &= expect_eq("MATRIX_CAP0", axil_read(dut, HOLON_NPU_V2_REG_MATRIX_CAP0), 0x0820'1010U);
+    ok &= expect_eq("ISA_VERSION", axil_read(dut, HOLON_NPU_V2_REG_ISA_VERSION), HOLON_NPU_V2_RESET_ISA_VERSION);
+    ok &= expect_eq("CAP0_LO", axil_read(dut, HOLON_NPU_V2_REG_CAP0_LO), HOLON_NPU_V2_RESET_CAP0_LO);
+    ok &= expect_eq("OP_CLASS_LO", axil_read(dut, HOLON_NPU_V2_REG_OP_CLASS_LO), HOLON_NPU_V2_RESET_OP_CLASS_LO);
+    ok &= expect_eq("PROGRAM_MEM_BYTES", axil_read(dut, HOLON_NPU_V2_REG_PROGRAM_MEM_BYTES), HOLON_NPU_V2_RESET_PROGRAM_MEM_BYTES);
+    ok &= expect_eq("LOCAL_MEM_BYTES", axil_read(dut, HOLON_NPU_V2_REG_LOCAL_MEM_BYTES), HOLON_NPU_V2_RESET_LOCAL_MEM_BYTES);
+    ok &= expect_eq("VECTOR_CAP0", axil_read(dut, HOLON_NPU_V2_REG_VECTOR_CAP0), HOLON_NPU_V2_RESET_VECTOR_CAP0);
+    ok &= expect_eq("MATRIX_CAP0", axil_read(dut, HOLON_NPU_V2_REG_MATRIX_CAP0), HOLON_NPU_V2_RESET_MATRIX_CAP0);
     ok &= expect_eq("STATUS reset", axil_read(dut, HOLON_NPU_V2_REG_STATUS), HOLON_NPU_V2_STATUS_IDLE);
     ok &= expect_eq("FAULT_CODE reset", axil_read(dut, HOLON_NPU_V2_REG_FAULT_CODE), HOLON_NPU_V2_FAULT_NONE);
     ok &= expect_eq("IRQ_ENABLE reset", axil_read(dut, HOLON_NPU_V2_REG_IRQ_ENABLE), 0U);
@@ -355,6 +359,54 @@ bool test_faults_and_soft_reset(Vnpu_v2_control_regs& dut) {
     return ok;
 }
 
+bool test_program_flag_policies(Vnpu_v2_control_regs& dut) {
+    bool ok = true;
+    {
+        reset(dut);
+        ok &= expect_eq("flag policy enable done IRQ",
+                        axil_write(dut, HOLON_NPU_V2_REG_IRQ_ENABLE, HOLON_NPU_V2_IRQ_DONE),
+                        kOkay);
+        ok &= expect_eq("flag policy descriptor",
+                        axil_write(dut, HOLON_NPU_V2_REG_PROGRAM_DESC_ADDR_LO, 0x4000U),
+                        kOkay);
+        ok &= expect_eq("flag policy doorbell",
+                        axil_write(dut, HOLON_NPU_V2_REG_DOORBELL, 1U), kOkay);
+        dut.clear_perf_on_start_i = 1;
+        loader_done(dut);
+        ok &= expect_eq("clear perf on start pulse", dut.clear_perf_o, 1U);
+        ok &= expect_eq("cycle counter cleared before running", dut.perf_cycle_o, 0U);
+        dut.clear_perf_on_start_i = 0;
+        dut.irq_on_done_i = 0;
+        frontend_done(dut, 0x40U, 7U);
+        ok &= expect_eq("done without descriptor IRQ",
+                        axil_read(dut, HOLON_NPU_V2_REG_STATUS), HOLON_NPU_V2_STATUS_DONE);
+        ok &= expect_eq("done IRQ status gated",
+                        axil_read(dut, HOLON_NPU_V2_REG_IRQ_STATUS), 0U);
+    }
+    {
+        reset(dut);
+        ok &= expect_eq("flag policy enable fault IRQ",
+                        axil_write(dut, HOLON_NPU_V2_REG_IRQ_ENABLE, HOLON_NPU_V2_IRQ_FAULT),
+                        kOkay);
+        ok &= expect_eq("fault policy descriptor",
+                        axil_write(dut, HOLON_NPU_V2_REG_PROGRAM_DESC_ADDR_LO, 0x4000U),
+                        kOkay);
+        ok &= expect_eq("fault policy doorbell",
+                        axil_write(dut, HOLON_NPU_V2_REG_DOORBELL, 1U), kOkay);
+        loader_done(dut);
+        dut.irq_on_fault_i = 0;
+        dut.debug_snapshot_on_fault_i = 0;
+        frontend_fault(dut, HOLON_NPU_V2_FAULT_DMA_REQUEST, 0x80U);
+        ok &= expect_eq("fault without descriptor IRQ",
+                        axil_read(dut, HOLON_NPU_V2_REG_STATUS), HOLON_NPU_V2_STATUS_FAULT);
+        ok &= expect_eq("fault IRQ status gated",
+                        axil_read(dut, HOLON_NPU_V2_REG_IRQ_STATUS), 0U);
+        ok &= expect_eq("fault debug snapshot gated",
+                        axil_read(dut, HOLON_NPU_V2_REG_DEBUG_PC), 0U);
+    }
+    return ok;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -367,9 +419,16 @@ int main(int argc, char** argv) {
     ok &= test_register_access_and_skew(dut);
     ok &= test_lifecycle_done_halt_debug(dut);
     ok &= test_faults_and_soft_reset(dut);
+    ok &= test_program_flag_policies(dut);
 
     dut.final();
     using enum holon_npu_tb::coverage_point;
-    test.cover({axi_lite_aw_w_skew, control_done_irq, control_error_irq, control_soft_reset});
+    test.cover({
+        axi_lite_aw_w_skew,
+        control_done_irq,
+        control_error_irq,
+        control_soft_reset,
+        v2_program_flag_semantics,
+    });
     return test.finish(ok);
 }

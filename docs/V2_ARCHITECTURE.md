@@ -1,9 +1,9 @@
-# HolonNPU V2 Architecture Draft
+# HolonNPU V2 Architecture
 
-This document describes the planned V2 programmable NPU tile. It is not a
-description of the current V1.5 RTL. V2 implementation must update this file,
-the roadmap, the decision log, the ABI schema, and verification documentation
-before depending on new public behavior.
+This document defines the implemented V2 programmable NPU tile architecture.
+The released V1.5 implementation remains documented in `docs/ARCHITECTURE.md`;
+V2 public behavior is owned by the V2 ISA/ABI schemas and the contracts linked
+from this document.
 
 ## Product Direction
 
@@ -52,6 +52,15 @@ local program memory and copies the argument block into data scratchpad before
 frontend execution starts. The frontend does not fetch instructions directly
 from system memory.
 
+Current RTL checkpoint: `npu_v2_top` integrates ABI 3.0 control/lifecycle,
+program descriptor loading, local program/data memory, the reference frontend,
+DMA, integer/quant vector helpers, the matrix micro-op engine, completion-record
+writeback, and AXI arbitration. Dedicated local-memory read/write interfaces
+carry addresses, byte strobes, and explicit responses; engine traffic is never
+packed into an ad hoc flattened payload. The C++26 architectural simulator and
+public program runtime provide decode, semantic, and example-kernel references
+for differential verification.
+
 ## Replaceable Frontend Implementation
 
 Holon owns the V2 program ISA, including frontend-control, predicate, vector,
@@ -99,7 +108,7 @@ Architecture references:
 - RVV lessons are accepted at the semantic level, but its constrained encoding
   and compatibility-driven complexity are rejected.
 
-See `docs/V2_ISA.md` for the draft ISA contract.
+See `docs/V2_ISA.md` for the ISA contract.
 
 ## Execution Engines
 
@@ -173,9 +182,10 @@ Architectural ordering rules:
 - Argument data is copied into scratchpad before frontend start.
 - DMA commands complete in program order within a DMA queue.
 - A completed DMA-to-scratchpad command is visible to later vector and matrix
-  local-memory reads after a frontend `wait` or `fence`.
+  local-memory reads after a frontend `sync.wait_dma`, `sync.fence.local`, or
+  `sync.fence.dma`.
 - Vector and matrix writes to local memory are visible to later DMA stores after
-  a frontend `fence`.
+  a frontend `sync.fence.local` or `sync.fence.dma`.
 - Completion records written to system memory are visible only after the
   associated DMA completion event and host-side cache maintenance required by
   the platform.
@@ -186,6 +196,44 @@ The first V2 implementation may keep one active AXI transaction per DMA engine
 while still exposing queued commands with in-order completion. Larger
 outstanding windows are an implementation capability, not a semantic change.
 
+Current RTL DMA slice:
+
+- `dma.load` and `dma.store` are the first executable DMA instructions in the
+  reference frontend.
+- Instruction fields are schema-owned through `spec/holon_npu_isa.json`:
+  opcode in bits `[27:24]`, scalar registers for system-address low/high in
+  `[23:20]`/`[19:16]`, a scalar local-address register in `[15:12]`, and a
+  1-to-4096 word count minus one in `[11:0]`.
+- The frontend packs accepted DMA commands into the stable DMA issue channel as
+  `{direction, byte_count, local_addr, system_addr}`, where direction `0`
+  loads system memory into scratchpad and direction `1` stores scratchpad words
+  back to system memory.
+- `npu_v2_dma_fabric_core` accepts one command at a time, issues 32-bit AXI4
+  read or write bursts, streams returned load words into data scratchpad, reads
+  store words from data scratchpad before issuing the corresponding write
+  address burst, and reports either completion or a DMA/local-memory/AXI fault
+  event.
+- `npu_v2_data_port_arbiter_core` owns the loader/host versus engine shared data scratchpad access
+  contract. Loader writes have priority over client writes. Host/debug data
+  reads and DMA/client data reads use a valid-ready local read request interface
+  with round-robin selection and owner-routed one-cycle responses.
+- `sync.wait_dma`, `sync.fence.local`, and `sync.fence.dma` are implemented as
+  precise frontend-retired ordering points over the `sync_issue` contract. The
+  current single-command in-order tile acknowledges that contract immediately
+  because every DMA/vector/matrix instruction already retires only after its
+  result; the explicit handshake keeps synchronization semantics visible at the
+  replaceable frontend boundary.
+- `npu_v2_engine_data_arbiter_core` uses round-robin write and read selection
+  between DMA and vector clients, preserves the accepted read owner until the
+  response, and exposes one interface-native engine client to the outer data
+  scratchpad arbiter.
+- The reference frontend dispatches vector config/memory/ALU instructions over
+  a backpressured 128-bit issue stream and retires each instruction only after
+  the 64-bit success/fault result handshake.
+- The first implementation is single-command and in order. Multi-entry DMA
+  queues remain a future performance extension without changing ordering
+  semantics.
+
 ## Matrix Micro-Op Contract
 
 The matrix engine is exposed as a tile resource, not as V1 scheduler timing.
@@ -193,11 +241,11 @@ Required matrix micro-op operands:
 
 - local A tile address;
 - local B tile address;
-- local C accumulator/output address or accumulator ID;
+- local C output address and encoded accumulator ID;
 - active M/N/K shape up to the hardware tile limit;
-- edge masks;
+- rectangular edge masks derived from active M/N/K;
 - clear, accumulate, and store mode bits;
-- completion event ID.
+- synchronous completion/fault result.
 
 Required matrix semantics:
 
@@ -205,9 +253,16 @@ Required matrix semantics:
 - Inactive lanes do not update architectural C elements.
 - Firmware cannot observe or depend on internal wavefront cycle timing.
 - Completion means all architectural C accumulator effects for the issued tile
-  are visible to later local-memory reads or DMA stores after a frontend fence.
+  are visible to later local-memory reads or DMA stores after a frontend
+  `sync.fence.local` or `sync.fence.dma`.
 - Illegal tile shapes, local addresses, or unsupported modes report a matrix
   issue fault.
+
+ISA 1.0 encodes one `matrix.gemm` instruction pointing to a 32-byte scratchpad
+command record. Accumulator ID zero is the implemented resource. Firmware tile
+traversal is supplied by the public runtime: it emits one command per M/N/K
+tile, clears on the first K tile, accumulates later K tiles, and stores after the
+last K tile. Internal 47-cycle wavefront timing remains non-architectural.
 
 ## Execution Flow
 
@@ -219,8 +274,8 @@ Required matrix semantics:
 5. The frontend issues DMA commands to move tensors into scratchpad.
 6. The frontend issues vector/helper and matrix micro-ops.
 7. Engines report completion or faults through the issue fabric.
-8. The frontend writes completion state and reports done/error to the control
-   plane.
+8. Hardware writes and acknowledges the optional completion record before
+   reporting done/error to the control plane.
 9. Software observes status, IRQ, fault code, debug snapshot, and performance
    counters.
 
@@ -235,7 +290,7 @@ Reusable from V1:
 - INT8 systolic array and matrix datapath components;
 - C++26 typed test runtime.
 
-Expected to change:
+Changed for V2:
 
 - descriptor ABI, moving from GEMM descriptor to program descriptor;
 - command processor, moving from descriptor-specific decode to frontend
@@ -243,5 +298,5 @@ Expected to change:
 - GEMM scheduler, moving from hardcoded FSM to frontend-issued matrix micro-ops;
 - software driver, moving from GEMM submit to program submit.
 
-The V1 ABI 2.0 values remain the V1.5 release contract. V2 ABI 3.0 must be
-generated from the schema when implementation begins.
+The V1 ABI 2.0 values remain the V1.5 release contract. V2 ABI 3.0 is generated
+independently from `spec/holon_npu_v2_abi.json`.
