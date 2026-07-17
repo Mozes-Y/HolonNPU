@@ -21,6 +21,7 @@ interface npu_frontend_if (
     logic [31:0] fault_code;
     logic [31:0] debug_pc;
     logic [63:0] instret;
+    logic        quiescent;
 
     logic        program_rd_valid;
     logic [31:0] program_rd_addr;
@@ -58,6 +59,7 @@ interface npu_frontend_if (
         input  fault_code,
         input  debug_pc,
         input  instret,
+        input  quiescent,
         input  program_rd_valid,
         input  program_rd_addr,
         input  dma_issue_valid,
@@ -139,6 +141,7 @@ interface npu_frontend_if (
         output fault_code,
         output debug_pc,
         output instret,
+        output quiescent,
         output program_rd_valid,
         output program_rd_addr,
         output dma_issue_valid,

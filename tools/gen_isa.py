@@ -175,7 +175,7 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
     field_layout = schema["field_layout"]
     lines = [
         f"<!-- {BANNER} -->",
-        "# HolonNPU V2 ISA Reference",
+        "# HolonNPU ISA Reference",
         "",
         "This file is generated from `spec/holon_npu_isa.json`. Edit the schema",
         "and regenerate outputs instead of editing this file by hand.",
@@ -271,7 +271,7 @@ def render_all(schema: dict[str, Any]) -> dict[str, str]:
     return {
         "include/holon_npu_isa.h": generated_header(schema),
         "rtl/common/npu_isa_pkg.sv": generated_sv_pkg(schema),
-        "docs/V2_ISA_REFERENCE.md": generated_reference_md(schema),
+        "docs/ISA_REFERENCE.md": generated_reference_md(schema),
     }
 
 

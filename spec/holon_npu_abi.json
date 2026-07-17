@@ -1,808 +1,752 @@
 {
   "schema_version": 1,
   "project": "HolonNPU",
-  "architecture": "v1.3 B-weight-stationary INT8 GEMM",
+  "architecture": "programmable NPU tile",
   "abi": {
-    "major": 2,
+    "major": 3,
     "minor": 0,
-    "version_reset": "0x00020000",
+    "version_reset": "0x00030000",
     "rules": [
       "All multi-byte fields are little-endian.",
       "AXI-Lite data width is 32 bits.",
-      "AXI-Lite register offsets are byte offsets and must be 32-bit aligned.",
       "System memory addresses in registers and descriptors are 64 bits.",
-      "One descriptor may be in flight.",
-      "Descriptor base addresses must be 16-byte aligned.",
-      "Tensor base addresses and row strides must be 16-byte aligned.",
-      "Reserved register bits read as zero unless otherwise stated.",
-      "Software must write zero to reserved fields and bits.",
-      "Hardware rejects nonzero reserved descriptor fields with ERR_RESERVED_NONZERO."
+      "One program may be active in the current release.",
+      "Program descriptor base addresses must be 16-byte aligned.",
+      "Program images must be 4-byte aligned.",
+      "Argument blocks and completion records must be 16-byte aligned.",
+      "A nonzero completion record is fully acknowledged by AXI before DONE, FAULT, or completion IRQ becomes visible through AXI-Lite.",
+      "Program compatibility must be checked before frontend execution starts.",
+      "Reserved fields must be zero."
     ]
   },
   "constants": {
-    "desc_size": 128,
-    "desc_align": 16,
-    "tensor_align": 16,
-    "array_k": 16,
-    "array_n": 16,
-    "input_bits": 8,
-    "acc_bits": 32,
-    "dimension_max": 65535
+    "program_desc_size": 128,
+    "program_desc_align": 16,
+    "program_image_align": 4,
+    "argument_align": 16,
+    "completion_align": 16,
+    "completion_record_size": 32,
+    "program_format_holon": 1,
+    "program_mem_max_bytes": 65536,
+    "local_mem_max_bytes": 262144,
+    "stack_max_bytes": 16384
   },
-  "opcodes": [
+  "flags": [
     {
-      "name": "GEMM_I8I8I32",
-      "value": 1,
-      "description": "Signed INT8 GEMM with signed INT32 output."
+      "name": "IRQ_ON_DONE",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Set IRQ status when a program completes successfully."
+    },
+    {
+      "name": "IRQ_ON_FAULT",
+      "bit": 1,
+      "value": "0x00000002",
+      "description": "Set IRQ status when a program faults."
+    },
+    {
+      "name": "CLEAR_PERF_ON_START",
+      "bit": 2,
+      "value": "0x00000004",
+      "description": "Clear performance counters before program execution."
+    },
+    {
+      "name": "DEBUG_SNAPSHOT_ON_FAULT",
+      "bit": 3,
+      "value": "0x00000008",
+      "description": "Capture frontend debug snapshot on fault."
     }
   ],
-  "capabilities": {
-    "device_id_reset": "0x4E505501",
-    "cap0_reset": "0x0000003F",
-    "cap1_reset": "0x08201010",
-    "cap0_fields": [
-      {
-        "bits": "[0]",
-        "name": "INT8_GEMM",
-        "reset": 1,
-        "description": "Signed INT8 GEMM supported."
-      },
-      {
-        "bits": "[1]",
-        "name": "INT32_OUTPUT",
-        "reset": 1,
-        "description": "Signed INT32 output supported."
-      },
-      {
-        "bits": "[2]",
-        "name": "DESC_DMA",
-        "reset": 1,
-        "description": "Descriptor fetch over AXI4 supported."
-      },
-      {
-        "bits": "[3]",
-        "name": "IRQ",
-        "reset": 1,
-        "description": "Interrupt output supported."
-      },
-      {
-        "bits": "[4]",
-        "name": "PERF_COUNTERS",
-        "reset": 1,
-        "description": "Performance counters supported."
-      },
-      {
-        "bits": "[5]",
-        "name": "SINGLE_QUEUE",
-        "reset": 1,
-        "description": "Single descriptor queue/in-flight model."
-      },
-      {
-        "bits": "[31:6]",
-        "name": "RESERVED",
-        "reset": 0,
-        "description": "Reserved."
-      }
-    ],
-    "cap1_fields": [
-      {
-        "bits": "[7:0]",
-        "name": "ARRAY_K",
-        "reset": 16,
-        "description": "Stationary B-weight/K lane count."
-      },
-      {
-        "bits": "[15:8]",
-        "name": "ARRAY_N",
-        "reset": 16,
-        "description": "Systolic-array column count."
-      },
-      {
-        "bits": "[23:16]",
-        "name": "ACC_BITS",
-        "reset": 32,
-        "description": "Accumulator/output bit width."
-      },
-      {
-        "bits": "[31:24]",
-        "name": "INPUT_BITS",
-        "reset": 8,
-        "description": "A/B operand bit width."
-      }
-    ]
-  },
+  "flags_valid_mask": "0x0000000F",
+  "control_bits": [
+    {
+      "name": "SOFT_RESET",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Request safe quiescence; enter RESETTING, drain accepted work, clear architectural state, and return to IDLE."
+    },
+    {
+      "name": "CLEAR_TERMINAL",
+      "bit": 1,
+      "value": "0x00000002",
+      "description": "Clear sticky DONE or FAULT terminal state and return to IDLE."
+    },
+    {
+      "name": "HALT",
+      "bit": 2,
+      "value": "0x00000004",
+      "description": "Request a precise frontend halt from RUNNING."
+    },
+    {
+      "name": "RESUME",
+      "bit": 3,
+      "value": "0x00000008",
+      "description": "Resume frontend execution from HALTED."
+    },
+    {
+      "name": "DEBUG_STEP",
+      "bit": 4,
+      "value": "0x00000010",
+      "description": "Request one precise debug step from HALTED if implemented."
+    }
+  ],
+  "control_valid_mask": "0x0000001F",
+  "doorbell_bits": [
+    {
+      "name": "START",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Start loading the program descriptor at the programmed system address."
+    }
+  ],
+  "doorbell_valid_mask": "0x00000001",
+  "irq_bits": [
+    {
+      "name": "DONE",
+      "bit": 0,
+      "value": "0x00000001",
+      "description": "Program completed successfully."
+    },
+    {
+      "name": "FAULT",
+      "bit": 1,
+      "value": "0x00000002",
+      "description": "Program or descriptor fault occurred."
+    },
+    {
+      "name": "HALTED",
+      "bit": 2,
+      "value": "0x00000004",
+      "description": "Frontend reached a precise halted state."
+    },
+    {
+      "name": "DEBUG_STEP",
+      "bit": 3,
+      "value": "0x00000008",
+      "description": "A debug-step request was accepted."
+    }
+  ],
+  "irq_valid_mask": "0x0000000F",
+  "op_classes_source": "spec/holon_npu_isa.json",
+  "capabilities": [
+    {
+      "name": "PROGRAM_DESCRIPTOR",
+      "value": "0x0000000000000001",
+      "description": "ABI 3.0 program descriptor supported."
+    },
+    {
+      "name": "LOCAL_PROGRAM_MEMORY",
+      "value": "0x0000000000000002",
+      "description": "Program image is loaded into local program memory before RUNNING."
+    },
+    {
+      "name": "ARGUMENT_SCRATCHPAD_COPY",
+      "value": "0x0000000000000004",
+      "description": "Argument block is copied into data scratchpad before RUNNING."
+    },
+    {
+      "name": "IN_ORDER_DMA_QUEUE",
+      "value": "0x0000000000000008",
+      "description": "Frontend-issued DMA commands complete in queue order."
+    },
+    {
+      "name": "MATRIX_MICRO_OP",
+      "value": "0x0000000000000010",
+      "description": "Frontend-issued INT8 matrix micro-ops supported."
+    },
+    {
+      "name": "INTEGER_VECTOR_BASE",
+      "value": "0x0000000000000020",
+      "description": "Baseline integer vector configuration, local-memory, ALU, compare, and shift operations supported."
+    },
+    {
+      "name": "QUANT_VECTOR",
+      "value": "0x0000000000000040",
+      "description": "Quantized vector/helper operations supported."
+    }
+  ],
+  "lifecycle_states": [
+    {
+      "name": "IDLE",
+      "value": "0x00000001",
+      "description": "No active program and no sticky terminal state is blocking a start."
+    },
+    {
+      "name": "LOADING",
+      "value": "0x00000002",
+      "description": "Program descriptor, program image, or argument setup is in progress."
+    },
+    {
+      "name": "RUNNING",
+      "value": "0x00000004",
+      "description": "Frontend is executing the Holon program ISA."
+    },
+    {
+      "name": "HALTED",
+      "value": "0x00000008",
+      "description": "Frontend is halted at a precise architectural boundary."
+    },
+    {
+      "name": "DONE",
+      "value": "0x00000010",
+      "description": "Program completed successfully. Sticky until explicitly cleared."
+    },
+    {
+      "name": "FAULT",
+      "value": "0x00000020",
+      "description": "Program, descriptor, DMA, memory, or engine fault occurred. Sticky until explicitly cleared."
+    },
+    {
+      "name": "IRQ_PENDING",
+      "value": "0x00000040",
+      "description": "At least one enabled sticky IRQ cause is pending."
+    },
+    {
+      "name": "RESETTING",
+      "value": "0x00000080",
+      "description": "Software reset is quiescing accepted AXI and local-memory work before returning to IDLE."
+    }
+  ],
   "registers": [
     {
       "name": "DEVICE_ID",
       "offset": "0x000",
-      "width": 32,
       "access": "RO",
-      "reset": "0x4E505501",
-      "description": "ASCII-like device ID, NPU plus v1 marker."
+      "reset": "0x4E505502",
+      "description": "HolonNPU programmable-tile device identifier."
     },
     {
       "name": "ABI_VERSION",
       "offset": "0x004",
-      "width": 32,
       "access": "RO",
-      "reset": "0x00020000",
-      "description": "Bits [31:16] major, [15:0] minor."
+      "reset": "0x00030000",
+      "description": "Bits [31:16] ABI major, [15:0] ABI minor."
     },
     {
-      "name": "CAP0",
+      "name": "ISA_VERSION",
       "offset": "0x008",
-      "width": 32,
       "access": "RO",
-      "reset": "0x0000003F",
-      "description": "Feature capability bits.",
-      "fields_ref": "cap0_fields"
+      "reset": "isa:version",
+      "description": "Bits [31:16] Holon ISA major, [15:0] Holon ISA minor."
     },
     {
-      "name": "CAP1",
+      "name": "CAP0_LO",
       "offset": "0x00C",
-      "width": 32,
+      "access": "RO",
+      "reset": "0x0000007F",
+      "description": "Implemented capability bits [31:0]."
+    },
+    {
+      "name": "CAP0_HI",
+      "offset": "0x010",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Implemented capability bits [63:32]."
+    },
+    {
+      "name": "OP_CLASS_LO",
+      "offset": "0x014",
+      "access": "RO",
+      "reset": "isa:op_classes_lo",
+      "description": "Implemented Holon operation classes [31:0]."
+    },
+    {
+      "name": "OP_CLASS_HI",
+      "offset": "0x018",
+      "access": "RO",
+      "reset": "isa:op_classes_hi",
+      "description": "Implemented Holon operation classes [63:32]."
+    },
+    {
+      "name": "PROGRAM_MEM_BYTES",
+      "offset": "0x01C",
+      "access": "RO",
+      "reset": "0x00010000",
+      "description": "Maximum local program-memory bytes."
+    },
+    {
+      "name": "LOCAL_MEM_BYTES",
+      "offset": "0x020",
+      "access": "RO",
+      "reset": "0x00040000",
+      "description": "Maximum local data-scratchpad bytes."
+    },
+    {
+      "name": "VECTOR_CAP0",
+      "offset": "0x024",
+      "access": "RO",
+      "reset": "0x01010010",
+      "description": "Vector baseline: [15:0] max VL, [23:16] lanes, [31:24] predicate registers."
+    },
+    {
+      "name": "MATRIX_CAP0",
+      "offset": "0x028",
       "access": "RO",
       "reset": "0x08201010",
-      "description": "Array and arithmetic widths.",
-      "fields_ref": "cap1_fields"
+      "description": "Matrix baseline: [7:0] ARRAY_K, [15:8] ARRAY_N, [23:16] ACC_BITS, [31:24] INPUT_BITS."
     },
     {
       "name": "CONTROL",
-      "offset": "0x010",
-      "width": 32,
+      "offset": "0x030",
       "access": "WO",
       "reset": "0x00000000",
-      "description": "Write-one pulse controls.",
-      "fields": [
-        {
-          "bits": "[0]",
-          "name": "SOFT_RESET",
-          "macro": "CONTROL_SOFT_RESET",
-          "value": "0x00000001",
-          "reset": 0,
-          "description": "Write 1 to reset internal control state and clear interrupts. Self-clearing pulse."
-        },
-        {
-          "bits": "[31:1]",
-          "name": "RESERVED",
-          "reset": 0,
-          "description": "Must be written as zero."
-        }
-      ]
+      "description": "Write-one lifecycle control pulses. At most one command bit may be set per write."
     },
     {
       "name": "STATUS",
-      "offset": "0x014",
-      "width": 32,
+      "offset": "0x034",
       "access": "RO",
       "reset": "0x00000001",
-      "description": "Current state and sticky indicators.",
-      "fields": [
-        {
-          "bits": "[0]",
-          "name": "IDLE",
-          "macro": "STATUS_IDLE",
-          "value": "0x00000001",
-          "reset": 1,
-          "description": "No descriptor is active and no terminal state is pending."
-        },
-        {
-          "bits": "[1]",
-          "name": "BUSY",
-          "macro": "STATUS_BUSY",
-          "value": "0x00000002",
-          "reset": 0,
-          "description": "Descriptor fetch, compute, or writeback is active."
-        },
-        {
-          "bits": "[2]",
-          "name": "DONE",
-          "macro": "STATUS_DONE",
-          "value": "0x00000004",
-          "reset": 0,
-          "description": "Last descriptor completed successfully. Sticky until CLEAR.DONE."
-        },
-        {
-          "bits": "[3]",
-          "name": "ERROR",
-          "macro": "STATUS_ERROR",
-          "value": "0x00000008",
-          "reset": 0,
-          "description": "Last descriptor or illegal access failed. Sticky until CLEAR.ERROR."
-        },
-        {
-          "bits": "[4]",
-          "name": "IRQ_PENDING",
-          "macro": "STATUS_IRQ_PENDING",
-          "value": "0x00000010",
-          "reset": 0,
-          "description": "Any enabled interrupt status bit is set."
-        },
-        {
-          "bits": "[31:5]",
-          "name": "RESERVED",
-          "reset": 0,
-          "description": "Reserved."
-        }
-      ]
+      "description": "Lifecycle state bits and sticky IRQ pending bit."
     },
     {
-      "name": "ERROR_CODE",
-      "offset": "0x018",
-      "width": 32,
+      "name": "FAULT_CODE",
+      "offset": "0x038",
       "access": "RO",
       "reset": "0x00000000",
-      "description": "Last terminal error code."
+      "description": "Last terminal fault code."
     },
     {
-      "name": "IRQ_ENABLE",
-      "offset": "0x01C",
-      "width": 32,
+      "name": "DEBUG_PC",
+      "offset": "0x03C",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Frontend PC snapshot for halt, fault, or debug step."
+    },
+    {
+      "name": "PROGRAM_DESC_ADDR_LO",
+      "offset": "0x040",
       "access": "RW",
       "reset": "0x00000000",
-      "description": "Interrupt enable bits.",
-      "valid_mask_macro": "IRQ_VALID_MASK",
-      "valid_mask": "0x00000003",
-      "fields": [
-        {
-          "bits": "[0]",
-          "name": "DONE_IRQ_EN",
-          "macro": "IRQ_DONE",
-          "value": "0x00000001",
-          "reset": 0,
-          "description": "Enable done interrupt."
-        },
-        {
-          "bits": "[1]",
-          "name": "ERROR_IRQ_EN",
-          "macro": "IRQ_ERROR",
-          "value": "0x00000002",
-          "reset": 0,
-          "description": "Enable error interrupt."
-        },
-        {
-          "bits": "[31:2]",
-          "name": "RESERVED",
-          "reset": 0,
-          "description": "Must be written as zero."
-        }
-      ]
+      "description": "Program descriptor system address bits [31:0]."
     },
     {
-      "name": "IRQ_STATUS",
-      "offset": "0x020",
-      "width": 32,
-      "access": "RW1C",
+      "name": "PROGRAM_DESC_ADDR_HI",
+      "offset": "0x044",
+      "access": "RW",
       "reset": "0x00000000",
-      "description": "Sticky interrupt causes.",
-      "fields": [
-        {
-          "bits": "[0]",
-          "name": "DONE_IRQ",
-          "reset": 0,
-          "description": "Set when a descriptor completes and descriptor flag IRQ_ON_DONE is set."
-        },
-        {
-          "bits": "[1]",
-          "name": "ERROR_IRQ",
-          "reset": 0,
-          "description": "Set when an error occurs and descriptor flag IRQ_ON_ERROR is set, or when the error happens before flags are available."
-        },
-        {
-          "bits": "[31:2]",
-          "name": "RESERVED",
-          "reset": 0,
-          "description": "Reserved."
-        }
-      ]
+      "description": "Program descriptor system address bits [63:32]."
     },
     {
       "name": "DOORBELL",
-      "offset": "0x024",
-      "width": 32,
-      "access": "WO",
-      "reset": "0x00000000",
-      "description": "Write START=1 to submit descriptor.",
-      "fields": [
-        {
-          "bits": "[0]",
-          "name": "START",
-          "macro": "DOORBELL_START",
-          "value": "0x00000001",
-          "reset": 0,
-          "description": "Write 1 to start fetching descriptor at DESC_ADDR."
-        },
-        {
-          "bits": "[31:1]",
-          "name": "RESERVED",
-          "reset": 0,
-          "description": "Must be written as zero."
-        }
-      ]
-    },
-    {
-      "name": "DESC_ADDR_LO",
-      "offset": "0x028",
-      "width": 32,
-      "access": "RW",
-      "reset": "0x00000000",
-      "description": "Descriptor base address bits [31:0]."
-    },
-    {
-      "name": "DESC_ADDR_HI",
-      "offset": "0x02C",
-      "width": 32,
-      "access": "RW",
-      "reset": "0x00000000",
-      "description": "Descriptor base address bits [63:32]."
-    },
-    {
-      "name": "CLEAR",
-      "offset": "0x030",
-      "width": 32,
-      "access": "WO",
-      "reset": "0x00000000",
-      "description": "Write-one pulse clear controls.",
-      "valid_mask_macro": "CLEAR_VALID_MASK",
-      "valid_mask": "0x00000007",
-      "fields": [
-        {
-          "bits": "[0]",
-          "name": "DONE",
-          "macro": "CLEAR_DONE",
-          "value": "0x00000001",
-          "reset": 0,
-          "description": "Write 1 to clear STATUS.DONE and IRQ_STATUS.DONE_IRQ."
-        },
-        {
-          "bits": "[1]",
-          "name": "ERROR",
-          "macro": "CLEAR_ERROR",
-          "value": "0x00000002",
-          "reset": 0,
-          "description": "Write 1 to clear STATUS.ERROR, ERROR_CODE, and IRQ_STATUS.ERROR_IRQ."
-        },
-        {
-          "bits": "[2]",
-          "name": "PERF",
-          "macro": "CLEAR_PERF",
-          "value": "0x00000004",
-          "reset": 0,
-          "description": "Write 1 to clear performance counters."
-        },
-        {
-          "bits": "[31:3]",
-          "name": "RESERVED",
-          "reset": 0,
-          "description": "Must be written as zero."
-        }
-      ]
-    },
-    {
-      "name": "RESERVED_034",
-      "offset": "0x034",
-      "width": 32,
-      "access": "RO",
-      "reset": "0x00000000",
-      "description": "Reserved."
-    },
-    {
-      "name": "RESERVED_038",
-      "offset": "0x038",
-      "width": 32,
-      "access": "RO",
-      "reset": "0x00000000",
-      "description": "Reserved."
-    },
-    {
-      "name": "RESERVED_03C",
-      "offset": "0x03C",
-      "width": 32,
-      "access": "RO",
-      "reset": "0x00000000",
-      "description": "Reserved."
-    },
-    {
-      "name": "PERF_CYCLES_LO",
-      "offset": "0x040",
-      "width": 32,
-      "access": "RO",
-      "reset": "0x00000000",
-      "description": "Descriptor-in-flight cycles low word."
-    },
-    {
-      "name": "PERF_CYCLES_HI",
-      "offset": "0x044",
-      "width": 32,
-      "access": "RO",
-      "reset": "0x00000000",
-      "description": "Descriptor-in-flight cycles high word."
-    },
-    {
-      "name": "PERF_BUSY_LO",
-      "doc_name": "PERF_BUSY_CYCLES_LO",
       "offset": "0x048",
-      "width": 32,
-      "access": "RO",
+      "access": "WO",
       "reset": "0x00000000",
-      "description": "Backend-busy cycles low word."
+      "description": "Write start pulse after descriptor address is programmed."
     },
     {
-      "name": "PERF_BUSY_HI",
-      "doc_name": "PERF_BUSY_CYCLES_HI",
+      "name": "IRQ_ENABLE",
       "offset": "0x04C",
-      "width": 32,
-      "access": "RO",
+      "access": "RW",
       "reset": "0x00000000",
-      "description": "Backend-busy cycles high word."
+      "description": "IRQ enable bits for done, fault, halt, and debug events."
     },
     {
-      "name": "PERF_DESC_COUNT",
+      "name": "IRQ_STATUS",
       "offset": "0x050",
-      "width": 32,
       "access": "RO",
       "reset": "0x00000000",
-      "description": "Completed descriptor count."
+      "description": "Sticky IRQ cause bits."
     },
     {
-      "name": "PERF_ERROR_COUNT",
+      "name": "IRQ_CLEAR",
       "offset": "0x054",
-      "width": 32,
+      "access": "WO",
+      "reset": "0x00000000",
+      "description": "Write-one IRQ clear bits."
+    },
+    {
+      "name": "PERF_CYCLE_LO",
+      "offset": "0x060",
       "access": "RO",
       "reset": "0x00000000",
-      "description": "Terminal error count."
+      "description": "Program cycle counter bits [31:0]."
+    },
+    {
+      "name": "PERF_CYCLE_HI",
+      "offset": "0x064",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Program cycle counter bits [63:32]."
+    },
+    {
+      "name": "PERF_INSTRET_LO",
+      "offset": "0x068",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Retired Holon instruction counter bits [31:0]."
+    },
+    {
+      "name": "PERF_INSTRET_HI",
+      "offset": "0x06C",
+      "access": "RO",
+      "reset": "0x00000000",
+      "description": "Retired Holon instruction counter bits [63:32]."
     }
   ],
-  "errors": [
+  "faults": [
     {
       "name": "NONE",
       "value": 0,
-      "description": "No error."
+      "description": "No fault."
     },
     {
-      "name": "INVALID_DESC_VERSION",
+      "name": "INVALID_PROGRAM_DESCRIPTOR",
       "value": 1,
-      "description": "Descriptor version is not 2."
+      "description": "Program descriptor fields are invalid."
     },
     {
-      "name": "INVALID_OPCODE",
+      "name": "UNSUPPORTED_ABI_OR_ISA",
       "value": 2,
-      "description": "Descriptor opcode is not HOLON_NPU_OPCODE_GEMM_I8I8I32."
+      "description": "ABI or Holon ISA version is unsupported."
     },
     {
-      "name": "INVALID_DESC_SIZE",
+      "name": "UNSUPPORTED_PROGRAM_FORMAT",
       "value": 3,
-      "description": "Descriptor size_bytes is not 128."
+      "description": "Program image format is unsupported."
     },
     {
-      "name": "INVALID_FLAGS",
+      "name": "UNSUPPORTED_CAPABILITY",
       "value": 4,
-      "description": "Descriptor flags contain unsupported bits."
+      "description": "Program requires unsupported capability bits."
     },
     {
-      "name": "UNSUPPORTED_ALIGNMENT",
+      "name": "UNSUPPORTED_OPERATION_CLASS",
       "value": 5,
-      "description": "Descriptor, tensor base, or row stride alignment is unsupported."
+      "description": "Program requires unsupported operation classes."
+    },
+    {
+      "name": "ALIGNMENT",
+      "value": 6,
+      "description": "Descriptor, code, argument, or completion alignment is unsupported."
+    },
+    {
+      "name": "LOCAL_MEMORY_BOUNDS",
+      "value": 7,
+      "description": "Program requested or accessed local memory out of range."
+    },
+    {
+      "name": "ILLEGAL_INSTRUCTION",
+      "value": 8,
+      "description": "Frontend decoded an illegal instruction."
+    },
+    {
+      "name": "VECTOR_CONFIG",
+      "value": 9,
+      "description": "Vector configuration is unsupported."
+    },
+    {
+      "name": "MATRIX_ISSUE",
+      "value": 10,
+      "description": "Matrix micro-op issue failed."
+    },
+    {
+      "name": "DMA_REQUEST",
+      "value": 11,
+      "description": "DMA command request is invalid."
     },
     {
       "name": "AXI_READ",
-      "value": 6,
-      "description": "AXI read response was not OKAY or EXOKAY."
+      "value": 12,
+      "description": "AXI read response failed."
     },
     {
       "name": "AXI_WRITE",
-      "value": 7,
-      "description": "AXI write response was not OKAY or EXOKAY."
+      "value": 13,
+      "description": "AXI write response failed."
     },
     {
-      "name": "INTERNAL_PROTOCOL",
-      "value": 8,
-      "description": "Internal valid-ready or scheduler invariant failed."
-    },
-    {
-      "name": "DOORBELL_BUSY",
-      "value": 9,
-      "description": "Doorbell write was attempted while busy. Used only if the implementation chooses to count the rejected write."
-    },
-    {
-      "name": "RESERVED_NONZERO",
-      "value": 10,
-      "description": "A reserved descriptor field was nonzero."
-    },
-    {
-      "name": "DIMENSION_ZERO",
-      "value": 11,
-      "description": "M, N, or K is zero."
-    },
-    {
-      "name": "DIMENSION_UNSUPPORTED",
-      "value": 12,
-      "description": "A dimension exceeds the v1.1 implementation limit."
+      "name": "EXPLICIT_PROGRAM_FAULT",
+      "value": 14,
+      "description": "Program explicitly raised a fault."
     }
   ],
-  "descriptor": {
-    "name": "GEMM",
-    "size_bytes": 128,
-    "align_bytes": 16,
-    "struct_name": "holon_npu_gemm_desc",
-    "typedef_name": "holon_npu_gemm_desc_t",
-    "config_typedef_name": "holon_npu_gemm_config_t",
-    "required_version": 2,
-    "required_opcode": "GEMM_I8I8I32",
-    "flags_valid_mask": "0x00000007",
-    "flags": [
+  "completion_status": [
+    {
+      "name": "DONE",
+      "value": "0x00000001",
+      "description": "The program completed successfully."
+    },
+    {
+      "name": "FAULT",
+      "value": "0x00000002",
+      "description": "The program terminated with the accompanying fault code."
+    }
+  ],
+  "completion_record": {
+    "struct_name": "holon_npu_completion_record",
+    "typedef_name": "holon_npu_completion_record_t",
+    "fields": [
       {
-        "bit": 0,
-        "name": "IRQ_ON_DONE",
-        "value": "0x00000001",
-        "description": "Set IRQ_STATUS.DONE_IRQ when command completes."
+        "name": "abi_version",
+        "offset": "0x00",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "0x00030000",
+        "macro_suffix": "ABI_VERSION",
+        "description": "ABI version that defines this record layout."
       },
       {
-        "bit": 1,
-        "name": "IRQ_ON_ERROR",
-        "value": "0x00000002",
-        "description": "Set IRQ_STATUS.ERROR_IRQ when command fails."
+        "name": "status",
+        "offset": "0x04",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "DONE or FAULT",
+        "macro_suffix": "STATUS",
+        "description": "Exactly one terminal completion status value."
       },
       {
-        "bit": 2,
-        "name": "CLEAR_PERF_ON_START",
-        "value": "0x00000004",
-        "description": "Clear performance counters before command execution."
+        "name": "fault_code",
+        "offset": "0x08",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "NONE for DONE",
+        "macro_suffix": "FAULT_CODE",
+        "description": "ABI fault code, or NONE when status is DONE."
+      },
+      {
+        "name": "debug_pc",
+        "offset": "0x0C",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "Precise terminal PC",
+        "macro_suffix": "DEBUG_PC",
+        "description": "Precise frontend PC at successful exit or fault."
+      },
+      {
+        "name": "cycle_count",
+        "offset": "0x10",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "Execution snapshot",
+        "macro_suffix": "CYCLE_COUNT",
+        "description": "Program cycle counter captured before completion writeback."
+      },
+      {
+        "name": "instret",
+        "offset": "0x18",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "Execution snapshot",
+        "macro_suffix": "INSTRET",
+        "description": "Retired Holon instruction count captured at termination."
       }
-    ],
+    ]
+  },
+  "descriptor": {
+    "struct_name": "holon_npu_program_desc",
+    "typedef_name": "holon_npu_program_desc_t",
     "fields": [
       {
         "name": "size_bytes",
-        "macro_suffix": "SIZE_BYTES",
         "offset": "0x00",
-        "width": 16,
         "ctype": "uint16_t",
+        "width": 16,
         "required": "128",
-        "description": "Descriptor size in bytes."
+        "macro_suffix": "SIZE_BYTES",
+        "description": "Program descriptor size in bytes."
       },
       {
         "name": "version",
-        "macro_suffix": "VERSION",
         "offset": "0x02",
-        "width": 8,
         "ctype": "uint8_t",
-        "required": "2",
-        "description": "Descriptor ABI major version."
+        "width": 8,
+        "required": "3",
+        "macro_suffix": "VERSION",
+        "description": "Program descriptor ABI major version."
       },
       {
-        "name": "opcode",
-        "macro_suffix": "OPCODE",
+        "name": "program_format",
         "offset": "0x03",
-        "width": 8,
         "ctype": "uint8_t",
+        "width": 8,
         "required": "1",
-        "description": "HOLON_NPU_OPCODE_GEMM_I8I8I32."
+        "macro_suffix": "PROGRAM_FORMAT",
+        "description": "Holon program image format identifier."
+      },
+      {
+        "name": "holon_isa_major",
+        "offset": "0x04",
+        "ctype": "uint16_t",
+        "width": 16,
+        "required": "1",
+        "macro_suffix": "HOLON_ISA_MAJOR",
+        "description": "Required Holon ISA major version."
+      },
+      {
+        "name": "holon_isa_minor",
+        "offset": "0x06",
+        "ctype": "uint16_t",
+        "width": 16,
+        "required": "0..implemented",
+        "macro_suffix": "HOLON_ISA_MINOR",
+        "description": "Minimum Holon ISA minor version required by the program."
+      },
+      {
+        "name": "required_caps",
+        "offset": "0x08",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "subset of hardware caps",
+        "macro_suffix": "REQUIRED_CAPS",
+        "description": "Required capability bits."
+      },
+      {
+        "name": "required_op_classes",
+        "offset": "0x10",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "subset of hardware op classes",
+        "macro_suffix": "REQUIRED_OP_CLASSES",
+        "description": "Required operation class bits."
+      },
+      {
+        "name": "code_addr",
+        "offset": "0x18",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "4-byte aligned",
+        "macro_suffix": "CODE_ADDR",
+        "description": "System-memory address of the Holon program image."
+      },
+      {
+        "name": "code_size_bytes",
+        "offset": "0x20",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "nonzero multiple of 4",
+        "macro_suffix": "CODE_SIZE",
+        "description": "Program image size in bytes."
+      },
+      {
+        "name": "entry_pc",
+        "offset": "0x24",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "4-byte aligned local PC",
+        "macro_suffix": "ENTRY_PC",
+        "description": "Frontend entry PC relative to local program memory."
+      },
+      {
+        "name": "arg_addr",
+        "offset": "0x28",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "16-byte aligned",
+        "macro_suffix": "ARG_ADDR",
+        "description": "System-memory address of the argument block."
+      },
+      {
+        "name": "arg_size_bytes",
+        "offset": "0x30",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "16-byte aligned size",
+        "macro_suffix": "ARG_SIZE",
+        "description": "Argument block size in bytes."
+      },
+      {
+        "name": "local_mem_bytes",
+        "offset": "0x34",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "arg size + stack size <= requested local size <= local max",
+        "macro_suffix": "LOCAL_MEM_BYTES",
+        "description": "Requested data scratchpad bytes, including argument and reserved stack/control regions."
+      },
+      {
+        "name": "program_mem_bytes",
+        "offset": "0x38",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "<= program max",
+        "macro_suffix": "PROGRAM_MEM_BYTES",
+        "description": "Requested local program memory bytes."
+      },
+      {
+        "name": "stack_bytes",
+        "offset": "0x3C",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "<= stack max and arg size + stack size <= requested local size",
+        "macro_suffix": "STACK_BYTES",
+        "description": "Bytes reserved at the top of the requested data scratchpad for frontend stack/control use."
+      },
+      {
+        "name": "completion_addr",
+        "offset": "0x40",
+        "ctype": "uint64_t",
+        "width": 64,
+        "required": "16-byte aligned or 0",
+        "macro_suffix": "COMPLETION_ADDR",
+        "description": "Optional system-memory completion/status record address."
       },
       {
         "name": "flags",
-        "macro_suffix": "FLAGS",
-        "offset": "0x04",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "See flag table",
-        "description": "Per-command options."
-      },
-      {
-        "name": "m",
-        "macro_suffix": "M",
-        "offset": "0x08",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "1..65535",
-        "description": "Rows of A and C."
-      },
-      {
-        "name": "n",
-        "macro_suffix": "N",
-        "offset": "0x0C",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "1..65535",
-        "description": "Columns of B and C."
-      },
-      {
-        "name": "k",
-        "macro_suffix": "K",
-        "offset": "0x10",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "1..65535",
-        "description": "Columns of A and rows of B."
-      },
-      {
-        "name": "reserved_14",
-        "macro_suffix": "RESERVED_14",
-        "offset": "0x14",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "0",
-        "description": "Reserved."
-      },
-      {
-        "name": "a_addr",
-        "macro_suffix": "A_ADDR",
-        "offset": "0x18",
-        "width": 64,
-        "ctype": "uint64_t",
-        "required": "16-byte aligned",
-        "description": "Base address of row-major signed INT8 A matrix."
-      },
-      {
-        "name": "b_addr",
-        "macro_suffix": "B_ADDR",
-        "offset": "0x20",
-        "width": 64,
-        "ctype": "uint64_t",
-        "required": "16-byte aligned",
-        "description": "Base address of row-major signed INT8 B matrix."
-      },
-      {
-        "name": "c_addr",
-        "macro_suffix": "C_ADDR",
-        "offset": "0x28",
-        "width": 64,
-        "ctype": "uint64_t",
-        "required": "16-byte aligned",
-        "description": "Base address of row-major signed INT32 C matrix."
-      },
-      {
-        "name": "a_row_stride_bytes",
-        "macro_suffix": "A_STRIDE",
-        "offset": "0x30",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "16-byte aligned",
-        "description": "Byte stride between A rows. Must be at least k."
-      },
-      {
-        "name": "b_row_stride_bytes",
-        "macro_suffix": "B_STRIDE",
-        "offset": "0x34",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "16-byte aligned",
-        "description": "Byte stride between B rows. Must be at least n."
-      },
-      {
-        "name": "c_row_stride_bytes",
-        "macro_suffix": "C_STRIDE",
-        "offset": "0x38",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "16-byte aligned",
-        "description": "Byte stride between C rows. Must be at least 4*n."
-      },
-      {
-        "name": "reserved_3c",
-        "macro_suffix": "RESERVED_3C",
-        "offset": "0x3C",
-        "width": 32,
-        "ctype": "uint32_t",
-        "required": "0",
-        "description": "Reserved."
-      },
-      {
-        "name": "reserved_40",
-        "macro_suffix": "RESERVED_TAIL",
-        "offset": "0x40",
-        "width": 64,
-        "ctype": "uint64_t",
-        "required": "0",
-        "description": "Reserved."
-      },
-      {
-        "name": "reserved_48",
         "offset": "0x48",
-        "width": 64,
-        "ctype": "uint64_t",
+        "ctype": "uint32_t",
+        "width": 32,
+        "required": "See flag table",
+        "macro_suffix": "FLAGS",
+        "description": "Program lifecycle, IRQ, debug, and performance flags."
+      },
+      {
+        "name": "reserved_4c",
+        "offset": "0x4C",
+        "ctype": "uint32_t",
+        "width": 32,
         "required": "0",
+        "macro_suffix": "RESERVED_4C",
         "description": "Reserved."
       },
       {
         "name": "reserved_50",
         "offset": "0x50",
-        "width": 64,
         "ctype": "uint64_t",
+        "width": 64,
         "required": "0",
+        "macro_suffix": "RESERVED_TAIL",
         "description": "Reserved."
       },
       {
         "name": "reserved_58",
         "offset": "0x58",
-        "width": 64,
         "ctype": "uint64_t",
+        "width": 64,
         "required": "0",
         "description": "Reserved."
       },
       {
         "name": "reserved_60",
         "offset": "0x60",
-        "width": 64,
         "ctype": "uint64_t",
+        "width": 64,
         "required": "0",
         "description": "Reserved."
       },
       {
         "name": "reserved_68",
         "offset": "0x68",
-        "width": 64,
         "ctype": "uint64_t",
+        "width": 64,
         "required": "0",
         "description": "Reserved."
       },
       {
         "name": "reserved_70",
         "offset": "0x70",
-        "width": 64,
         "ctype": "uint64_t",
+        "width": 64,
         "required": "0",
         "description": "Reserved."
       },
       {
         "name": "reserved_78",
         "offset": "0x78",
-        "width": 64,
         "ctype": "uint64_t",
+        "width": 64,
         "required": "0",
         "description": "Reserved."
-      }
-    ]
-  },
-  "internal_command": {
-    "width": 387,
-    "fields": [
-      {
-        "name": "IRQ_ON_DONE_BIT",
-        "value": 0
-      },
-      {
-        "name": "IRQ_ON_ERROR_BIT",
-        "value": 1
-      },
-      {
-        "name": "CLEAR_PERF_BIT",
-        "value": 2
-      },
-      {
-        "name": "M_LSB",
-        "value": 3
-      },
-      {
-        "name": "N_LSB",
-        "value": 35
-      },
-      {
-        "name": "K_LSB",
-        "value": 67
-      },
-      {
-        "name": "A_ADDR_LSB",
-        "value": 99
-      },
-      {
-        "name": "B_ADDR_LSB",
-        "value": 163
-      },
-      {
-        "name": "C_ADDR_LSB",
-        "value": 227
-      },
-      {
-        "name": "A_STRIDE_LSB",
-        "value": 291
-      },
-      {
-        "name": "B_STRIDE_LSB",
-        "value": 323
-      },
-      {
-        "name": "C_STRIDE_LSB",
-        "value": 355
       }
     ]
   }

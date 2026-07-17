@@ -2,11 +2,11 @@
 
 module npu_reference_frontend_core (
     npu_frontend_if.frontend       frontend,
-    npu_v2_localmem_rd_if.master  data_rd,
-    npu_v2_localmem_wr_if.master  data_wr
+    npu_localmem_rd_if.master  data_rd,
+    npu_localmem_wr_if.master  data_wr
 );
 
-    import npu_v2_pkg::*;
+    import npu_pkg::*;
     import npu_isa_pkg::*;
 
     typedef enum logic [4:0] {
@@ -26,7 +26,8 @@ module npu_reference_frontend_core (
         STATE_SCALAR_STORE_WAIT,
         STATE_HALTED,
         STATE_DONE,
-        STATE_FAULT
+        STATE_FAULT,
+        STATE_RESETTING
     } frontend_state_e;
 
     frontend_state_e state_q;
@@ -124,7 +125,9 @@ module npu_reference_frontend_core (
     assign scalar_branch_taken =
         ((instruction_opcode == NPU_ISA_OPCODE_FRONTEND_CONTROL_BEQ) && scalar_branch_equal) ||
         ((instruction_opcode == NPU_ISA_OPCODE_FRONTEND_CONTROL_BNE) && !scalar_branch_equal);
-    assign retire_state = step_active_q ? STATE_HALTED : STATE_FETCH;
+    assign retire_state = frontend.soft_reset
+        ? STATE_RESETTING
+        : (step_active_q ? STATE_HALTED : STATE_FETCH);
 
     always_comb begin
         csr_instruction_valid = (instruction_opcode == NPU_ISA_OPCODE_CSR_DEBUG_READ) &&
@@ -160,6 +163,7 @@ module npu_reference_frontend_core (
     assign frontend.fault_code = fault_code_q;
     assign frontend.debug_pc = pc_q;
     assign frontend.instret = instret_q;
+    assign frontend.quiescent = state_q == STATE_RESETTING;
     assign frontend.program_rd_valid = (state_q == STATE_FETCH) &&
                                        !frontend.halt_request &&
                                        fetch_in_range;
@@ -187,24 +191,7 @@ module npu_reference_frontend_core (
             state_q <= STATE_IDLE;
             pc_q <= 32'h0000_0000;
             program_size_bytes_q <= 32'h0000_0000;
-            fault_code_q <= NPU_V2_FAULT_NONE;
-            instret_q <= 64'h0000_0000_0000_0000;
-            dma_issue_data_q <= '0;
-            vector_issue_data_q <= '0;
-            matrix_issue_data_q <= '0;
-            sync_issue_data_q <= '0;
-            scalar_rd_q <= 4'd0;
-            scalar_mem_addr_q <= 32'd0;
-            scalar_store_data_q <= 32'd0;
-            step_active_q <= 1'b0;
-            for (int reg_index = 0; reg_index < NPU_ISA_SCALAR_REGISTER_COUNT; reg_index++) begin
-                scalar_reg_q[reg_index] <= 32'd0;
-            end
-        end else if (frontend.soft_reset) begin
-            state_q <= STATE_IDLE;
-            pc_q <= 32'h0000_0000;
-            program_size_bytes_q <= 32'h0000_0000;
-            fault_code_q <= NPU_V2_FAULT_NONE;
+            fault_code_q <= NPU_FAULT_NONE;
             instret_q <= 64'h0000_0000_0000_0000;
             dma_issue_data_q <= '0;
             vector_issue_data_q <= '0;
@@ -221,10 +208,12 @@ module npu_reference_frontend_core (
             scalar_reg_q[0] <= 32'd0;
             unique case (state_q)
                 STATE_IDLE: begin
-                    if (frontend.start) begin
+                    if (frontend.soft_reset) begin
+                        state_q <= STATE_RESETTING;
+                    end else if (frontend.start) begin
                         pc_q <= frontend.entry_pc;
                         program_size_bytes_q <= frontend.program_size_bytes;
-                        fault_code_q <= NPU_V2_FAULT_NONE;
+                        fault_code_q <= NPU_FAULT_NONE;
                         instret_q <= 64'h0000_0000_0000_0000;
                         step_active_q <= 1'b0;
                         for (int reg_index = 0; reg_index < NPU_ISA_SCALAR_REGISTER_COUNT; reg_index++) begin
@@ -233,7 +222,7 @@ module npu_reference_frontend_core (
                         if ((frontend.entry_pc[1:0] != 2'b00) ||
                             (frontend.program_size_bytes < NPU_ISA_INSTRUCTION_BYTES) ||
                             (frontend.entry_pc > (frontend.program_size_bytes - NPU_ISA_INSTRUCTION_BYTES))) begin
-                            fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                            fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                             state_q <= STATE_FAULT;
                         end else begin
                             state_q <= STATE_FETCH;
@@ -245,7 +234,7 @@ module npu_reference_frontend_core (
                     if (frontend.halt_request) begin
                         state_q <= STATE_HALTED;
                     end else if (!fetch_in_range) begin
-                        fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                        fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                         state_q <= STATE_FAULT;
                     end else begin
                         state_q <= STATE_WAIT_RESPONSE;
@@ -254,14 +243,16 @@ module npu_reference_frontend_core (
 
                 STATE_WAIT_RESPONSE: begin
                     if (frontend.program_rd_resp_valid) begin
-                        if (frontend.program_rd_resp_error) begin
-                            fault_code_q <= NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS;
+                        if (frontend.soft_reset) begin
+                            state_q <= STATE_RESETTING;
+                        end else if (frontend.program_rd_resp_error) begin
+                            fault_code_q <= NPU_FAULT_LOCAL_MEMORY_BOUNDS;
                             state_q <= STATE_FAULT;
                         end else if (instruction_class == NPU_ISA_CLASS_FRONTEND_CONTROL) begin
                             unique case (instruction_opcode)
                                 NPU_ISA_OPCODE_FRONTEND_CONTROL_MOVI: begin
                                     if ((instruction_rs1 != 4'd0) || (instruction_rs2 != 4'd0)) begin
-                                        fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                        fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                         state_q <= STATE_FAULT;
                                     end else begin
                                         if (instruction_rd != 4'd0) begin
@@ -276,7 +267,7 @@ module npu_reference_frontend_core (
 
                                 NPU_ISA_OPCODE_FRONTEND_CONTROL_ADD: begin
                                     if (instruction_imm != 12'd0) begin
-                                        fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                        fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                         state_q <= STATE_FAULT;
                                     end else begin
                                         if (instruction_rd != 4'd0) begin
@@ -292,7 +283,7 @@ module npu_reference_frontend_core (
 
                                 NPU_ISA_OPCODE_FRONTEND_CONTROL_ADDI: begin
                                     if (instruction_rs2 != 4'd0) begin
-                                        fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                        fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                         state_q <= STATE_FAULT;
                                     end else begin
                                         if (instruction_rd != 4'd0) begin
@@ -309,8 +300,8 @@ module npu_reference_frontend_core (
                                 NPU_ISA_OPCODE_FRONTEND_CONTROL_LOAD: begin
                                     if ((instruction_rs2 != 4'd0) || !scalar_address_valid) begin
                                         fault_code_q <= (instruction_rs2 != 4'd0)
-                                            ? NPU_V2_FAULT_ILLEGAL_INSTRUCTION
-                                            : NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS;
+                                            ? NPU_FAULT_ILLEGAL_INSTRUCTION
+                                            : NPU_FAULT_LOCAL_MEMORY_BOUNDS;
                                         state_q <= STATE_FAULT;
                                     end else begin
                                         scalar_rd_q <= instruction_rd;
@@ -322,8 +313,8 @@ module npu_reference_frontend_core (
                                 NPU_ISA_OPCODE_FRONTEND_CONTROL_STORE: begin
                                     if ((instruction_rd != 4'd0) || !scalar_address_valid) begin
                                         fault_code_q <= (instruction_rd != 4'd0)
-                                            ? NPU_V2_FAULT_ILLEGAL_INSTRUCTION
-                                            : NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS;
+                                            ? NPU_FAULT_ILLEGAL_INSTRUCTION
+                                            : NPU_FAULT_LOCAL_MEMORY_BOUNDS;
                                         state_q <= STATE_FAULT;
                                     end else begin
                                         scalar_mem_addr_q <= scalar_address_wide[31:0];
@@ -336,7 +327,7 @@ module npu_reference_frontend_core (
                                 NPU_ISA_OPCODE_FRONTEND_CONTROL_BNE: begin
                                     if ((instruction_rd != 4'd0) ||
                                         (scalar_branch_taken && !branch_target_valid)) begin
-                                        fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                        fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                         state_q <= STATE_FAULT;
                                     end else begin
                                         pc_q <= scalar_branch_taken
@@ -349,7 +340,7 @@ module npu_reference_frontend_core (
                                 end
 
                                 default: begin
-                                    fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                    fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                     state_q <= STATE_FAULT;
                                 end
                             endcase
@@ -363,7 +354,7 @@ module npu_reference_frontend_core (
                                 };
                                 state_q <= STATE_DMA_ISSUE;
                             end else begin
-                                fault_code_q <= NPU_V2_FAULT_DMA_REQUEST;
+                                fault_code_q <= NPU_FAULT_DMA_REQUEST;
                                 state_q <= STATE_FAULT;
                             end
                         end else if (instruction_class == NPU_ISA_CLASS_SYNC) begin
@@ -371,7 +362,7 @@ module npu_reference_frontend_core (
                                 sync_issue_data_q <= {32'd0, frontend.program_rd_resp_data};
                                 state_q <= STATE_SYNC_ISSUE;
                             end else begin
-                                fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                 state_q <= STATE_FAULT;
                             end
                         end else if ((instruction_class == NPU_ISA_CLASS_PREDICATE) ||
@@ -388,7 +379,7 @@ module npu_reference_frontend_core (
                             state_q <= STATE_MATRIX_ISSUE;
                         end else if (instruction_class == NPU_ISA_CLASS_CSR_DEBUG) begin
                             if (!csr_instruction_valid) begin
-                                fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                 state_q <= STATE_FAULT;
                             end else begin
                                 if (instruction_rd != 4'd0) begin
@@ -404,22 +395,24 @@ module npu_reference_frontend_core (
                                 NPU_ISA_OPCODE_SYSTEM_EXIT: begin
                                     pc_q <= pc_q + NPU_ISA_INSTRUCTION_BYTES;
                                     instret_q <= instret_q + 64'd1;
-                                    fault_code_q <= NPU_V2_FAULT_NONE;
+                                    fault_code_q <= NPU_FAULT_NONE;
                                     state_q <= STATE_DONE;
                                 end
 
                                 NPU_ISA_OPCODE_SYSTEM_FAULT: begin
-                                    fault_code_q <= 32'(instruction_imm);
+                                    fault_code_q <= (instruction_imm == 12'd0)
+                                        ? NPU_FAULT_EXPLICIT_PROGRAM_FAULT
+                                        : NPU_FAULT_ILLEGAL_INSTRUCTION;
                                     state_q <= STATE_FAULT;
                                 end
 
                                 default: begin
-                                    fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                                    fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                                     state_q <= STATE_FAULT;
                                 end
                             endcase
                         end else begin
-                            fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                            fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                             state_q <= STATE_FAULT;
                         end
 
@@ -502,7 +495,7 @@ module npu_reference_frontend_core (
                 STATE_SCALAR_LOAD_WAIT: begin
                     if (data_rd.resp_valid) begin
                         if (data_rd.resp_error) begin
-                            fault_code_q <= NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS;
+                            fault_code_q <= NPU_FAULT_LOCAL_MEMORY_BOUNDS;
                             state_q <= STATE_FAULT;
                         end else begin
                             if (scalar_rd_q != 4'd0) begin
@@ -525,7 +518,7 @@ module npu_reference_frontend_core (
                 STATE_SCALAR_STORE_WAIT: begin
                     if (data_wr.resp_valid) begin
                         if (data_wr.resp_error) begin
-                            fault_code_q <= NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS;
+                            fault_code_q <= NPU_FAULT_LOCAL_MEMORY_BOUNDS;
                             state_q <= STATE_FAULT;
                         end else begin
                             pc_q <= pc_q + NPU_ISA_INSTRUCTION_BYTES;
@@ -537,12 +530,14 @@ module npu_reference_frontend_core (
                 end
 
                 STATE_HALTED: begin
-                    if (frontend.resume) begin
+                    if (frontend.soft_reset) begin
+                        state_q <= STATE_RESETTING;
+                    end else if (frontend.resume) begin
                         step_active_q <= 1'b0;
                         state_q <= STATE_FETCH;
                     end else if (frontend.debug_step) begin
                         if (!fetch_in_range) begin
-                            fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                            fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                             state_q <= STATE_FAULT;
                         end else begin
                             step_active_q <= 1'b1;
@@ -553,10 +548,12 @@ module npu_reference_frontend_core (
 
                 STATE_DONE,
                 STATE_FAULT: begin
-                    if (frontend.start) begin
+                    if (frontend.soft_reset) begin
+                        state_q <= STATE_RESETTING;
+                    end else if (frontend.start) begin
                         pc_q <= frontend.entry_pc;
                         program_size_bytes_q <= frontend.program_size_bytes;
-                        fault_code_q <= NPU_V2_FAULT_NONE;
+                        fault_code_q <= NPU_FAULT_NONE;
                         instret_q <= 64'h0000_0000_0000_0000;
                         step_active_q <= 1'b0;
                         for (int reg_index = 0; reg_index < NPU_ISA_SCALAR_REGISTER_COUNT; reg_index++) begin
@@ -565,7 +562,7 @@ module npu_reference_frontend_core (
                         if ((frontend.entry_pc[1:0] != 2'b00) ||
                             (frontend.program_size_bytes < NPU_ISA_INSTRUCTION_BYTES) ||
                             (frontend.entry_pc > (frontend.program_size_bytes - NPU_ISA_INSTRUCTION_BYTES))) begin
-                            fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                            fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                             state_q <= STATE_FAULT;
                         end else begin
                             state_q <= STATE_FETCH;
@@ -573,33 +570,55 @@ module npu_reference_frontend_core (
                     end
                 end
 
+                STATE_RESETTING: begin
+                    if (!frontend.soft_reset) begin
+                        state_q <= STATE_IDLE;
+                        pc_q <= 32'h0000_0000;
+                        program_size_bytes_q <= 32'h0000_0000;
+                        fault_code_q <= NPU_FAULT_NONE;
+                        instret_q <= 64'h0000_0000_0000_0000;
+                        dma_issue_data_q <= '0;
+                        vector_issue_data_q <= '0;
+                        matrix_issue_data_q <= '0;
+                        sync_issue_data_q <= '0;
+                        scalar_rd_q <= 4'd0;
+                        scalar_mem_addr_q <= 32'd0;
+                        scalar_store_data_q <= 32'd0;
+                        step_active_q <= 1'b0;
+                        for (int reg_index = 0; reg_index < NPU_ISA_SCALAR_REGISTER_COUNT; reg_index++) begin
+                            scalar_reg_q[reg_index] <= 32'd0;
+                        end
+                    end
+                end
+
                 default: begin
-                    fault_code_q <= NPU_V2_FAULT_ILLEGAL_INSTRUCTION;
+                    fault_code_q <= NPU_FAULT_ILLEGAL_INSTRUCTION;
                     state_q <= STATE_FAULT;
                 end
             endcase
         end
     end
 
-    v2_frontend_terminal_state_stable: assert property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
-            (state_q == STATE_DONE || state_q == STATE_FAULT) && !frontend.start |=> state_q == $past(state_q)
+     frontend_terminal_state_stable: assert property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
+            (state_q == STATE_DONE || state_q == STATE_FAULT) && !frontend.start
+            |=> frontend.soft_reset || state_q == $past(state_q)
     );
-    v2_frontend_fault_has_code: assert property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
-            frontend.fault |-> (frontend.fault_code != NPU_V2_FAULT_NONE)
+     frontend_fault_has_code: assert property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
+            frontend.fault |-> (frontend.fault_code != NPU_FAULT_NONE)
     );
-    v2_frontend_fetch_aligned: assert property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_fetch_aligned: assert property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_valid |-> (frontend.program_rd_addr[1:0] == 2'b00)
     );
-    v2_frontend_scalar_memory_aligned: assert property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_scalar_memory_aligned: assert property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             (data_rd.req_valid |-> data_rd.req_addr[1:0] == 2'b00) and
             (data_wr.req_valid |-> data_wr.req_addr[1:0] == 2'b00 && data_wr.req_strb == 4'hF)
     );
-    v2_frontend_debug_step_returns_halted: assert property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_debug_step_returns_halted: assert property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             step_active_q && ((state_q == STATE_WAIT_RESPONSE) ||
                               (state_q == STATE_DMA_WAIT) ||
                               (state_q == STATE_VECTOR_WAIT) ||
@@ -608,71 +627,71 @@ module npu_reference_frontend_core (
                               (state_q == STATE_SCALAR_STORE_WAIT))
             |-> !frontend.done
     );
-    v2_frontend_system_exit_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_system_exit_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_resp_valid &&
             (instruction_class == NPU_ISA_CLASS_SYSTEM) &&
             (instruction_opcode == NPU_ISA_OPCODE_SYSTEM_EXIT)
     );
-    v2_frontend_system_fault_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_system_fault_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_resp_valid &&
             (instruction_class == NPU_ISA_CLASS_SYSTEM) &&
             (instruction_opcode == NPU_ISA_OPCODE_SYSTEM_FAULT)
     );
-    v2_frontend_dma_load_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_dma_load_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_resp_valid &&
             (instruction_class == NPU_ISA_CLASS_DMA) &&
             (instruction_opcode == NPU_ISA_OPCODE_DMA_LOAD)
     );
-    v2_frontend_dma_store_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_dma_store_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_resp_valid &&
             (instruction_class == NPU_ISA_CLASS_DMA) &&
             (instruction_opcode == NPU_ISA_OPCODE_DMA_STORE)
     );
-    v2_frontend_sync_wait_dma_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_sync_wait_dma_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_resp_valid &&
             (instruction_class == NPU_ISA_CLASS_SYNC) &&
             (instruction_opcode == NPU_ISA_OPCODE_SYNC_WAIT_DMA)
     );
-    v2_frontend_sync_fence_local_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_sync_fence_local_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_resp_valid &&
             (instruction_class == NPU_ISA_CLASS_SYNC) &&
             (instruction_opcode == NPU_ISA_OPCODE_SYNC_FENCE_LOCAL)
     );
-    v2_frontend_sync_fence_dma_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_sync_fence_dma_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.program_rd_resp_valid &&
             (instruction_class == NPU_ISA_CLASS_SYNC) &&
             (instruction_opcode == NPU_ISA_OPCODE_SYNC_FENCE_DMA)
     );
-    v2_frontend_vector_issue_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_vector_issue_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.vector_issue_valid && frontend.vector_issue_ready
     );
-    v2_frontend_vector_success_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_vector_success_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.vector_result_valid && frontend.vector_result_ready &&
             !frontend.vector_result_data[0]
     );
-    v2_frontend_matrix_issue_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_matrix_issue_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.matrix_issue_valid && frontend.matrix_issue_ready
     );
-    v2_frontend_matrix_success_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_matrix_success_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.matrix_result_valid && !frontend.matrix_result_data[0]
     );
-    v2_frontend_sync_issue_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_sync_issue_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.sync_issue_valid && frontend.sync_issue_ready
     );
-    v2_frontend_vector_fault_seen: cover property (
-        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni || frontend.soft_reset)
+     frontend_vector_fault_seen: cover property (
+        @(posedge frontend.clk_i) disable iff (!frontend.rst_ni)
             frontend.vector_result_valid && frontend.vector_result_ready &&
             frontend.vector_result_data[0]
     );

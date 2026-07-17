@@ -1,18 +1,16 @@
 #include "Vnpu_top.h"
 
-#include "gemm_case_gen.hpp"
 #include "tb_coverage.hpp"
 
-#include "holon_npu_desc.h"
-#include "holon_npu_regs.h"
+#include "holon_npu_isa.h"
+#include "holon_npu_program.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <deque>
 #include <iostream>
-#include <random>
-#include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -20,38 +18,25 @@
 
 namespace {
 
-constexpr std::uint32_t kRespOkay = 0;
-constexpr std::uint32_t kRespSlvErr = 2;
-
-struct Beat {
-    std::uint64_t lo = 0;
-    std::uint64_t hi = 0;
-};
+constexpr std::uint32_t kOkay = 0;
+constexpr std::uint64_t kDescriptorAddress = 0x1000;
+constexpr std::uint64_t kProgramAddress = 0x2000;
+constexpr std::uint64_t kCompletionAddress = 0x3000;
 
 struct Burst {
-    std::uint64_t addr = 0;
+    std::uint64_t address = 0;
     std::uint32_t beats = 0;
+    std::uint32_t size = 0;
     std::uint32_t index = 0;
-    std::uint32_t id = 0;
 };
 
-struct GemmCase {
-    int m = 0;
-    int n = 0;
-    int k = 0;
-    std::uint32_t seed = 0;
-    std::string name;
+struct AxiControls {
+    bool arready = true;
+    bool rvalid = true;
+    bool awready = true;
+    bool wready = true;
+    bool bvalid = true;
 };
-
-GemmCase to_gemm_case(const holon_npu_tb::GeneratedGemmCase& test_case) {
-    return GemmCase{
-        test_case.m,
-        test_case.n,
-        test_case.k,
-        test_case.seed,
-        test_case.name,
-    };
-}
 
 void eval(Vnpu_top& dut) {
     dut.eval();
@@ -66,20 +51,6 @@ void tick(Vnpu_top& dut) {
     eval(dut);
 }
 
-std::uint32_t align_up(std::uint32_t value, std::uint32_t alignment) {
-    return ((value + alignment - 1U) / alignment) * alignment;
-}
-
-bool expect_eq(std::string_view name, std::uint64_t actual, std::uint64_t expected) {
-    if (actual == expected) {
-        return true;
-    }
-
-    std::cerr << name << ": expected 0x" << std::hex << expected
-              << ", got 0x" << actual << std::dec << '\n';
-    return false;
-}
-
 void clear_inputs(Vnpu_top& dut) {
     dut.s_axil_awaddr_i = 0;
     dut.s_axil_awvalid_i = 0;
@@ -91,14 +62,15 @@ void clear_inputs(Vnpu_top& dut) {
     dut.s_axil_arvalid_i = 0;
     dut.s_axil_rready_i = 1;
     dut.m_axi_arready_i = 0;
-    dut.m_axi_rdata_lo_i = 0;
-    dut.m_axi_rdata_hi_i = 0;
-    dut.m_axi_rresp_i = kRespOkay;
+    for (std::size_t word = 0; word < 4; ++word) {
+        dut.m_axi_rdata_i[word] = 0;
+    }
+    dut.m_axi_rresp_i = kOkay;
     dut.m_axi_rlast_i = 0;
     dut.m_axi_rvalid_i = 0;
     dut.m_axi_awready_i = 0;
     dut.m_axi_wready_i = 0;
-    dut.m_axi_bresp_i = kRespOkay;
+    dut.m_axi_bresp_i = kOkay;
     dut.m_axi_bvalid_i = 0;
 }
 
@@ -111,726 +83,471 @@ void reset(Vnpu_top& dut) {
     eval(dut);
 }
 
+bool expect_eq(std::string_view name, std::uint64_t actual, std::uint64_t expected) {
+    if (actual == expected) {
+        return true;
+    }
+    std::cerr << name << ": expected 0x" << std::hex << expected
+              << ", got 0x" << actual << std::dec << '\n';
+    return false;
+}
+
 class AxiMemory {
 public:
-    explicit AxiMemory(std::size_t size) : memory_(size) {}
+    explicit AxiMemory(std::size_t byte_count) : bytes_(byte_count) {}
 
-    void store_u8(std::uint64_t addr, std::uint8_t value) {
-        memory_.at(addr) = value;
-    }
-
-    std::uint8_t load_u8(std::uint64_t addr) const {
-        return memory_.at(addr);
-    }
-
-    std::uint32_t load_u32(std::uint64_t addr) const {
-        std::uint32_t value = 0;
-        for (int byte = 0; byte < 4; ++byte) {
-            value |= static_cast<std::uint32_t>(memory_.at(addr + byte)) << (byte * 8);
-        }
-        return value;
-    }
-
-    void store_descriptor(std::uint64_t addr, const holon_npu_gemm_desc_t& desc) {
-        const auto* bytes = reinterpret_cast<const std::uint8_t*>(&desc);
-        for (std::size_t offset = 0; offset < sizeof(desc); ++offset) {
-            memory_.at(addr + offset) = bytes[offset];
+    template <typename T>
+    void store_object(std::uint64_t address, const T& object) {
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(&object);
+        for (std::size_t index = 0; index < sizeof(T); ++index) {
+            bytes_.at(address + index) = bytes[index];
         }
     }
 
-    void inject_read_error(std::uint32_t burst_id, std::uint32_t beat_index) {
-        read_error_enabled_ = true;
-        read_error_burst_id_ = burst_id;
-        read_error_beat_index_ = beat_index;
-        read_error_used_ = false;
+    void store_words(std::uint64_t address, std::span<const std::uint32_t> words) {
+        for (std::size_t index = 0; index < words.size(); ++index) {
+            const auto word_address = address + index * sizeof(std::uint32_t);
+            for (std::size_t byte = 0; byte < sizeof(std::uint32_t); ++byte) {
+                bytes_.at(word_address + byte) =
+                    static_cast<std::uint8_t>((words[index] >> (byte * 8U)) & 0xFFU);
+            }
+        }
     }
 
-    bool read_error_used() const {
-        return read_error_used_;
+    template <typename T>
+    T read_object(std::uint64_t address) const {
+        T object{};
+        auto* bytes = reinterpret_cast<std::uint8_t*>(&object);
+        for (std::size_t index = 0; index < sizeof(T); ++index) {
+            bytes[index] = bytes_.at(address + index);
+        }
+        return object;
     }
 
-    void inject_next_write_error() {
-        write_error_once_ = true;
+    [[nodiscard]] bool write_response_pending() const {
+        return write_response_pending_;
     }
 
-    bool write_error_used() const {
-        return write_error_used_;
+    [[nodiscard]] bool write_profile_valid() const {
+        return write_profile_valid_;
     }
 
-    void step(Vnpu_top& dut) {
-        dut.m_axi_arready_i = 1;
-        dut.m_axi_awready_i = 1;
-        dut.m_axi_wready_i = 1;
+    [[nodiscard]] bool read_inflight() const {
+        return active_ || !pending_.empty();
+    }
 
-        if (!read_active_ && !read_pending_.empty()) {
-            read_active_ = true;
-            read_burst_ = read_pending_.front();
-            read_pending_.pop_front();
+    void step(Vnpu_top& dut, AxiControls controls = {}) {
+        dut.m_axi_arready_i = controls.arready ? 1 : 0;
+        dut.m_axi_awready_i = controls.awready ? 1 : 0;
+        dut.m_axi_wready_i = controls.wready ? 1 : 0;
+        dut.m_axi_bvalid_i = (write_response_pending_ && controls.bvalid) ? 1 : 0;
+        dut.m_axi_bresp_i = kOkay;
+
+        if (!active_ && !pending_.empty()) {
+            active_ = true;
+            burst_ = pending_.front();
+            pending_.pop_front();
         }
 
-        if (read_active_) {
-            const bool last = (read_burst_.index + 1U) == read_burst_.beats;
-            const auto beat = load_beat(read_burst_.addr + (static_cast<std::uint64_t>(read_burst_.index) * 16U));
-            const bool read_error =
-                read_error_enabled_ && !read_error_used_ &&
-                (read_burst_.id == read_error_burst_id_) &&
-                (read_burst_.index == read_error_beat_index_);
+        if (active_ && controls.rvalid) {
+            const auto beat_bytes = std::uint64_t{1} << burst_.size;
+            const auto beat_address = burst_.address + burst_.index * beat_bytes;
+            const auto bus_address = beat_address & ~std::uint64_t{0x0F};
+            for (std::size_t word = 0; word < 4; ++word) {
+                dut.m_axi_rdata_i[word] = load32(bus_address + word * sizeof(std::uint32_t));
+            }
             dut.m_axi_rvalid_i = 1;
-            dut.m_axi_rdata_lo_i = beat.lo;
-            dut.m_axi_rdata_hi_i = beat.hi;
-            dut.m_axi_rlast_i = last ? 1 : 0;
-            dut.m_axi_rresp_i = read_error ? kRespSlvErr : kRespOkay;
+            dut.m_axi_rlast_i = (burst_.index + 1U == burst_.beats) ? 1 : 0;
+            dut.m_axi_rresp_i = kOkay;
         } else {
+            for (std::size_t word = 0; word < 4; ++word) {
+                dut.m_axi_rdata_i[word] = 0;
+            }
             dut.m_axi_rvalid_i = 0;
-            dut.m_axi_rdata_lo_i = 0;
-            dut.m_axi_rdata_hi_i = 0;
             dut.m_axi_rlast_i = 0;
-            dut.m_axi_rresp_i = kRespOkay;
-        }
-
-        if (write_response_pending_) {
-            dut.m_axi_bvalid_i = 1;
-            dut.m_axi_bresp_i = write_response_error_pending_ ? kRespSlvErr : kRespOkay;
-        } else {
-            dut.m_axi_bvalid_i = 0;
-            dut.m_axi_bresp_i = kRespOkay;
+            dut.m_axi_rresp_i = kOkay;
         }
 
         eval(dut);
-
         const bool ar_fire = dut.m_axi_arvalid_o && dut.m_axi_arready_i;
         const bool r_fire = dut.m_axi_rvalid_i && dut.m_axi_rready_o;
         const bool aw_fire = dut.m_axi_awvalid_o && dut.m_axi_awready_i;
         const bool w_fire = dut.m_axi_wvalid_o && dut.m_axi_wready_i;
         const bool b_fire = dut.m_axi_bvalid_i && dut.m_axi_bready_o;
-        const auto ar_addr = static_cast<std::uint64_t>(dut.m_axi_araddr_o);
+        const auto ar_address = static_cast<std::uint64_t>(dut.m_axi_araddr_o);
         const auto ar_beats = static_cast<std::uint32_t>(dut.m_axi_arlen_o) + 1U;
-        const auto aw_addr = static_cast<std::uint64_t>(dut.m_axi_awaddr_o);
+        const auto ar_size = static_cast<std::uint32_t>(dut.m_axi_arsize_o);
+        const auto aw_address = static_cast<std::uint64_t>(dut.m_axi_awaddr_o);
         const auto aw_beats = static_cast<std::uint32_t>(dut.m_axi_awlen_o) + 1U;
-        const auto w_beat = Beat{
-            static_cast<std::uint64_t>(dut.m_axi_wdata_lo_o),
-            static_cast<std::uint64_t>(dut.m_axi_wdata_hi_o),
-        };
-        const bool w_last = dut.m_axi_wlast_o != 0;
-
+        const auto aw_size = static_cast<std::uint32_t>(dut.m_axi_awsize_o);
+        const auto aw_burst = static_cast<std::uint32_t>(dut.m_axi_awburst_o);
+        const auto write_strobe = static_cast<std::uint32_t>(dut.m_axi_wstrb_o);
+        const bool write_last = dut.m_axi_wlast_o != 0;
+        std::array<std::uint32_t, 4> write_data{};
+        for (std::size_t word = 0; word < write_data.size(); ++word) {
+            write_data[word] = dut.m_axi_wdata_o[word];
+        }
         tick(dut);
 
         if (ar_fire) {
-            read_pending_.push_back(Burst{ar_addr, ar_beats, 0, next_read_burst_id_});
-            next_read_burst_id_ += 1U;
+            pending_.push_back(Burst{ar_address, ar_beats, ar_size, 0});
         }
-
-        if (r_fire && read_active_) {
-            if (read_error_enabled_ && !read_error_used_ &&
-                (read_burst_.id == read_error_burst_id_) &&
-                (read_burst_.index == read_error_beat_index_)) {
-                read_error_used_ = true;
-            }
-            read_burst_.index += 1U;
-            if (read_burst_.index == read_burst_.beats) {
-                read_active_ = false;
+        if (r_fire && active_) {
+            ++burst_.index;
+            if (burst_.index == burst_.beats) {
+                active_ = false;
             }
         }
-
         if (aw_fire) {
             write_active_ = true;
-            write_burst_ = Burst{aw_addr, aw_beats, 0};
+            write_address_ = aw_address;
+            write_size_ = aw_size;
+            write_beats_ = aw_beats;
+            write_index_ = 0;
+            write_profile_valid_ = write_profile_valid_ &&
+                                   (aw_address == kCompletionAddress) &&
+                                   (aw_beats == 2U) &&
+                                   (aw_size == 4U) &&
+                                   (aw_burst == 1U);
         }
-
         if (w_fire && write_active_) {
-            store_beat(write_burst_.addr + (static_cast<std::uint64_t>(write_burst_.index) * 16U), w_beat);
-            write_burst_.index += 1U;
-            if (w_last) {
+            const auto beat_bytes = std::uint64_t{1} << write_size_;
+            const auto beat_address = write_address_ + write_index_ * beat_bytes;
+            store_write_beat(beat_address, write_data, write_strobe);
+            ++write_index_;
+            write_profile_valid_ = write_profile_valid_ &&
+                                   (write_strobe == 0xFFFFU) &&
+                                   (write_last == (write_index_ == write_beats_));
+            if (write_last) {
                 write_active_ = false;
                 write_response_pending_ = true;
-                write_response_error_pending_ = write_error_once_;
-                if (write_error_once_) {
-                    write_error_used_ = true;
-                    write_error_once_ = false;
-                }
             }
         }
-
         if (b_fire) {
             write_response_pending_ = false;
-            write_response_error_pending_ = false;
         }
     }
 
 private:
-    Beat load_beat(std::uint64_t addr) const {
-        Beat beat;
-        for (int byte = 0; byte < 8; ++byte) {
-            beat.lo |= static_cast<std::uint64_t>(memory_.at(addr + byte)) << (byte * 8);
-            beat.hi |= static_cast<std::uint64_t>(memory_.at(addr + 8 + byte)) << (byte * 8);
+    std::uint32_t load32(std::uint64_t address) const {
+        std::uint32_t result = 0;
+        for (std::size_t byte = 0; byte < sizeof(result); ++byte) {
+            result |= static_cast<std::uint32_t>(bytes_.at(address + byte)) << (byte * 8U);
         }
-        return beat;
+        return result;
     }
 
-    void store_beat(std::uint64_t addr, Beat beat) {
-        for (int byte = 0; byte < 8; ++byte) {
-            memory_.at(addr + byte) = static_cast<std::uint8_t>((beat.lo >> (byte * 8)) & 0xFFU);
-            memory_.at(addr + 8 + byte) = static_cast<std::uint8_t>((beat.hi >> (byte * 8)) & 0xFFU);
+    void store_write_beat(
+        std::uint64_t address,
+        const std::array<std::uint32_t, 4>& data,
+        std::uint32_t strobe
+    ) {
+        for (std::size_t byte = 0; byte < 16; ++byte) {
+            if (((strobe >> byte) & 1U) != 0U) {
+                const auto word = byte / sizeof(std::uint32_t);
+                const auto lane = byte % sizeof(std::uint32_t);
+                bytes_.at(address + byte) =
+                    static_cast<std::uint8_t>((data[word] >> (lane * 8U)) & 0xFFU);
+            }
         }
     }
 
-    std::vector<std::uint8_t> memory_;
-    std::deque<Burst> read_pending_;
-    bool read_active_ = false;
+    std::vector<std::uint8_t> bytes_;
+    std::deque<Burst> pending_;
+    bool active_ = false;
+    Burst burst_{};
     bool write_active_ = false;
     bool write_response_pending_ = false;
-    bool write_response_error_pending_ = false;
-    bool write_error_once_ = false;
-    bool write_error_used_ = false;
-    bool read_error_enabled_ = false;
-    bool read_error_used_ = false;
-    std::uint32_t read_error_burst_id_ = 0;
-    std::uint32_t read_error_beat_index_ = 0;
-    std::uint32_t next_read_burst_id_ = 0;
-    Burst read_burst_;
-    Burst write_burst_;
+    bool write_profile_valid_ = true;
+    std::uint64_t write_address_ = 0;
+    std::uint32_t write_size_ = 0;
+    std::uint32_t write_beats_ = 0;
+    std::uint32_t write_index_ = 0;
 };
 
-std::int8_t pattern_value(std::uint32_t seed, int row, int col, bool is_b) {
-    std::mt19937 rng(seed ^ (is_b ? 0xB01DF00DU : 0xA11CE5EEDU));
-    rng.discard(static_cast<unsigned long long>((row * 257) + (col * 17) + (is_b ? 11 : 3)));
-    return static_cast<std::int8_t>(static_cast<int>(rng() % 255U) - 127);
-}
-
-std::uint32_t golden(
-    const std::vector<std::int8_t>& a,
-    const std::vector<std::int8_t>& b,
-    int m,
-    int n,
-    int k,
-    int row,
-    int col
-) {
-    (void)m;
-    std::uint32_t acc = 0;
-
-    for (int kk = 0; kk < k; ++kk) {
-        const auto av = static_cast<std::int32_t>(a.at((row * k) + kk));
-        const auto bv = static_cast<std::int32_t>(b.at((kk * n) + col));
-        acc += static_cast<std::uint32_t>(av * bv);
-    }
-
-    return acc;
-}
-
-std::uint32_t axil_write(Vnpu_top& dut, std::uint32_t addr, std::uint32_t data) {
-    dut.s_axil_awaddr_i = static_cast<std::uint16_t>(addr);
+std::uint32_t axil_write(Vnpu_top& dut, std::uint32_t address, std::uint32_t data) {
+    dut.s_axil_awaddr_i = static_cast<std::uint16_t>(address);
     dut.s_axil_awvalid_i = 1;
     dut.s_axil_wdata_i = data;
     dut.s_axil_wstrb_i = 0xF;
     dut.s_axil_wvalid_i = 1;
-    dut.s_axil_bready_i = 1;
     tick(dut);
-
-    const auto resp = static_cast<std::uint32_t>(dut.s_axil_bresp_o);
+    const auto response = static_cast<std::uint32_t>(dut.s_axil_bresp_o);
     dut.s_axil_awvalid_i = 0;
     dut.s_axil_wvalid_i = 0;
     tick(dut);
-    return resp;
+    return response;
 }
 
-std::uint32_t axil_read(Vnpu_top& dut, std::uint32_t addr, std::uint32_t* resp = nullptr) {
-    dut.s_axil_araddr_i = static_cast<std::uint16_t>(addr);
+std::uint32_t axil_read(Vnpu_top& dut, std::uint32_t address) {
+    dut.s_axil_araddr_i = static_cast<std::uint16_t>(address);
     dut.s_axil_arvalid_i = 1;
-    dut.s_axil_rready_i = 1;
     tick(dut);
-
     const auto data = static_cast<std::uint32_t>(dut.s_axil_rdata_o);
-    const auto rresp = static_cast<std::uint32_t>(dut.s_axil_rresp_o);
     dut.s_axil_arvalid_i = 0;
     tick(dut);
-
-    if (resp != nullptr) {
-        *resp = rresp;
-    }
     return data;
 }
 
-std::uint32_t axil_write_aw_then_w(Vnpu_top& dut, std::uint32_t addr, std::uint32_t data) {
-    dut.s_axil_awaddr_i = static_cast<std::uint16_t>(addr);
-    dut.s_axil_awvalid_i = 1;
-    dut.s_axil_wvalid_i = 0;
-    dut.s_axil_bready_i = 1;
-    tick(dut);
-
-    dut.s_axil_awvalid_i = 0;
-    dut.s_axil_wdata_i = data;
-    dut.s_axil_wstrb_i = 0xF;
-    dut.s_axil_wvalid_i = 1;
-    tick(dut);
-
-    const auto resp = static_cast<std::uint32_t>(dut.s_axil_bresp_o);
-    dut.s_axil_wvalid_i = 0;
-    tick(dut);
-    return resp;
+std::uint32_t encode_system_exit() {
+    return HOLON_NPU_ISA_CLASS_SYSTEM |
+           ((HOLON_NPU_ISA_OPCODE_SYSTEM_EXIT & HOLON_NPU_ISA_FIELD_MASK)
+            << HOLON_NPU_ISA_OPCODE_SHIFT);
 }
 
-std::uint32_t axil_write_w_then_aw(Vnpu_top& dut, std::uint32_t addr, std::uint32_t data) {
-    dut.s_axil_wdata_i = data;
-    dut.s_axil_wstrb_i = 0xF;
-    dut.s_axil_wvalid_i = 1;
-    dut.s_axil_awvalid_i = 0;
-    dut.s_axil_bready_i = 1;
-    tick(dut);
-
-    dut.s_axil_wvalid_i = 0;
-    dut.s_axil_awaddr_i = static_cast<std::uint16_t>(addr);
-    dut.s_axil_awvalid_i = 1;
-    tick(dut);
-
-    const auto resp = static_cast<std::uint32_t>(dut.s_axil_bresp_o);
-    dut.s_axil_awvalid_i = 0;
-    tick(dut);
-    return resp;
+holon_npu_program_desc_t descriptor(std::uint64_t completion_address = kCompletionAddress) {
+    return holon_npu_program_desc_t{
+        .size_bytes = HOLON_NPU_PROGRAM_DESC_SIZE,
+        .version = HOLON_NPU_ABI_MAJOR,
+        .program_format = HOLON_NPU_PROGRAM_FORMAT_HOLON,
+        .holon_isa_major = HOLON_NPU_ISA_MAJOR,
+        .holon_isa_minor = HOLON_NPU_ISA_MINOR,
+        .required_caps = HOLON_NPU_CAP_PROGRAM_DESCRIPTOR |
+                         HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY,
+        .required_op_classes = HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM,
+        .code_addr = kProgramAddress,
+        .code_size_bytes = 4,
+        .entry_pc = 0,
+        .arg_addr = 0,
+        .arg_size_bytes = 0,
+        .local_mem_bytes = 16,
+        .program_mem_bytes = 4,
+        .stack_bytes = 0,
+        .completion_addr = completion_address,
+        .flags = HOLON_NPU_PROGRAM_FLAG_IRQ_ON_DONE,
+        .reserved_4c = 0,
+        .reserved_50 = 0,
+        .reserved_58 = 0,
+        .reserved_60 = 0,
+        .reserved_68 = 0,
+        .reserved_70 = 0,
+        .reserved_78 = 0,
+    };
 }
 
-holon_npu_gemm_desc_t make_descriptor(
-    std::uint32_t m,
-    std::uint32_t n,
-    std::uint32_t k,
-    std::uint64_t a_addr,
-    std::uint64_t b_addr,
-    std::uint64_t c_addr,
-    std::uint32_t a_stride,
-    std::uint32_t b_stride,
-    std::uint32_t c_stride
-) {
-    holon_npu_gemm_desc_t desc{};
-    desc.size_bytes = static_cast<std::uint16_t>(HOLON_NPU_DESC_SIZE);
-    desc.version = static_cast<std::uint8_t>(HOLON_NPU_ABI_MAJOR);
-    desc.opcode = static_cast<std::uint8_t>(HOLON_NPU_OPCODE_GEMM_I8I8I32);
-    desc.flags = HOLON_NPU_DESC_FLAG_IRQ_ON_DONE | HOLON_NPU_DESC_FLAG_IRQ_ON_ERROR |
-                 HOLON_NPU_DESC_FLAG_CLEAR_PERF_ON_START;
-    desc.m = m;
-    desc.n = n;
-    desc.k = k;
-    desc.a_addr = a_addr;
-    desc.b_addr = b_addr;
-    desc.c_addr = c_addr;
-    desc.a_row_stride_bytes = a_stride;
-    desc.b_row_stride_bytes = b_stride;
-    desc.c_row_stride_bytes = c_stride;
-    return desc;
-}
+bool test_product_top(Vnpu_top& dut) {
+    reset(dut);
+    AxiMemory memory(0x5000);
+    const std::array program{encode_system_exit()};
+    const auto desc = descriptor();
+    memory.store_object(kDescriptorAddress, desc);
+    memory.store_words(kProgramAddress, program);
 
-struct PreparedGemm {
-    std::vector<std::int8_t> a;
-    std::vector<std::int8_t> b;
-    std::uint32_t a_stride = 0;
-    std::uint32_t b_stride = 0;
-    std::uint32_t c_stride = 0;
-};
-
-PreparedGemm prepare_gemm_memory(
-    AxiMemory& memory,
-    const GemmCase& test_case,
-    std::uint64_t desc_addr,
-    std::uint64_t a_addr,
-    std::uint64_t b_addr,
-    std::uint64_t c_addr
-) {
-    PreparedGemm prepared{};
-    prepared.a_stride = align_up(static_cast<std::uint32_t>(test_case.k), 16);
-    prepared.b_stride = align_up(static_cast<std::uint32_t>(test_case.n), 16);
-    prepared.c_stride = align_up(static_cast<std::uint32_t>(test_case.n * 4), 16);
-    prepared.a.resize(static_cast<std::size_t>(test_case.m * test_case.k));
-    prepared.b.resize(static_cast<std::size_t>(test_case.k * test_case.n));
-
-    for (int row = 0; row < test_case.m; ++row) {
-        for (int col = 0; col < test_case.k; ++col) {
-            const auto value = pattern_value(test_case.seed, row, col, false);
-            prepared.a.at((row * test_case.k) + col) = value;
-            memory.store_u8(a_addr + (static_cast<std::uint64_t>(row) * prepared.a_stride) + col,
-                            static_cast<std::uint8_t>(value));
-        }
-    }
-
-    for (int row = 0; row < test_case.k; ++row) {
-        for (int col = 0; col < test_case.n; ++col) {
-            const auto value = pattern_value(test_case.seed, row, col, true);
-            prepared.b.at((row * test_case.n) + col) = value;
-            memory.store_u8(b_addr + (static_cast<std::uint64_t>(row) * prepared.b_stride) + col,
-                            static_cast<std::uint8_t>(value));
-        }
-    }
-
-    auto desc = make_descriptor(
-        static_cast<std::uint32_t>(test_case.m),
-        static_cast<std::uint32_t>(test_case.n),
-        static_cast<std::uint32_t>(test_case.k),
-        a_addr,
-        b_addr,
-        c_addr,
-        prepared.a_stride,
-        prepared.b_stride,
-        prepared.c_stride
+    bool ok = true;
+    ok &= expect_eq(
+        "enable done IRQ",
+        axil_write(dut, HOLON_NPU_REG_IRQ_ENABLE, HOLON_NPU_IRQ_DONE),
+        kOkay
     );
-    memory.store_descriptor(desc_addr, desc);
-    return prepared;
-}
-
-bool start_descriptor(Vnpu_top& dut, std::uint64_t desc_addr, std::string_view name) {
-    bool ok = true;
-    ok &= expect_eq(std::string(name) + " enable IRQ",
-                    axil_write(dut, HOLON_NPU_REG_IRQ_ENABLE, HOLON_NPU_IRQ_DONE | HOLON_NPU_IRQ_ERROR),
-                    kRespOkay);
-    ok &= expect_eq(std::string(name) + " desc lo",
-                    axil_write(dut, HOLON_NPU_REG_DESC_ADDR_LO, static_cast<std::uint32_t>(desc_addr)),
-                    kRespOkay);
-    ok &= expect_eq(std::string(name) + " desc hi",
-                    axil_write(dut, HOLON_NPU_REG_DESC_ADDR_HI, static_cast<std::uint32_t>(desc_addr >> 32)),
-                    kRespOkay);
-    ok &= expect_eq(std::string(name) + " doorbell",
-                    axil_write(dut, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START),
-                    kRespOkay);
-    return ok;
-}
-
-bool run_until_irq(Vnpu_top& dut, AxiMemory& memory, int max_cycles) {
-    for (int cycle = 0; cycle < max_cycles; ++cycle) {
-        if (dut.irq_o) {
-            return true;
-        }
-        memory.step(dut);
-    }
-    return dut.irq_o != 0;
-}
-
-bool run_until_stage(Vnpu_top& dut, AxiMemory& memory, std::uint32_t stage, int max_cycles) {
-    for (int cycle = 0; cycle < max_cycles; ++cycle) {
-        if (static_cast<std::uint32_t>(dut.stage_o) == stage) {
-            return true;
-        }
-        memory.step(dut);
-    }
-    return static_cast<std::uint32_t>(dut.stage_o) == stage;
-}
-
-bool check_gemm_results(
-    const AxiMemory& memory,
-    const PreparedGemm& prepared,
-    const GemmCase& test_case,
-    std::uint64_t c_addr
-) {
-    bool ok = true;
-    for (int row = 0; row < test_case.m; ++row) {
-        for (int col = 0; col < test_case.n; ++col) {
-            const auto actual = memory.load_u32(c_addr + (static_cast<std::uint64_t>(row) * prepared.c_stride) +
-                                                (static_cast<std::uint64_t>(col) * 4U));
-            const auto expected = golden(prepared.a, prepared.b, test_case.m, test_case.n, test_case.k, row, col);
-            if (actual != expected) {
-                std::cerr << test_case.name << " C[" << row << "][" << col << "]: expected 0x"
-                          << std::hex << expected << ", got 0x" << actual << std::dec << '\n';
-                ok = false;
-            }
-        }
-    }
-    return ok;
-}
-
-bool check_final_chunk_padding_zeroed(
-    const AxiMemory& memory,
-    const PreparedGemm& prepared,
-    const GemmCase& test_case,
-    std::uint64_t c_addr
-) {
-    const auto logical_row_bytes = static_cast<std::uint32_t>(test_case.n * 4);
-    const auto written_row_bytes = align_up(logical_row_bytes, 16);
-
-    bool ok = true;
-    for (int row = 0; row < test_case.m; ++row) {
-        for (std::uint32_t byte = logical_row_bytes; byte < written_row_bytes; ++byte) {
-            const auto actual = memory.load_u8(c_addr + (static_cast<std::uint64_t>(row) * prepared.c_stride) + byte);
-            if (actual != 0) {
-                std::cerr << test_case.name << " C row " << row << " padding byte " << byte
-                          << ": expected 0x0, got 0x" << std::hex << static_cast<unsigned>(actual)
-                          << std::dec << '\n';
-                ok = false;
-            }
-        }
-    }
-    return ok;
-}
-
-bool run_top_gemm_case(Vnpu_top& dut, const GemmCase& test_case) {
-    reset(dut);
-
-    constexpr std::uint64_t kDesc = 0x1000;
-    constexpr std::uint64_t kBaseA = 0x4000;
-    constexpr std::uint64_t kBaseB = 0x20000;
-    constexpr std::uint64_t kBaseC = 0x50000;
-    AxiMemory memory(1024 * 1024);
-
-    const auto a_stride = align_up(static_cast<std::uint32_t>(test_case.k), 16);
-    const auto b_stride = align_up(static_cast<std::uint32_t>(test_case.n), 16);
-    const auto c_stride = align_up(static_cast<std::uint32_t>(test_case.n * 4), 16);
-
-    std::vector<std::int8_t> a(static_cast<std::size_t>(test_case.m * test_case.k));
-    std::vector<std::int8_t> b(static_cast<std::size_t>(test_case.k * test_case.n));
-
-    for (int row = 0; row < test_case.m; ++row) {
-        for (int col = 0; col < test_case.k; ++col) {
-            const auto value = pattern_value(test_case.seed, row, col, false);
-            a.at((row * test_case.k) + col) = value;
-            memory.store_u8(kBaseA + (static_cast<std::uint64_t>(row) * a_stride) + col,
-                            static_cast<std::uint8_t>(value));
-        }
-    }
-
-    for (int row = 0; row < test_case.k; ++row) {
-        for (int col = 0; col < test_case.n; ++col) {
-            const auto value = pattern_value(test_case.seed, row, col, true);
-            b.at((row * test_case.n) + col) = value;
-            memory.store_u8(kBaseB + (static_cast<std::uint64_t>(row) * b_stride) + col,
-                            static_cast<std::uint8_t>(value));
-        }
-    }
-
-    auto desc = make_descriptor(
-        static_cast<std::uint32_t>(test_case.m),
-        static_cast<std::uint32_t>(test_case.n),
-        static_cast<std::uint32_t>(test_case.k),
-        kBaseA,
-        kBaseB,
-        kBaseC,
-        a_stride,
-        b_stride,
-        c_stride
+    ok &= expect_eq(
+        "descriptor low",
+        axil_write(
+            dut,
+            HOLON_NPU_REG_PROGRAM_DESC_ADDR_LO,
+            static_cast<std::uint32_t>(kDescriptorAddress)
+        ),
+        kOkay
     );
-    memory.store_descriptor(kDesc, desc);
+    ok &= expect_eq(
+        "doorbell",
+        axil_write(dut, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START),
+        kOkay
+    );
 
-    bool ok = true;
-    ok &= expect_eq(test_case.name + " DEVICE_ID", axil_read(dut, HOLON_NPU_REG_DEVICE_ID), HOLON_NPU_DEVICE_ID_RESET);
-    ok &= start_descriptor(dut, kDesc, test_case.name);
-
-    const bool completed = run_until_irq(dut, memory, 250000);
-
-    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq(test_case.name + " completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq(test_case.name + " status done", status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
-    ok &= expect_eq(test_case.name + " status error", status & HOLON_NPU_STATUS_ERROR, 0U);
-    ok &= expect_eq(test_case.name + " IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_DONE);
-    ok &= expect_eq(test_case.name + " desc count", axil_read(dut, HOLON_NPU_REG_PERF_DESC_COUNT), 1U);
-    ok &= expect_eq(test_case.name + " error count", axil_read(dut, HOLON_NPU_REG_PERF_ERROR_COUNT), 0U);
-    ok &= expect_eq(test_case.name + " perf cycles nonzero",
-                    axil_read(dut, HOLON_NPU_REG_PERF_CYCLES_LO) != 0 ? 1U : 0U, 1U);
-    ok &= expect_eq(test_case.name + " perf busy nonzero",
-                    axil_read(dut, HOLON_NPU_REG_PERF_BUSY_LO) != 0 ? 1U : 0U, 1U);
-
-    for (int row = 0; row < test_case.m; ++row) {
-        for (int col = 0; col < test_case.n; ++col) {
-            const auto actual = memory.load_u32(kBaseC + (static_cast<std::uint64_t>(row) * c_stride) +
-                                                (static_cast<std::uint64_t>(col) * 4U));
-            const auto expected = golden(a, b, test_case.m, test_case.n, test_case.k, row, col);
-            if (actual != expected) {
-                std::cerr << test_case.name << " C[" << row << "][" << col << "]: expected 0x"
-                          << std::hex << expected << ", got 0x" << actual << std::dec << '\n';
-                ok = false;
-            }
+    bool completion_write_pending = false;
+    for (int cycle = 0; cycle < 600; ++cycle) {
+        memory.step(dut, AxiControls{.bvalid = false});
+        if (memory.write_response_pending()) {
+            completion_write_pending = true;
+            break;
         }
     }
-
-    return ok;
-}
-
-bool test_c_final_chunk_padding_zeroed(Vnpu_top& dut) {
-    reset(dut);
-
-    constexpr std::uint64_t kDesc = 0x1000;
-    constexpr std::uint64_t kBaseA = 0x4000;
-    constexpr std::uint64_t kBaseB = 0x20000;
-    constexpr std::uint64_t kBaseC = 0x50000;
-    AxiMemory memory(1024 * 1024);
-    const GemmCase test_case{2, 5, 3, 88, "top-c-padding-zero"};
-    const auto prepared = prepare_gemm_memory(memory, test_case, kDesc, kBaseA, kBaseB, kBaseC);
-
-    for (int row = 0; row < test_case.m; ++row) {
-        for (std::uint32_t byte = 0; byte < prepared.c_stride; ++byte) {
-            memory.store_u8(kBaseC + (static_cast<std::uint64_t>(row) * prepared.c_stride) + byte, 0xA5U);
-        }
+    ok &= expect_eq("completion write pending", completion_write_pending, true);
+    ok &= expect_eq("completion AXI profile", memory.write_profile_valid(), true);
+    ok &= expect_eq("IRQ held until completion response", dut.irq_o, 0U);
+    ok &= expect_eq("lifecycle held until completion response",
+                    axil_read(dut, HOLON_NPU_REG_STATUS), HOLON_NPU_STATUS_RUNNING);
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        memory.step(dut, AxiControls{.bvalid = false});
+        ok &= expect_eq("IRQ remains held", dut.irq_o, 0U);
     }
-
-    bool ok = true;
-    ok &= start_descriptor(dut, kDesc, test_case.name);
-    const bool completed = run_until_irq(dut, memory, 10000);
-    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq(test_case.name + " completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq(test_case.name + " status done", status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
-    ok &= expect_eq(test_case.name + " status error", status & HOLON_NPU_STATUS_ERROR, 0U);
-    ok &= check_gemm_results(memory, prepared, test_case, kBaseC);
-    ok &= check_final_chunk_padding_zeroed(memory, prepared, test_case, kBaseC);
-    return ok;
-}
-
-bool test_invalid_descriptor_reaches_control(Vnpu_top& dut) {
-    reset(dut);
-    AxiMemory memory(65536);
-
-    auto desc = make_descriptor(1, 1, 1, 0x2000, 0x3000, 0x4000, 16, 16, 16);
-    desc.opcode = 2;
-    memory.store_descriptor(0x1000, desc);
-
-    bool ok = true;
-    ok &= expect_eq("invalid enable IRQ", axil_write(dut, HOLON_NPU_REG_IRQ_ENABLE, HOLON_NPU_IRQ_ERROR), kRespOkay);
-    ok &= expect_eq("invalid desc lo", axil_write(dut, HOLON_NPU_REG_DESC_ADDR_LO, 0x1000), kRespOkay);
-    ok &= expect_eq("invalid desc hi", axil_write(dut, HOLON_NPU_REG_DESC_ADDR_HI, 0), kRespOkay);
-    ok &= expect_eq("invalid doorbell", axil_write(dut, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START), kRespOkay);
 
     bool completed = false;
-    for (int cycle = 0; cycle < 2048; ++cycle) {
+    for (int cycle = 0; cycle < 16; ++cycle) {
+        memory.step(dut);
         if (dut.irq_o) {
             completed = true;
             break;
         }
+    }
+    ok &= expect_eq("completion IRQ", completed, true);
+    ok &= expect_eq(
+        "status",
+        axil_read(dut, HOLON_NPU_REG_STATUS),
+        HOLON_NPU_STATUS_DONE | HOLON_NPU_STATUS_IRQ_PENDING
+    );
+    ok &= expect_eq("debug PC", axil_read(dut, HOLON_NPU_REG_DEBUG_PC), 4U);
+    ok &= expect_eq("instret", axil_read(dut, HOLON_NPU_REG_PERF_INSTRET_LO), 1U);
+    const auto completion = memory.read_object<holon_npu_completion_record_t>(kCompletionAddress);
+    ok &= expect_eq("completion ABI", completion.abi_version, HOLON_NPU_ABI_VERSION_RESET);
+    ok &= expect_eq("completion status", completion.status, HOLON_NPU_COMPLETION_STATUS_DONE);
+    ok &= expect_eq("completion fault", completion.fault_code, HOLON_NPU_FAULT_NONE);
+    ok &= expect_eq("completion debug PC", completion.debug_pc, 4U);
+    ok &= expect_eq("completion instret", completion.instret, 1U);
+    return ok;
+}
+
+bool start_reset_test(
+    Vnpu_top& dut,
+    AxiMemory& memory,
+    std::uint64_t completion_address = kCompletionAddress
+) {
+    const std::array program{encode_system_exit()};
+    const auto desc = descriptor(completion_address);
+    memory.store_object(kDescriptorAddress, desc);
+    memory.store_words(kProgramAddress, program);
+    bool ok = true;
+    ok &= expect_eq(
+        "reset test descriptor",
+        axil_write(
+            dut,
+            HOLON_NPU_REG_PROGRAM_DESC_ADDR_LO,
+            static_cast<std::uint32_t>(kDescriptorAddress)
+        ),
+        kOkay
+    );
+    ok &= expect_eq(
+        "reset test doorbell",
+        axil_write(dut, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START),
+        kOkay
+    );
+    return ok;
+}
+
+bool request_and_drain_reset(Vnpu_top& dut, AxiMemory& memory) {
+    bool ok = true;
+    ok &= expect_eq(
+        "soft reset accepted",
+        axil_write(dut, HOLON_NPU_REG_CONTROL, HOLON_NPU_CONTROL_SOFT_RESET),
+        kOkay
+    );
+    ok &= expect_eq(
+        "soft reset enters RESETTING",
+        axil_read(dut, HOLON_NPU_REG_STATUS),
+        HOLON_NPU_STATUS_RESETTING
+    );
+    ok &= expect_eq(
+        "doorbell rejected while resetting",
+        axil_write(dut, HOLON_NPU_REG_DOORBELL, HOLON_NPU_DOORBELL_START),
+        2U
+    );
+    for (int cycle = 0; cycle < 800; ++cycle) {
         memory.step(dut);
     }
-
-    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq("invalid completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("invalid status error", status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
-    ok &= expect_eq("invalid error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_INVALID_OPCODE);
-    ok &= expect_eq("invalid IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
+    ok &= expect_eq("soft reset drains to IDLE", axil_read(dut, HOLON_NPU_REG_STATUS),
+                    HOLON_NPU_STATUS_IDLE);
+    ok &= expect_eq("soft reset clears IRQ", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), 0U);
+    ok &= expect_eq("soft reset clears fault", axil_read(dut, HOLON_NPU_REG_FAULT_CODE),
+                    HOLON_NPU_FAULT_NONE);
     return ok;
 }
 
-bool test_top_axil_write_skew(Vnpu_top& dut) {
-    reset(dut);
-
+bool test_soft_reset_drain(Vnpu_top& dut) {
     bool ok = true;
-    ok &= expect_eq("skew AW-before-W", axil_write_aw_then_w(dut, HOLON_NPU_REG_DESC_ADDR_LO, 0x55667788U), kRespOkay);
-    ok &= expect_eq("skew W-before-AW", axil_write_w_then_aw(dut, HOLON_NPU_REG_DESC_ADDR_HI, 0x11223344U), kRespOkay);
-    ok &= expect_eq("skew desc lo readback", axil_read(dut, HOLON_NPU_REG_DESC_ADDR_LO), 0x55667788U);
-    ok &= expect_eq("skew desc hi readback", axil_read(dut, HOLON_NPU_REG_DESC_ADDR_HI), 0x11223344U);
-    return ok;
-}
-
-bool test_descriptor_read_error_drains_and_recovers(Vnpu_top& dut) {
-    reset(dut);
-
-    constexpr std::uint64_t kDesc = 0x1000;
-    constexpr std::uint64_t kBaseA = 0x2000;
-    constexpr std::uint64_t kBaseB = 0x3000;
-    constexpr std::uint64_t kBaseC = 0x4000;
-    AxiMemory memory(65536);
-    const GemmCase test_case{1, 1, 1, 33, "top-desc-read-error"};
-    const auto prepared = prepare_gemm_memory(memory, test_case, kDesc, kBaseA, kBaseB, kBaseC);
-
-    memory.inject_read_error(0, 0);
-
-    bool ok = true;
-    ok &= start_descriptor(dut, kDesc, test_case.name);
-    const bool errored = run_until_irq(dut, memory, 4096);
-    const auto error_status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq("descriptor read error completed", errored ? 1U : 0U, 1U);
-    ok &= expect_eq("descriptor read error used", memory.read_error_used() ? 1U : 0U, 1U);
-    ok &= expect_eq("descriptor read status error", error_status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
-    ok &= expect_eq("descriptor read error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_AXI_READ);
-    ok &= expect_eq("descriptor read IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
-
-    ok &= expect_eq("descriptor read clear error", axil_write(dut, HOLON_NPU_REG_CLEAR, HOLON_NPU_CLEAR_ERROR), kRespOkay);
-    ok &= expect_eq("descriptor read status idle", axil_read(dut, HOLON_NPU_REG_STATUS), HOLON_NPU_STATUS_IDLE);
-    ok &= expect_eq("descriptor read IRQ cleared", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), 0U);
-
-    ok &= start_descriptor(dut, kDesc, "top-desc-read-retry");
-    const bool completed = run_until_irq(dut, memory, 4096);
-    const auto done_status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq("descriptor read retry completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("descriptor read retry done", done_status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
-    ok &= expect_eq("descriptor read retry error", done_status & HOLON_NPU_STATUS_ERROR, 0U);
-    ok &= expect_eq("descriptor read retry error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_NONE);
-    ok &= check_gemm_results(memory, prepared, test_case, kBaseC);
-    return ok;
-}
-
-bool test_gemm_read_error_reaches_control(Vnpu_top& dut) {
-    reset(dut);
-
-    constexpr std::uint64_t kDesc = 0x1000;
-    constexpr std::uint64_t kBaseA = 0x2000;
-    constexpr std::uint64_t kBaseB = 0x3000;
-    constexpr std::uint64_t kBaseC = 0x4000;
-    AxiMemory memory(65536);
-    const GemmCase test_case{1, 1, 1, 44, "top-gemm-read-error"};
-    (void)prepare_gemm_memory(memory, test_case, kDesc, kBaseA, kBaseB, kBaseC);
-
-    memory.inject_read_error(1, 0);
-
-    bool ok = true;
-    ok &= start_descriptor(dut, kDesc, test_case.name);
-    const bool completed = run_until_irq(dut, memory, 4096);
-    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq("GEMM read error completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("GEMM read error used", memory.read_error_used() ? 1U : 0U, 1U);
-    ok &= expect_eq("GEMM read status error", status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
-    ok &= expect_eq("GEMM read error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_AXI_READ);
-    ok &= expect_eq("GEMM read IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
-    return ok;
-}
-
-bool test_gemm_write_error_reaches_control(Vnpu_top& dut) {
-    reset(dut);
-
-    constexpr std::uint64_t kDesc = 0x1000;
-    constexpr std::uint64_t kBaseA = 0x2000;
-    constexpr std::uint64_t kBaseB = 0x3000;
-    constexpr std::uint64_t kBaseC = 0x4000;
-    AxiMemory memory(65536);
-    const GemmCase test_case{1, 1, 1, 55, "top-gemm-write-error"};
-    (void)prepare_gemm_memory(memory, test_case, kDesc, kBaseA, kBaseB, kBaseC);
-
-    memory.inject_next_write_error();
-
-    bool ok = true;
-    ok &= start_descriptor(dut, kDesc, test_case.name);
-    const bool completed = run_until_irq(dut, memory, 4096);
-    const auto status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq("GEMM write error completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("GEMM write error used", memory.write_error_used() ? 1U : 0U, 1U);
-    ok &= expect_eq("GEMM write status error", status & HOLON_NPU_STATUS_ERROR, HOLON_NPU_STATUS_ERROR);
-    ok &= expect_eq("GEMM write error code", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_AXI_WRITE);
-    ok &= expect_eq("GEMM write IRQ status", axil_read(dut, HOLON_NPU_REG_IRQ_STATUS), HOLON_NPU_IRQ_ERROR);
-    return ok;
-}
-
-bool test_top_soft_reset_in_flight(Vnpu_top& dut) {
-    reset(dut);
-
-    constexpr std::uint32_t kStageCompute = 3;
-    constexpr std::uint64_t kDesc = 0x1000;
-    constexpr std::uint64_t kBaseA = 0x4000;
-    constexpr std::uint64_t kBaseB = 0x20000;
-    constexpr std::uint64_t kBaseC = 0x50000;
-    constexpr std::uint64_t kRetryDesc = 0x1800;
-    constexpr std::uint64_t kRetryA = 0x8000;
-    constexpr std::uint64_t kRetryB = 0x9000;
-    constexpr std::uint64_t kRetryC = 0xA000;
-    AxiMemory memory(1024 * 1024);
-    const GemmCase in_flight_case{16, 16, 16, 66, "top-soft-reset-active"};
-    const GemmCase retry_case{1, 1, 1, 77, "top-soft-reset-retry"};
-    (void)prepare_gemm_memory(memory, in_flight_case, kDesc, kBaseA, kBaseB, kBaseC);
-
-    bool ok = true;
-    ok &= start_descriptor(dut, kDesc, in_flight_case.name);
-    const bool reached_compute = run_until_stage(dut, memory, kStageCompute, 50000);
-    ok &= expect_eq("soft reset reached compute", reached_compute ? 1U : 0U, 1U);
-    ok &= expect_eq("soft reset write", axil_write(dut, HOLON_NPU_REG_CONTROL, HOLON_NPU_CONTROL_SOFT_RESET), kRespOkay);
-    ok &= expect_eq("soft reset status idle", axil_read(dut, HOLON_NPU_REG_STATUS), HOLON_NPU_STATUS_IDLE);
-    ok &= expect_eq("soft reset error code clear", axil_read(dut, HOLON_NPU_REG_ERROR_CODE), HOLON_NPU_ERR_NONE);
-    ok &= expect_eq("soft reset IRQ clear", dut.irq_o, 0U);
-
-    const auto prepared_retry = prepare_gemm_memory(memory, retry_case, kRetryDesc, kRetryA, kRetryB, kRetryC);
-    ok &= start_descriptor(dut, kRetryDesc, retry_case.name);
-    const bool completed = run_until_irq(dut, memory, 4096);
-    const auto retry_status = axil_read(dut, HOLON_NPU_REG_STATUS);
-    ok &= expect_eq("soft reset retry completed", completed ? 1U : 0U, 1U);
-    ok &= expect_eq("soft reset retry done", retry_status & HOLON_NPU_STATUS_DONE, HOLON_NPU_STATUS_DONE);
-    ok &= expect_eq("soft reset retry error", retry_status & HOLON_NPU_STATUS_ERROR, 0U);
-    ok &= check_gemm_results(memory, prepared_retry, retry_case, kRetryC);
+    {
+        reset(dut);
+        AxiMemory memory(0x5000);
+        ok &= start_reset_test(dut, memory, 0);
+        const AxiControls stall{.arready = false};
+        for (int cycle = 0; cycle < 16 && !dut.m_axi_arvalid_o; ++cycle) {
+            memory.step(dut, stall);
+        }
+        ok &= expect_eq("AR stall reached", dut.m_axi_arvalid_o, 1U);
+        const auto araddr = static_cast<std::uint64_t>(dut.m_axi_araddr_o);
+        const auto arlen = static_cast<std::uint32_t>(dut.m_axi_arlen_o);
+        ok &= expect_eq(
+            "AR-stalled reset accepted",
+            axil_write(dut, HOLON_NPU_REG_CONTROL, HOLON_NPU_CONTROL_SOFT_RESET),
+            kOkay
+        );
+        ok &= expect_eq("AR VALID held across reset", dut.m_axi_arvalid_o, 1U);
+        ok &= expect_eq("AR address held across reset", dut.m_axi_araddr_o, araddr);
+        ok &= expect_eq("AR length held across reset", dut.m_axi_arlen_o, arlen);
+        for (int cycle = 0; cycle < 800; ++cycle) memory.step(dut);
+        ok &= expect_eq("AR-stalled reset IDLE", axil_read(dut, HOLON_NPU_REG_STATUS),
+                        HOLON_NPU_STATUS_IDLE);
+    }
+    {
+        reset(dut);
+        AxiMemory memory(0x5000);
+        ok &= start_reset_test(dut, memory, 0);
+        const AxiControls stall{.rvalid = false};
+        for (int cycle = 0; cycle < 32 && !memory.read_inflight(); ++cycle) {
+            memory.step(dut, stall);
+        }
+        ok &= expect_eq("R wait reached", memory.read_inflight(), true);
+        ok &= request_and_drain_reset(dut, memory);
+    }
+    {
+        reset(dut);
+        AxiMemory memory(0x5000);
+        ok &= start_reset_test(dut, memory);
+        const AxiControls stall{.awready = false};
+        for (int cycle = 0; cycle < 600 && !dut.m_axi_awvalid_o; ++cycle) {
+            memory.step(dut, stall);
+        }
+        ok &= expect_eq("AW stall reached", dut.m_axi_awvalid_o, 1U);
+        const auto awaddr = static_cast<std::uint64_t>(dut.m_axi_awaddr_o);
+        const auto awlen = static_cast<std::uint32_t>(dut.m_axi_awlen_o);
+        ok &= expect_eq(
+            "AW-stalled reset accepted",
+            axil_write(dut, HOLON_NPU_REG_CONTROL, HOLON_NPU_CONTROL_SOFT_RESET),
+            kOkay
+        );
+        ok &= expect_eq("AW VALID held across reset", dut.m_axi_awvalid_o, 1U);
+        ok &= expect_eq("AW address held across reset", dut.m_axi_awaddr_o, awaddr);
+        ok &= expect_eq("AW length held across reset", dut.m_axi_awlen_o, awlen);
+        for (int cycle = 0; cycle < 800; ++cycle) memory.step(dut);
+        ok &= expect_eq("AW-stalled reset IDLE", axil_read(dut, HOLON_NPU_REG_STATUS),
+                        HOLON_NPU_STATUS_IDLE);
+    }
+    {
+        reset(dut);
+        AxiMemory memory(0x5000);
+        ok &= start_reset_test(dut, memory);
+        const AxiControls stall{.wready = false};
+        for (int cycle = 0; cycle < 600 && !dut.m_axi_wvalid_o; ++cycle) {
+            memory.step(dut, stall);
+        }
+        ok &= expect_eq("W stall reached", dut.m_axi_wvalid_o, 1U);
+        std::array<std::uint32_t, 4> wdata{};
+        for (std::size_t word = 0; word < wdata.size(); ++word) wdata[word] = dut.m_axi_wdata_o[word];
+        const auto wstrb = static_cast<std::uint32_t>(dut.m_axi_wstrb_o);
+        ok &= expect_eq(
+            "W-stalled reset accepted",
+            axil_write(dut, HOLON_NPU_REG_CONTROL, HOLON_NPU_CONTROL_SOFT_RESET),
+            kOkay
+        );
+        ok &= expect_eq("W VALID held across reset", dut.m_axi_wvalid_o, 1U);
+        ok &= expect_eq("W strobe held across reset", dut.m_axi_wstrb_o, wstrb);
+        for (std::size_t word = 0; word < wdata.size(); ++word) {
+            ok &= expect_eq("W data held across reset", dut.m_axi_wdata_o[word], wdata[word]);
+        }
+        for (int cycle = 0; cycle < 800; ++cycle) memory.step(dut);
+        ok &= expect_eq("W-stalled reset IDLE", axil_read(dut, HOLON_NPU_REG_STATUS),
+                        HOLON_NPU_STATUS_IDLE);
+    }
+    {
+        reset(dut);
+        AxiMemory memory(0x5000);
+        ok &= start_reset_test(dut, memory);
+        const AxiControls stall{.bvalid = false};
+        for (int cycle = 0; cycle < 600 && !memory.write_response_pending(); ++cycle) {
+            memory.step(dut, stall);
+        }
+        ok &= expect_eq("B wait reached", memory.write_response_pending(), true);
+        ok &= request_and_drain_reset(dut, memory);
+    }
     return ok;
 }
 
@@ -838,29 +555,18 @@ bool test_top_soft_reset_in_flight(Vnpu_top& dut) {
 
 int main(int argc, char** argv) {
     holon_npu_tb::test_run test{"npu_top", argc, argv};
-
     Vnpu_top dut;
-    bool ok = true;
-
-    ok &= run_top_gemm_case(dut, GemmCase{1, 1, 1, 11, "top-1x1x1"});
-    ok &= run_top_gemm_case(dut, GemmCase{16, 16, 16, 18, "top-16x16x16"});
-    ok &= run_top_gemm_case(dut, GemmCase{17, 19, 23, 22, "top-17x19x23"});
-    ok &= run_top_gemm_case(dut, GemmCase{64, 64, 64, 64, "top-64x64x64"});
-    for (const auto& test_case : holon_npu_tb::constrained_random_gemm_cases(0xBEEF, 16, "top-")) {
-        ok &= run_top_gemm_case(dut, to_gemm_case(test_case));
-    }
-    ok &= test_c_final_chunk_padding_zeroed(dut);
-    ok &= test_invalid_descriptor_reaches_control(dut);
-    ok &= test_top_axil_write_skew(dut);
-    ok &= test_descriptor_read_error_drains_and_recovers(dut);
-    ok &= test_gemm_read_error_reaches_control(dut);
-    ok &= test_gemm_write_error_reaches_control(dut);
-    ok &= test_top_soft_reset_in_flight(dut);
-
+    const bool product_case = test_product_top(dut);
+    test.observe(
+        {
+            holon_npu_tb::coverage_point::product_top_program,
+            holon_npu_tb::coverage_point::product_top_completion_ordering,
+        },
+        product_case
+    );
+    const bool reset_case = test_soft_reset_drain(dut);
+    test.observe(holon_npu_tb::coverage_point::soft_reset_drain, reset_case);
+    const bool ok = product_case && reset_case;
     dut.final();
-    using enum holon_npu_tb::coverage_point;
-    test.cover({top_gemm_fixed, top_gemm_constrained_random, top_status_done,
-                top_status_error, top_axil_write_skew, top_descriptor_read_error,
-                top_gemm_read_error, top_gemm_write_error, top_soft_reset_in_flight});
     return test.finish(ok);
 }

@@ -155,12 +155,19 @@ int main(int argc, char** argv) {
     Vnpu_pe_i8 dut;
     bool ok = true;
 
-    ok &= test_reset_clear_and_masked_weight(dut);
-    ok &= test_positive_negative_zero_and_pass_through(dut);
-    ok &= test_int32_wrap_boundary(dut);
+    using enum holon_npu_tb::coverage_point;
+    const bool weight_case = test_reset_clear_and_masked_weight(dut);
+    test.observe({pe_weight_load, pe_masked_weight}, weight_case);
+    ok &= weight_case;
+
+    const bool signed_case = test_positive_negative_zero_and_pass_through(dut);
+    test.observe(pe_negative_operands, signed_case);
+    ok &= signed_case;
+
+    const bool wrap_case = test_int32_wrap_boundary(dut);
+    test.observe(pe_int32_wrap, wrap_case);
+    ok &= wrap_case;
 
     dut.final();
-    using enum holon_npu_tb::coverage_point;
-    test.cover({pe_weight_load, pe_masked_weight, pe_negative_operands, pe_int32_wrap});
     return test.finish(ok);
 }

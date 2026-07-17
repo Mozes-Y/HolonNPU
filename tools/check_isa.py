@@ -24,6 +24,7 @@ REQUIRED_CLASS_FIELDS = {
 }
 REQUIRED_RESERVED_FIELDS = {"name", "value", "mask", "description"}
 REQUIRED_ENCODING_CONSTANT_FIELDS = {"name", "value", "description"}
+REQUIRED_OPERATION_CLASS_FIELDS = {"name", "value", "description"}
 REQUIRED_INSTRUCTION_FIELDS = {
     "name",
     "class",
@@ -72,7 +73,7 @@ def check_schema(schema: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     isa = schema.get("isa", {})
     if isa.get("instruction_bits") != 32:
-        failures.append("isa.instruction_bits must be 32 for V2")
+        failures.append("isa.instruction_bits must be 32")
     if isa.get("alignment_bytes") != 4:
         failures.append("isa.alignment_bytes must be 4 for fixed 32-bit instructions")
 
@@ -86,7 +87,34 @@ def check_schema(schema: dict[str, Any]) -> list[str]:
     if not reserved:
         failures.append("reserved_classes must not be empty")
     if not instructions:
-        failures.append("instructions must not be empty once executable V2 ISA slices exist")
+        failures.append("instructions must not be empty")
+
+    operation_classes = schema.get("operation_classes", [])
+    operation_names: set[str] = set()
+    operation_values: set[int] = set()
+    for entry in operation_classes:
+        missing = REQUIRED_OPERATION_CLASS_FIELDS - entry.keys()
+        if missing:
+            failures.append(
+                f"{entry.get('name', '<unnamed>')}: missing operation-class fields {sorted(missing)}"
+            )
+        name = entry.get("name")
+        value = as_int(entry.get("value", 0))
+        if name in operation_names:
+            failures.append(f"duplicate operation-class name {name}")
+        if value in operation_values:
+            failures.append(f"duplicate operation-class value 0x{value:X}")
+        if value == 0 or (value & (value - 1)) != 0:
+            failures.append(f"{name}: operation-class value must be one bit")
+        operation_names.add(name)
+        operation_values.add(value)
+    required_operation_classes = {
+        "FRONTEND_CONTROL", "PREDICATE", "VECTOR", "QUANTIZATION", "MATRIX",
+        "DMA", "CSR_DEBUG", "SYNC", "SYSTEM",
+    }
+    missing_operations = required_operation_classes - operation_names
+    if missing_operations:
+        failures.append(f"missing required operation classes {sorted(missing_operations)}")
 
     missing_layout = REQUIRED_FIELD_LAYOUT_FIELDS - field_layout.keys()
     if missing_layout:
@@ -99,7 +127,7 @@ def check_schema(schema: dict[str, Any]) -> list[str]:
         and as_int(field_layout["field_mask"]) == 0xF
         and as_int(field_layout["imm_mask"]) == 0xFFF
     ):
-        failures.append("field_layout must match the V2 initial 4-bit register/opcode and 12-bit immediate format")
+        failures.append("field_layout must match the initial 4-bit register/opcode and 12-bit immediate format")
 
     seen_names: set[str] = set()
     seen_coverage: set[str] = set()
@@ -167,7 +195,7 @@ def check_schema(schema: dict[str, Any]) -> list[str]:
     }
     missing_classes = expected_classes - {entry["name"] for entry in classes}
     if missing_classes:
-        failures.append(f"missing required V2 classes {sorted(missing_classes)}")
+        failures.append(f"missing required classes {sorted(missing_classes)}")
 
     class_names = {entry["name"] for entry in classes}
     class_instruction_counts = {name: 0 for name in class_names}
@@ -191,7 +219,7 @@ def check_schema(schema: dict[str, Any]) -> list[str]:
             class_instruction_counts[class_name] += 1
         opcode = as_int(entry.get("opcode", 0))
         if opcode > 0xF:
-            failures.append(f"{name}: opcode must fit in the V2 4-bit opcode field")
+            failures.append(f"{name}: opcode must fit in the 4-bit opcode field")
         key = (str(class_name), opcode)
         if key in seen_instruction_opcodes:
             failures.append(f"duplicate opcode {opcode:#x} in instruction class {class_name}")

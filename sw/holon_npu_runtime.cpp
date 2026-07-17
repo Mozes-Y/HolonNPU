@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace holon_npu::v2::runtime {
+namespace holon_npu::runtime {
 namespace {
 
 constexpr std::uint32_t k_opcode_shift = HOLON_NPU_ISA_OPCODE_SHIFT;
@@ -396,15 +396,8 @@ std::uint32_t encode_system_exit() {
     return encode(HOLON_NPU_ISA_CLASS_SYSTEM, opcode::system_exit, 0, 0, 0, 0);
 }
 
-std::uint32_t encode_system_fault(fault_code fault) {
-    return encode(
-        HOLON_NPU_ISA_CLASS_SYSTEM,
-        opcode::system_fault,
-        0,
-        0,
-        0,
-        static_cast<std::uint16_t>(fault)
-    );
+std::uint32_t encode_system_fault() {
+    return encode(HOLON_NPU_ISA_CLASS_SYSTEM, opcode::system_fault, 0, 0, 0, 0);
 }
 program_builder& program_builder::raw(std::uint32_t word) {
     words_.push_back(word);
@@ -656,8 +649,8 @@ program_builder& program_builder::exit() {
     return raw(encode_system_exit());
 }
 
-program_builder& program_builder::fault(fault_code fault) {
-    return raw(encode_system_fault(fault));
+program_builder& program_builder::fault() {
+    return raw(encode_system_fault());
 }
 
 bool tiled_matrix_program::write_commands(std::span<std::byte> local_memory) const {
@@ -703,7 +696,7 @@ program_image vector_add(
         .exit();
     return make_image(
         std::move(builder),
-        HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_V2_CAP_INTEGER_VECTOR_BASE,
+        HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_CAP_INTEGER_VECTOR_BASE,
         HOLON_NPU_PROGRAM_OP_CLASS_VECTOR | HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE |
             HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM
     );
@@ -724,8 +717,8 @@ program_image requant(
         .exit();
     return make_image(
         std::move(builder),
-        HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_V2_CAP_INTEGER_VECTOR_BASE |
-            HOLON_NPU_V2_CAP_QUANT_VECTOR,
+        HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_CAP_INTEGER_VECTOR_BASE |
+            HOLON_NPU_CAP_QUANT_VECTOR,
         HOLON_NPU_PROGRAM_OP_CLASS_VECTOR | HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE |
             HOLON_NPU_PROGRAM_OP_CLASS_QUANTIZATION | HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM
     );
@@ -747,7 +740,7 @@ program_image relu(
         .exit();
     return make_image(
         std::move(builder),
-        HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_V2_CAP_INTEGER_VECTOR_BASE,
+        HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_CAP_INTEGER_VECTOR_BASE,
         HOLON_NPU_PROGRAM_OP_CLASS_VECTOR | HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE |
             HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM
     );
@@ -767,7 +760,7 @@ program_image reduce_sum(
         .exit();
     return make_image(
         std::move(builder),
-        HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_V2_CAP_INTEGER_VECTOR_BASE,
+        HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_CAP_INTEGER_VECTOR_BASE,
         HOLON_NPU_PROGRAM_OP_CLASS_VECTOR | HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE |
             HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM
     );
@@ -783,7 +776,7 @@ program_image transpose4(std::uint16_t source_offset, std::uint16_t result_offse
         .exit();
     return make_image(
         std::move(builder),
-        HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_V2_CAP_INTEGER_VECTOR_BASE,
+        HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_CAP_INTEGER_VECTOR_BASE,
         HOLON_NPU_PROGRAM_OP_CLASS_VECTOR | HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE |
             HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM
     );
@@ -794,7 +787,7 @@ program_image int8_gemm(std::uint8_t accumulator_id, std::uint16_t command_offse
     builder.matrix_gemm(accumulator_id, command_offset).exit();
     return make_image(
         std::move(builder),
-        HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_V2_CAP_MATRIX_MICRO_OP,
+        HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_CAP_MATRIX_MICRO_OP,
         HOLON_NPU_PROGRAM_OP_CLASS_MATRIX | HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM
     );
 }
@@ -905,7 +898,7 @@ std::expected<tiled_matrix_program, matrix_program_error> tiled_int8_gemm(
     return tiled_matrix_program{
         .image = make_image(
             std::move(builder),
-            HOLON_NPU_V2_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_V2_CAP_MATRIX_MICRO_OP,
+            HOLON_NPU_CAP_LOCAL_PROGRAM_MEMORY | HOLON_NPU_CAP_MATRIX_MICRO_OP,
             HOLON_NPU_PROGRAM_OP_CLASS_MATRIX | HOLON_NPU_PROGRAM_OP_CLASS_SYNC |
                 HOLON_NPU_PROGRAM_OP_CLASS_SYSTEM
         ),
@@ -916,4 +909,4 @@ std::expected<tiled_matrix_program, matrix_program_error> tiled_int8_gemm(
 
 }  // namespace examples
 
-}  // namespace holon_npu::v2::runtime
+}  // namespace holon_npu::runtime

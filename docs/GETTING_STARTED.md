@@ -1,1728 +1,226 @@
-# HolonNPU 新手入门教程
-
-本文是一份面向新手的项目导览。目标是从最基础的概念开始，带你一步一步理解
-`HolonNPU` 的设计、代码结构、运行方式、验证方法，以及以后如何安全地上手修改
-这个项目。
-
-如果你现在已经不太记得项目各部分的设计情况，可以按本文的顺序重新进入项目。
-
-## 1. 项目一句话介绍
-
-`HolonNPU` 仓库同时保留发布版 V1.5 INT8 GEMM NPU，并实现正在进行 release
-hardening 的 V2 programmable NPU tile。下面先用 V1 的单一 GEMM 数据流解释硬件
-基础，再介绍 V2 的 program/ISA/runtime 接口。
-
-它的主要功能是加速矩阵乘法：
-
-```text
-C[M, N] = A[M, K] x B[K, N]
-```
-
-当前 v1 的固定范围是：
-
-- A 和 B 是 signed INT8。
-- C 是 signed INT32。
-- 核心计算单元是参数化 `16x16` systolic array。
-- CPU 通过 AXI-Lite 寄存器控制 NPU。
-- NPU 通过 AXI4 DMA 主动访问系统内存。
-- 软件侧提供最小 C driver。
-- 验证使用 Verilator + C++26 testbench + CTest。
-
-v1 不做：
-
-- vector engine
-- BF16
-- FP8
-- convolution
-- softmax
-- LayerNorm
-- GELU
-- graph scheduler
-- 多 descriptor queue
-- 多 context
-- IOMMU / 地址转换
-- 多 NPU tile 扩展
-
-这些未来功能必须先进入 `docs/ROADMAP.md` 和 `docs/DECISIONS.md`，不能直接混进
-v1。
-
-目前 V2 programmable NPU tile 已有完整的实现基线：ISA/ABI 3.0 schema、
-generated headers/packages、C++26 architectural simulator 与 public program
-runtime、AXI-Lite lifecycle、program loader、local program/data memory、
-reference frontend、DMA、integer/quant vector/helper、matrix micro-op、
-completion writer 和 `npu_v2_top`。frontend 实现可以替换，但 program binary
-始终执行稳定的 Holon-owned ISA。程序级 RTL 结果会与 C++ architectural
-simulator 做 differential compare。
-对应文档：
-
-- `docs/V2_ARCHITECTURE.md`
-- `docs/V2_ISA.md`
-- `docs/V2_INTERFACE.md`
-- `docs/V2_ISA_REFERENCE.md`
-- `docs/V2_INTERFACE_REFERENCE.md`
-
-V2 public program builder 和示例 kernels 位于
-`include/holon_npu_runtime.hpp` / `sw/holon_npu_runtime.cpp`。C++ architectural
-simulator 位于 `sim/model/`，它是 RTL differential test 的参考模型，不是
-Verilator wrapper，也不是产品 RTL。
-
-## 2. 你应该先知道的三个核心概念
-
-### 2.1 AXI-Lite：CPU 控制 NPU 的寄存器接口
-
-AXI-Lite 是 CPU 访问 NPU 控制寄存器的接口。
-
-CPU 通过 AXI-Lite 做这些事：
-
-- 读取设备 ID 和 capability。
-- 写 descriptor 地址。
-- 写 doorbell 启动 NPU。
-- 读取 busy/done/error 状态。
-- 开关 IRQ。
-- 清 done/error/IRQ/performance counter。
-- 触发 soft reset。
-
-对应 RTL：
-
-- `rtl/control/npu_control_regs.sv`
-
-对应文档：
-
-- `docs/INTERFACE.md` 的 AXI-Lite register map。
-
-### 2.2 AXI4 DMA：NPU 主动访问系统内存
-
-AXI4 是 NPU 作为 bus master 访问系统内存的接口。
-
-NPU 通过 AXI4 做这些事：
-
-- 读取 GEMM descriptor。
-- 读取 A 矩阵。
-- 读取 B 矩阵。
-- 写回 C 矩阵。
-
-对应 RTL：
-
-- `rtl/dma/npu_axi4_read_dma.sv`
-- `rtl/dma/npu_axi4_write_dma.sv`
-
-v1 DMA 约束：
-
-- AXI4 data width 是 128 bit，也就是 16 byte。
-- 地址必须 16-byte aligned。
-- byte count 必须非零且是 16 的倍数。
-- 一个 burst 最多 16 beats，也就是最多 256 bytes。
-- 每个 DMA engine v1 只支持一个 outstanding burst。
-
-### 2.3 Descriptor：CPU 放在内存里的 NPU 命令
-
-Descriptor 是一段 128 字节的数据结构。CPU 把它放在系统内存中，然后告诉 NPU
-descriptor 的物理地址。
-
-Descriptor 里包含：
-
-- 操作类型，目前只支持 GEMM。
-- M/N/K。
-- A/B/C 矩阵的系统内存地址。
-- A/B/C 每一行的 stride。
-- IRQ flag。
-- 是否在启动时清 performance counter。
-- 保留字段。
-
-对应头文件：
-
-- `include/holon_npu_desc.h`
-
-对应 RTL 解析：
-
-- `rtl/command/npu_command_processor.sv`
-
-对应 ABI 文档：
-
-- `docs/INTERFACE.md` 的 GEMM Descriptor ABI。
-
-注意：ABI 的可编辑单一来源是 `spec/holon_npu_abi.json`。`docs/INTERFACE.md`、
-`rtl/common/npu_pkg.sv` 和 `include/holon_npu_*.h` 都由
-`tools/gen_abi.py` 生成。
-
-## 3. 一次完整 GEMM 是怎么跑起来的
-
-下面是一次完整 NPU GEMM 的执行流程。
-
-### 3.1 软件准备数据
-
-软件先在系统内存中准备：
-
-- A matrix，signed INT8，row-major。
-- B matrix，signed INT8，row-major。
-- C matrix 输出空间，signed INT32，row-major。
-- 一个 128-byte GEMM descriptor。
-
-所有地址和 stride 必须满足 v1 对齐要求：
-
-- descriptor 地址 16-byte aligned。
-- A/B/C base address 16-byte aligned。
-- A/B/C row stride 16-byte aligned。
-
-### 3.2 软件写 AXI-Lite 寄存器
-
-CPU 写：
-
-```text
-DESC_ADDR_LO
-DESC_ADDR_HI
-DOORBELL.START = 1
-```
-
-这些寄存器由 ABI schema 生成到：
-
-- `docs/INTERFACE.md`
-- `include/holon_npu_regs.h`
-- `rtl/common/npu_pkg.sv`
-
-### 3.3 Control plane 启动 command processor
-
-`npu_control_regs.sv` 收到合法 doorbell 后：
-
-- 设置 busy。
-- 清旧的 done/error。
-- 发出一拍 `command_start_o`。
-- 把 descriptor 地址送给 command processor。
-
-### 3.4 Command processor 读取并检查 descriptor
-
-`npu_command_processor.sv` 做这些事：
-
-1. 用 read DMA 从 AXI4 读取 128-byte descriptor。
-2. 按 `docs/INTERFACE.md` 解码字段。
-3. 检查：
-   - descriptor size 是否等于 128。
-   - version 是否为 2。
-   - opcode 是否为 GEMM。
-   - flags 是否只有合法位。
-   - M/N/K 是否非零且不超过 v1 限制。
-   - A/B/C 地址是否对齐。
-   - stride 是否对齐且足够大。
-   - 所有 reserved 字段是否为 0。
-4. 如果合法，发出 GEMM command。
-5. 如果不合法，进入 error，并给出明确 error code。
-
-### 3.5 GEMM accelerator 执行 tile 调度
-
-`npu_gemm_accelerator.sv` 是 GEMM datapath 的主状态机。
-
-它按 `16x16x16` tile 遍历：
-
-- M 维度按 16 行分块。
-- N 维度按 16 列分块。
-- K 维度按 16 分块累加。
-
-每个 output tile 的大致过程：
-
-1. 清当前 C tile accumulator。
-2. load A tile row。
-3. load B tile row，并写入 PE 里的 stationary weight register。
-4. 让 systolic array 计算，输出 streamed C partial sums。
-5. 如果 K 还有后续 tile，继续在 C tile accumulator 里累加。
-6. K 全部完成后，把 C tile 写回内存。
-7. 进入下一个 M/N tile。
-
-### 3.6 Systolic array 做矩阵乘法
-
-矩阵核心文件：
-
-- `rtl/matrix/npu_pe_i8.sv`
-- `rtl/matrix/npu_systolic_array.sv`
-
-v1.1 使用 B-weight-stationary dataflow：
-
-- 每个 PE 保存一个 B weight。
-- A 从左侧按 wavefront 输入，向右传播。
-- zero psum 从顶部输入，向下穿过 K lanes。
-- 每个 PE 做 signed INT8 乘法，然后把结果加到输入 psum。
-- C partial sum 从阵列底部流出，再累加到 C tile accumulator。
-- 非完整 tile 通过 mask 禁用越界 row/col/K。
-
-### 3.7 C 结果写回系统内存
-
-GEMM accelerator 用 write DMA 写回 C：
-
-- C 是 signed INT32。
-- 一个 AXI beat 是 128 bit。
-- 一个 beat 可以写 4 个 INT32。
-- 如果 N 不是 4 的倍数，最后一个 chunk 内部无效 lane 写 0。
-- 如果 N 不是 16 的倍数，只写活跃 C chunk。
-
-### 3.8 完成、报错、IRQ
-
-成功时：
-
-- control plane 设置 `STATUS.DONE`。
-- 如果 descriptor 设置了 `IRQ_ON_DONE`，设置 `IRQ_STATUS.DONE_IRQ`。
-- 如果 IRQ enable 打开，则 `irq_o` 拉高。
-
-失败时：
-
-- control plane 设置 `STATUS.ERROR`。
-- `ERROR_CODE` 给出具体错误。
-- 如果允许 error IRQ，则设置 `IRQ_STATUS.ERROR_IRQ`。
-
-软件之后通过 `CLEAR` 或 `IRQ_STATUS` 清状态。
-
-## 4. 目录结构总览
-
-项目主要目录：
-
-```text
-docs/       路线图、架构、ABI、验证计划、进度、架构决策记录
-include/    生成的 C23 ABI/ISA 头文件和 C++26 V2 runtime API
-rtl/        SystemVerilog RTL
-sim/        Verilator C++26 testbench、architectural simulator 和 test-only SV harness
-spec/       V1/V2 ABI 与 Holon ISA schema
-sw/         V2 C23 driver 和 C++26 runtime 实现
-tests/      host-side driver/runtime/model test
-tools/      schema generator、静态检查和 coverage gate
-```
-
-建议你先熟悉这些入口文件：
-
-```text
-README.md
-docs/ARCHITECTURE.md
-docs/INTERFACE.md
-docs/VERIFICATION.md
-rtl/integration/npu_top.sv
-sim/top_tb.cpp
-```
-
-## 5. 文档体系怎么读
-
-### 5.1 ROADMAP
-
-文件：
-
-- `docs/ROADMAP.md`
-
-作用：
-
-- 定义 v1 到 v5 的路线图。
-- 定义 v1 Phase 0 到 Phase 11。
-- 定义每个阶段的目标、交付物、验收标准。
-
-开发前必须先看它，避免把未来功能混进当前版本。
-
-### 5.2 PROGRESS
-
-文件：
-
-- `docs/PROGRESS.md`
-
-作用：
-
-- 记录真实进度。
-- 记录每个阶段实际跑过的命令。
-- 记录测试结果和已知限制。
-
-这是判断项目当前状态的最直接文档。
-
-### 5.3 ARCHITECTURE
-
-文件：
-
-- `docs/ARCHITECTURE.md`
-
-作用：
-
-- 描述整体架构。
-- 解释 control plane、command processor、DMA、scratchpad、matrix engine、
-  software driver。
-
-这是理解项目设计的主文档。
-
-### 5.4 INTERFACE
-
-文件：
-
-- `docs/INTERFACE.md`
-
-作用：
-
-- 定义 v1 ABI。
-- 定义 AXI-Lite register map。
-- 定义 descriptor layout。
-- 定义 error code。
-- 定义 IRQ 语义。
-- 定义软件 API 合约。
-
-任何 RTL、driver、test 都必须和它一致。
-
-它是生成文件，人工不要直接编辑。需要改 register、descriptor、error code 或
-capability 时，改 `spec/holon_npu_abi.json`，然后运行：
-
-```sh
-python3 tools/gen_abi.py
-python3 tools/gen_abi.py --check
-```
-
-### 5.5 VERIFICATION
-
-文件：
-
-- `docs/VERIFICATION.md`
-
-作用：
-
-- 定义验证策略。
-- 定义每个 phase 的测试 checklist。
-- 定义 release checklist。
-
-如果你改模块，应该先看这里对应模块需要满足哪些测试。
-
-### 5.6 DECISIONS
-
-文件：
-
-- `docs/DECISIONS.md`
-
-作用：
-
-- 记录重要架构决策。
-- 解释为什么选这个方案。
-- 记录 rejected alternatives。
-
-当你想改架构时，先看这里，避免重复踩以前已经分析过的坑。
-
-## 6. RTL 代码学习路线
-
-下面按推荐学习顺序介绍 RTL。
-
-## 6.1 Common RTL
-
-目录：
-
-```text
-rtl/common/
-```
-
-重要文件：
-
-```text
-npu_pkg.sv
-npu_fifo.sv
-npu_skid_buffer.sv
-npu_register_slice.sv
-npu_vr_if.sv
-npu_axi_lite_if.sv
-npu_axi4_if.sv
-```
-
-这些 interface 不是占位文件。产品 RTL 内部以它们作为协议边界：
-
-- valid-ready 数据流使用 `npu_vr_if.source/sink`。
-- AXI-Lite control plane 使用 `npu_axi_lite_if.master/slave`。
-- AXI4 DMA 和顶层仲裁使用 `npu_axi4_if` 的 read/write modport。
-
-只有 C++/Verilator 测试便利层使用 flattened `*_test_wrapper.sv`。这些
-wrapper 集中放在 `sim/rtl/`，不属于核心架构，产品 RTL 内部不能实例化它们。
-
-接口和关键 RTL 模块直接使用 native SVA `assert property` / `cover property`
-描述协议与本地不变量。debug、regression、coverage 和 lint 路径通过
-Verilator `--assert` 启用这些检查；coverage preset 额外收集结构和功能覆盖率。
-
-### npu_pkg.sv
-
-这是最重要的公共包。
-
-里面定义：
-
-- ABI major/minor。
-- descriptor size/alignment。
-- register offset。
-- capability reset value。
-- opcode。
-- descriptor flag。
-- error code。
-
-这个文件是生成文件，不要手工改。它和下面两个 C header 由同一个 schema 生成：
-
-- `include/holon_npu_regs.h`
-- `include/holon_npu_desc.h`
-
-一致性由这个工具检查：
-
-```sh
-python3 tools/gen_abi.py --check
-```
-
-如果你看到 generated banner，说明文件应由 `tools/gen_abi.py` 更新。
-
-### FIFO / skid buffer / register slice
-
-这些是 valid-ready 基础模块。
-
-学习重点：
-
-- valid-ready 怎么握手。
-- backpressure 怎么传播。
-- reset 后状态如何初始化。
-- C++ testbench 如何逐周期验证它们。
-
-对应测试：
-
-- `sim/common_tb.cpp`
-
-## 6.2 Control Plane
-
-文件：
-
-```text
-rtl/control/npu_control_regs.sv
-```
-
-它是 AXI-Lite slave。
-
-主要功能：
-
-- 实现 register map。
-- 接收独立 AW/W channel。
-- 对非法访问返回 `SLVERR`。
-- 保存 descriptor 地址。
-- 接收 doorbell。
-- 维护 busy/done/error。
-- 管理 IRQ enable/status。
-- 管理 performance counter。
-- 发出 soft reset 和 clear perf pulse。
-
-学习时建议同时打开：
-
-- `docs/INTERFACE.md`
-- `include/holon_npu_regs.h`
-- `sim/control_tb.cpp`
-
-重点观察：
-
-- AW 和 W 可以同周期到，也可以不同周期到。
-- 写只读寄存器要返回 `SLVERR`。
-- doorbell while busy 要返回 `SLVERR`。
-- `CLEAR.DONE` 和 `CLEAR.ERROR` 会清对应 IRQ status。
-- `STATUS.IDLE` 在 terminal done/error 时也是 1，因为没有 active descriptor。
-
-## 6.3 Command Processor
-
-文件：
-
-```text
-rtl/command/npu_command_processor.sv
-```
-
-它是控制路径和数据路径之间的桥。
-
-主要功能：
-
-- 收到 start。
-- 发起 descriptor read DMA。
-- 收集 8 个 128-bit beat，刚好 128 byte。
-- 解码 descriptor。
-- 做合法性检查。
-- 如果合法，输出 GEMM command。
-- 如果非法，输出 error code。
-
-常见错误码：
-
-- `ERR_INVALID_DESC_SIZE`
-- `ERR_INVALID_DESC_VERSION`
-- `ERR_INVALID_OPCODE`
-- `ERR_INVALID_FLAGS`
-- `ERR_UNSUPPORTED_ALIGNMENT`
-- `ERR_RESERVED_NONZERO`
-- `ERR_DIMENSION_ZERO`
-- `ERR_DIMENSION_UNSUPPORTED`
-- `ERR_AXI_READ`
-
-对应测试：
-
-- `sim/command_tb.cpp`
-
-测试覆盖：
-
-- 合法 descriptor。
-- 非法 opcode/version/size/flags。
-- reserved field 非零。
-- descriptor fetch AXI error。
-- deterministic descriptor fuzz。
-
-## 6.4 DMA
-
-目录：
-
-```text
-rtl/dma/
-```
-
-重要文件：
-
-```text
-npu_axi4_read_dma.sv
-npu_axi4_write_dma.sv
-```
-
-测试专用 SV harness 位于：
-
-```text
-sim/rtl/dma/
-```
-
-### Read DMA
-
-`npu_axi4_read_dma.sv` 做：
-
-- 检查地址和长度对齐。
-- 发 AR。
-- 接收 R data。
-- 通过 valid-ready 输出 read data。
-- 支持多 burst。
-- 遇到 read response error 时报告 `ERR_AXI_READ`。
-
-一个关键设计点：
-
-如果 AXI read 在非最后一个 beat 返回错误，read DMA 不能立即丢掉 `RREADY`。
-它必须继续 drain 到 `RLAST`，否则顶层 read arbiter 无法释放 read owner。
-
-这部分设计记录在：
-
-- `docs/DECISIONS.md` 的 ADR-0016。
-
-### Write DMA
-
-`npu_axi4_write_dma.sv` 做：
-
-- 检查地址和长度对齐。
-- 发 AW。
-- 接收 input stream。
-- 发 W data。
-- 等待 B response。
-- 遇到 write response error 时报告 `ERR_AXI_WRITE`。
-
-对应测试：
-
-- `sim/read_dma_tb.cpp`
-- `sim/write_dma_tb.cpp`
-
-## 6.5 Matrix Engine
-
-目录：
-
-```text
-rtl/matrix/
-```
-
-重要文件：
-
-```text
-npu_pe_i8.sv
-npu_systolic_array.sv
-```
-
-测试专用 SV harness 位于：
-
-```text
-sim/rtl/matrix/
-```
-
-### PE
-
-PE 是 processing element。
-
-核心操作：
-
-```text
-acc += signed_int8_a * signed_int8_b
-```
-
-输出是 signed INT32。
-
-### Systolic Array
-
-`npu_systolic_array.sv` 把 PE 组成二维阵列。
-
-v1 设计：
-
-- B weight 先加载并驻留在 PE 内。
-- A 从左边按 wavefront 进入并向右传播。
-- zero psum 从顶部进入并向下传播。
-- C partial sum 从底部输出。
-- B-weight-stationary dataflow。
-
-对于 `16x16x16` tile，需要完整 wavefront。
-
-对应测试：
-
-- `sim/pe_tb.cpp`
-- `sim/array_tb.cpp`
-
-测试覆盖：
-
-- 1x1。
-- 16x16x16。
-- 17x19x23。
-- 正数、负数、零、溢出边界。
-- C++ golden model 对比。
-
-## 6.6 Datapath / Scratchpad
-
-目录：
-
-```text
-rtl/datapath/
-```
-
-重要文件：
-
-```text
-npu_tile_mask.sv
-npu_banked_scratchpad.sv
-npu_i8_tile_buffer.sv
-npu_c_accum_buffer.sv
-npu_gemm_tile_scratchpad.sv
-npu_ping_pong_ctrl.sv
-```
-
-测试专用 SV harness 位于：
-
-```text
-sim/rtl/datapath/
-```
-
-这些模块负责：
-
-- reusable tile mask、banked scratchpad、A/B tile buffer、C buffer 和
-  ping-pong schedule infrastructure。
-- tiling test top 中的 A/B/C buffer、banking、mask 和 schedule 行为验证。
-- product-active v1.1 GEMM datapath 中的 A wavefront、K/column masks 和 zero
-  psum timing。
-
-其中集成进 GEMM accelerator 的关键模块是：
-
-```text
-rtl/datapath/npu_gemm_tile_scratchpad.sv
-```
-
-在当前 product top 中，`npu_gemm_tile_scratchpad.sv` 不再保存 B tile，也不作为
-C accumulator。B tile row 由 GEMM scheduler 直接写入 PE 的 stationary weight
-registers，C partial sums 在 `npu_gemm_accelerator.sv` 内部累加后写回。
-`npu_i8_tile_buffer.sv`、`npu_c_accum_buffer.sv` 和 `npu_ping_pong_ctrl.sv`
-仍然作为 Phase 5 reusable infrastructure 被 lint 和 tiling test 覆盖。
-
-对应测试：
-
-- `sim/tiling_tb.cpp`
-
-## 6.7 GEMM Accelerator
-
-文件：
-
-```text
-rtl/integration/npu_gemm_accelerator.sv
-```
-
-这是 GEMM 数据路径的主状态机。
-
-它连接：
-
-- command input。
-- read DMA。
-- write DMA。
-- GEMM tile scratchpad。
-- systolic array。
-- stage/debug output。
-
-典型状态包括：
-
-- idle
-- tile clear
-- load A
-- load B
-- compute
-- K advance
-- store
-- next tile
-- done
-- error
-
-它不关心 AXI-Lite register，也不重新解析 descriptor。它只接收 command processor
-已经解码好的 GEMM command。
-
-对应测试：
-
-- `sim/gemm_tb.cpp`
-
-测试覆盖：
-
-- GEMM 正确性。
-- 64 个 deterministic constrained-random tile shape。
-- reset-in-flight。
-- AXI read error。
-- AXI write error。
-
-## 6.8 Product Top
-
-文件：
-
-```text
-rtl/integration/npu_top.sv
-```
-
-这是项目最重要的顶层模块。
-
-它连接：
-
-- AXI-Lite control。
-- command processor。
-- GEMM accelerator。
-- shared AXI4 read channel。
-- AXI4 write channel。
-- IRQ。
-- soft reset。
-- performance counter clear。
-
-### 顶层 read arbitration
-
-descriptor fetch 和 GEMM tensor read 都需要 AXI4 read。
-
-v1 只有一个 external AXI read channel，所以 `npu_top.sv` 做仲裁：
-
-- 如果 command processor 发 AR，优先 descriptor fetch。
-- 如果 GEMM accelerator 发 AR，处理 tensor read。
-- 一旦某个 client 的 AR 被接受，top 记录 read owner。
-- 后续 R beats 都送回这个 owner。
-- 直到 `RLAST` 后释放 owner。
-
-这就是为什么 read DMA 遇到 read error 时必须 drain 到 `RLAST`。
-
-对应测试：
-
-- `sim/top_tb.cpp`
-
-这是最重要的集成测试。
-
-## 7. 软件侧代码
-
-目录：
-
-```text
-include/
-sw/
-tests/
-```
-
-## 7.1 Public ABI And ISA Headers
-
-文件：
-
-```text
-include/holon_npu_regs.h
-include/holon_npu_desc.h
-include/holon_npu_program.h
-include/holon_npu_isa.h
-```
-
-`holon_npu_regs.h` / `holon_npu_desc.h` 是发布版 V1.5 ABI 2.0 合同。
-`holon_npu_program.h` 是当前 V2 ABI 3.0 program descriptor、register、fault、
-capability 和 completion record 合同；`holon_npu_isa.h` 是 Holon ISA 1.0
-encoding/semantic metadata 的生成头文件。它们都由 `spec/` 中的 schema 生成，
-不能手工修改。
-
-## 7.2 C Driver
-
-文件：
-
-```text
-sw/holon_npu_driver.h
-sw/holon_npu_driver.c
-```
-
-当前 driver 面向 V2 program lifecycle，提供：
-
-- `holon_npu_init`
-- `holon_npu_get_caps`
-- `holon_npu_build_program_desc`
-- `holon_npu_submit_program`
-- `holon_npu_poll`
-- `holon_npu_wait`
-- `holon_npu_halt` / `holon_npu_resume` / `holon_npu_debug_step`
-- `holon_npu_soft_reset` / `holon_npu_clear_terminal`
-- `holon_npu_get_fault_snapshot`
-- IRQ enable/status/clear APIs
-- `holon_npu_read_perf`
-
-driver 做本地参数检查，例如：
-
-- descriptor、program image、argument 和 completion 地址是否对齐。
-- code/argument/local/program memory 大小是否合法。
-- entry PC 是否在 program image 内并按指令宽度对齐。
-- required capability/op-class 和 flags 字段是否合法。
-
-driver 不做：
-
-- cache flush。
-- 物理内存分配。
-- OS IRQ 注册。
-- 虚拟地址到物理地址转换。
-
-这些由平台层负责。
-
-## 7.3 典型软件调用流程
-
-示例：
-
-```c
-holon_npu_dev_t dev;
-holon_npu_init(&dev, mmio_base);
-
-holon_npu_program_config_t cfg = {
-    .required_caps = required_caps,
-    .required_op_classes = required_op_classes,
-    .code_addr = code_pa,
-    .code_size_bytes = code_size,
-    .entry_pc = 0,
-    .arg_addr = args_pa,
-    .arg_size_bytes = args_size,
-    .local_mem_bytes = local_mem_size,
-    .program_mem_bytes = code_size,
-    .stack_bytes = 0,
-    .completion_addr = completion_pa,
-    .flags = HOLON_NPU_PROGRAM_FLAG_IRQ_ON_DONE |
-             HOLON_NPU_PROGRAM_FLAG_IRQ_ON_FAULT |
-             HOLON_NPU_PROGRAM_FLAG_DEBUG_SNAPSHOT_ON_FAULT,
-};
-
-holon_npu_program_desc_t desc;
-holon_npu_build_program_desc(&desc, &cfg);
-
-/* 平台代码负责 DMA 可见内存、物理地址和 cache maintenance。 */
-holon_npu_submit_program(&dev, desc_pa);
-
-holon_npu_status_t status;
-holon_npu_wait(&dev, timeout_polls, &status);
-
-if (status.fault) {
-    holon_npu_fault_snapshot_t fault;
-    holon_npu_get_fault_snapshot(&dev, &fault);
-}
-```
-
-对应测试：
-
-- `tests/driver_test.cpp`
-
-## 8. 构建和运行
-
-## 8.1 配置
-
-```sh
-cmake --preset debug
-```
-
-项目保留 `CMakePresets.json`，但只用它固定必要工作流：
-
-- `build/debug`、`build/regression` 和 `build/coverage` 三个 build tree。
-- `Debug` 和 `RelWithDebInfo` 构建类型。
-- `Ninja` generator。
-- `debug`、`lint`、`regression`、`coverage` 四个 CTest 入口。
-- 每个 CTest preset 默认使用保守并发 `jobs=2`；命令行 `-j N` 可以覆盖。
-
-不要把子系统快捷命令或架构版本信息放进 preset。单项构建用 `--target`，单项测试用
-`ctest -R`。
-
-## 8.2 构建
-
-```sh
-cmake --build --preset debug --parallel 2
-```
-
-## 8.3 运行快速 debug 测试
-
-```sh
-ctest --preset debug -j 2 --output-on-failure
-```
-
-`debug` 测试预设面向本地快速反馈：它会运行 static check、smoke、unit、module
-和 driver 测试，但会排除 RTL lint 与标记为 slow 的系统级仿真。
-
-## 8.4 运行 RTL lint
-
-```sh
-ctest --preset lint -j 2 --output-on-failure
-```
-
-如果只想构建 lint 聚合 target，可以运行：
-
-```sh
-cmake --build --preset debug --target lint --parallel 2
-```
-
-## 8.5 运行完整 regression
-
-```sh
-cmake --preset regression
-cmake --build --preset regression --parallel 2
-ctest --preset regression -j 2 --output-on-failure
-```
-
-regression 使用独立的 `RelWithDebInfo` 构建目录 `build/regression`。构建阶段只
-编译优化后的仿真目标，测试阶段由 CTest preset 单独调度。
-
-## 8.6 运行 coverage gate
-
-```sh
-cmake --preset coverage
-cmake --build --preset coverage --parallel 2
-ctest --preset coverage -j 2 --output-on-failure
-python3 tools/check_coverage.py --build-dir build/coverage
-```
-
-coverage 使用独立的 `RelWithDebInfo` 构建目录 `build/coverage`，因为 Verilator
-的 coverage 插桩会改变生成模型和编译参数。coverage preset 通过 Verilator
-CMake `COVERAGE` 路径启用结构/user coverage；C++ test runtime 始终以普通
-C++ 代码拥有 raw coverage 写入逻辑，不使用预处理器宏切换行为。当前硬门槛是
-命名 functional coverpoint 必须全部命中；结构覆盖率报告会生成但暂不设百分比
-阈值。CTest 会显式传入 `--tb-coverage-root`，C++ test runtime 会在该目录下写
-raw coverage、required manifest 和 hit manifest。
-
-## 8.7 单独跑某类测试
-
-只跑顶层：
-
-```sh
-cmake --build --preset debug --target npu_top_tb
-ctest --preset regression -R npu_top --verbose
-```
-
-只跑 GEMM：
-
-```sh
-cmake --build --preset debug --target npu_gemm_tb
-ctest --preset regression -R npu_gemm --verbose
-```
-
-只跑 DMA：
-
-```sh
-cmake --build --preset debug --target npu_read_dma_tb npu_write_dma_tb
-ctest --preset debug -R 'npu_read_dma|npu_write_dma' --verbose
-```
-
-原则是：preset 只表达常用构建/测试模式；单项构建使用 CMake 原生
-`--target`，单项测试使用 CTest 原生 `-R` 和 `--verbose`。
-
-## 9. Testbench 学习路线
-
-目录：
-
-```text
-sim/
-```
-
-推荐阅读顺序：
-
-1. `sim/smoke_tb.cpp`
-2. `sim/common_tb.cpp`
-3. `sim/pe_tb.cpp`
-4. `sim/array_tb.cpp`
-5. `sim/read_dma_tb.cpp`
-6. `sim/write_dma_tb.cpp`
-7. `sim/control_tb.cpp`
-8. `sim/command_tb.cpp`
-9. `sim/gemm_tb.cpp`
-10. `sim/top_tb.cpp`
-
-辅助文件：
-
-- `sim/gemm_case_gen.hpp`：生成固定 anchor 和 deterministic constrained-random
-  GEMM/tile shape。
-- `sim/tb_coverage.hpp` / `sim/tb_coverage.cpp`：C++26 typed test runtime，
-  提供 `test_run`、`coverage_point` enum、constexpr coverage registry 和
-  Verilator raw coverage 写入；coverage 插桩由 coverage preset 控制。
-- `sim/assert_fail_tb.cpp`：预期失败的 assertion smoke test，用来证明 assertion
-  真的处于开启状态。assertion 执行由 Verilator 原生 `--assert` 启用。
-
-## 9.1 smoke_tb.cpp
-
-最简单的 Verilator 测试。
-
-用于确认：
-
-- CMake 能调用 Verilator。
-- C++ testbench 能驱动 RTL。
-- 基础仿真流程可用。
-
-## 9.2 common_tb.cpp
-
-验证 common RTL：
-
-- FIFO。
-- skid buffer。
-- register slice。
-
-重点学习 valid-ready 握手。
-
-## 9.3 pe_tb.cpp / array_tb.cpp
-
-验证矩阵核心。
-
-重点学习：
-
-- C++ golden model。
-- signed INT8 到 signed INT32。
-- wraparound 语义。
-- partial tile mask。
-
-## 9.4 read_dma_tb.cpp / write_dma_tb.cpp
-
-验证 DMA。
-
-重点学习：
-
-- C++ memory model 如何模拟 AXI。
-- AXI burst 如何计数。
-- response error 如何注入。
-- 非对齐输入如何被拒绝。
-
-## 9.5 control_tb.cpp
-
-验证 AXI-Lite control register。
-
-重点学习：
-
-- register read/write。
-- AW/W skew。
-- read-only write rejection。
-- doorbell busy rejection。
-- IRQ status clear。
-- soft reset。
-
-## 9.6 command_tb.cpp
-
-验证 descriptor fetch/decode。
-
-重点学习：
-
-- descriptor memory layout。
-- descriptor validation。
-- invalid descriptor fuzz。
-
-## 9.7 gemm_tb.cpp
-
-验证 GEMM accelerator，不经过 AXI-Lite register top。
-
-重点学习：
-
-- tile GEMM 调度。
-- A/B/C memory model。
-- reset-in-flight。
-- read/write error injection。
-- deterministic constrained-random tile shape。
-
-## 9.8 top_tb.cpp
-
-这是最重要的系统级测试。
-
-它覆盖：
-
-- AXI-Lite register programming。
-- descriptor fetch。
-- GEMM execution。
-- AXI4 read/write memory model。
-- IRQ/status。
-- invalid descriptor。
-- descriptor read error recovery。
-- GEMM read error。
-- GEMM write error。
-- reset-in-flight。
-- `1x1x1`、`16x16x16`、`17x19x23`、`64x64x64`。
-- 16 个 deterministic constrained-random top-level GEMM shape。
-
-如果你只想看“这个 NPU 完整怎么跑”，先看 `sim/top_tb.cpp`。
-
-## 10. CMake target 怎么对应模块
-
-常用 target：
-
-```text
-npu_smoke_tb
-npu_common_tb
-npu_pe_tb
-npu_array_tb
-npu_tiling_tb
-npu_control_tb
-npu_read_dma_tb
-npu_write_dma_tb
-npu_command_tb
-npu_gemm_tb
-npu_top_tb
-holon_npu_driver_test
-```
-
-常用 lint target：
-
-```text
-common_rtl_lint
-matrix_rtl_lint
-datapath_rtl_lint
-control_rtl_lint
-dma_rtl_lint
-command_rtl_lint
-integration_rtl_lint
-lint
-```
-
-快速测试入口：
-
-```sh
-ctest --preset debug -j 2 --output-on-failure
-```
-
-完整 release gate 还需要单独运行 lint、regression 和 coverage：
-
-```sh
-ctest --preset lint -j 2 --output-on-failure
-cmake --preset regression
-cmake --build --preset regression --parallel 2
-ctest --preset regression -j 2 --output-on-failure
-cmake --preset coverage
-cmake --build --preset coverage --parallel 2
-ctest --preset coverage -j 2 --output-on-failure
-```
-
-## 11. ABI 单一来源
-
-ABI 的可编辑源文件只有一个：
-
-```text
-spec/holon_npu_abi.json
-```
-
-它生成：
-
-```text
-docs/INTERFACE.md
-rtl/common/npu_pkg.sv
-include/holon_npu_regs.h
-include/holon_npu_desc.h
-```
-
-如果你改了 register offset、error code、descriptor flag、descriptor size 等，
-必须先改 schema，再生成输出：
-
-```sh
-python3 tools/gen_abi.py
-python3 tools/gen_abi.py --check
-```
-
-CTest 中也有：
-
-```text
-abi_generate_check
-```
-
-## 12. 常见开发任务示例
-
-## 12.1 如果你想改 AXI-Lite register
-
-先看：
-
-```text
-spec/holon_npu_abi.json
-docs/INTERFACE.md
-rtl/control/npu_control_regs.sv
-sim/control_tb.cpp
-include/holon_npu_regs.h
-rtl/common/npu_pkg.sv
-```
-
-推荐流程：
-
-1. 先改 `spec/holon_npu_abi.json`。
-2. 更新 `docs/DECISIONS.md`，如果是架构级变化。
-3. 运行 `python3 tools/gen_abi.py` 重新生成 ABI 输出。
-4. 改 `npu_control_regs.sv`。
-5. 改或新增 `sim/control_tb.cpp` 测试。
-6. 确认生成输出没有被手工二次修改。
-7. 跑：
-
-```sh
-python3 tools/gen_abi.py --check
-cmake --build --preset debug --target npu_control_tb
-ctest --preset debug -R npu_control --verbose
-ctest --preset lint -j 2 --output-on-failure
-```
-
-## 12.2 如果你想改 descriptor ABI
-
-先看：
-
-```text
-spec/holon_npu_abi.json
-docs/INTERFACE.md
-include/holon_npu_desc.h
-rtl/common/npu_pkg.sv
-rtl/command/npu_command_processor.sv
-sim/command_tb.cpp
-```
-
-注意：
-
-- descriptor size 当前固定 128 bytes。
-- reserved 字段必须为 0。
-- public C struct offset 必须和文档一致。
-- command processor 解码 offset 必须一致。
-
-跑：
-
-```sh
-python3 tools/gen_abi.py --check
-cmake --build --preset debug --target npu_command_tb holon_npu_driver_test
-ctest --preset debug -R 'npu_command|holon_npu_driver|abi_generate_check' --verbose
-```
-
-## 12.3 如果你想改 DMA
-
-先看：
-
-```text
-docs/INTERFACE.md
-rtl/dma/npu_axi4_read_dma.sv
-rtl/dma/npu_axi4_write_dma.sv
-sim/read_dma_tb.cpp
-sim/write_dma_tb.cpp
-```
-
-跑：
-
-```sh
-cmake --build --preset debug --target npu_read_dma_tb npu_write_dma_tb
-ctest --preset debug -R 'npu_read_dma|npu_write_dma' --verbose
-ctest --preset lint -j 2 --output-on-failure
-```
-
-特别注意：
-
-- read error 必须 drain 到 `RLAST`。
-- 不要破坏 top-level read owner release。
-- 不要引入 v1 不支持的 multiple outstanding。
-
-## 12.4 如果你想改 systolic array
-
-先看：
-
-```text
-rtl/matrix/npu_pe_i8.sv
-rtl/matrix/npu_systolic_array.sv
-sim/pe_tb.cpp
-sim/array_tb.cpp
-rtl/datapath/npu_gemm_tile_scratchpad.sv
-```
-
-跑：
-
-```sh
-cmake --build --preset debug --target npu_pe_tb npu_array_tb npu_gemm_tb npu_top_tb
-ctest --preset debug -R 'npu_pe|npu_array' --verbose
-ctest --preset regression -R 'npu_gemm|npu_top' --verbose
-ctest --preset lint -j 2 --output-on-failure
-```
-
-特别注意：
-
-- A wavefront、B stationary weight load、psum top-to-bottom 契约不能随便改。
-- valid/mask 传播必须保持正确。
-- `17x19x23` 这种非整 tile case 很容易暴露 bug。
-
-## 12.5 如果你想改 GEMM scheduler
-
-先看：
-
-```text
-rtl/integration/npu_gemm_accelerator.sv
-rtl/datapath/npu_gemm_tile_scratchpad.sv
-sim/gemm_tb.cpp
-sim/top_tb.cpp
-```
-
-跑：
-
-```sh
-cmake --build --preset debug --target npu_gemm_tb npu_top_tb
-ctest --preset regression -R 'npu_gemm|npu_top' --verbose
-ctest --preset lint -j 2 --output-on-failure
-```
-
-特别注意：
-
-- M/N/K 三层 tile 遍历。
-- K tile 之间要累加同一个 output tile。
-- M/N tile 切换时才清 C accumulator。
-- C writeback 只写有效 chunk。
-
-## 12.6 如果你想改 software driver
-
-先看：
-
-```text
-include/holon_npu_regs.h
-include/holon_npu_desc.h
-sw/holon_npu_driver.c
-sw/holon_npu_driver.h
-tests/driver_test.cpp
-```
-
-跑：
-
-```sh
-cmake --build --preset debug --target holon_npu_driver_test
-ctest --preset debug -R holon_npu_driver --verbose
-```
-
-## 13. Debug 方法
-
-推荐 debug 流程：
-
-1. 先用最小 CTest 复现。
-2. 确认失败属于哪个层级：
-   - register/control
-   - command/descriptor
-   - DMA
-   - scratchpad/tile mask
-   - matrix engine
-   - GEMM scheduler
-   - software driver
-3. 看对应 testbench 的 error print。
-4. 对照 C++ golden model。
-5. 必要时打开 wave。
-6. 修复后先跑局部测试。
-7. 再跑快速 `ctest --preset debug -j 2`。
-8. 最后跑 `ctest --preset lint -j 2`、regression 和必要的 coverage gate。
-
-## 14. 从零重新理解项目的推荐路线
-
-如果你现在完全陌生，建议分四轮学习。
-
-### 第一轮：理解整体
-
-读：
-
-```text
-README.md
-docs/ARCHITECTURE.md
-docs/INTERFACE.md
-rtl/integration/npu_top.sv
-sim/top_tb.cpp
-```
-
-目标：
-
-- 知道 NPU 从 CPU doorbell 到 C 写回的完整流程。
-- 知道 AXI-Lite、descriptor、AXI4 DMA 各自做什么。
-
-### 第二轮：理解控制路径
-
-读：
-
-```text
-rtl/control/npu_control_regs.sv
-rtl/command/npu_command_processor.sv
-include/holon_npu_regs.h
-include/holon_npu_desc.h
-sw/holon_npu_driver.c
-sim/control_tb.cpp
-sim/command_tb.cpp
-```
-
-目标：
-
-- 理解寄存器。
-- 理解 descriptor。
-- 理解启动、完成、错误、IRQ。
-
-### 第三轮：理解数据路径
-
-读：
-
-```text
-rtl/dma/npu_axi4_read_dma.sv
-rtl/dma/npu_axi4_write_dma.sv
-rtl/datapath/npu_gemm_tile_scratchpad.sv
-rtl/matrix/npu_systolic_array.sv
-rtl/integration/npu_gemm_accelerator.sv
-sim/gemm_tb.cpp
-```
-
-目标：
-
-- 理解 A/B 怎么从内存加载。
-- 理解 tile 怎么进入 systolic array。
-- 理解 C 怎么写回。
-
-### 第四轮：理解验证体系
-
-读：
-
-```text
-docs/VERIFICATION.md
-sim/read_dma_tb.cpp
-sim/write_dma_tb.cpp
-sim/command_tb.cpp
-sim/gemm_tb.cpp
-sim/top_tb.cpp
-tests/driver_test.cpp
-```
-
-目标：
-
-- 知道每个模块如何被验证。
-- 知道如何新增测试。
-- 知道 release gate 要求。
-
-## 15. 最小上手任务建议
-
-如果你想练手，不建议一开始改核心 GEMM。
-
-推荐从这些小任务开始：
-
-1. 在 `sim/control_tb.cpp` 里新增一个非法寄存器访问测试。
-2. 在 `sim/read_dma_tb.cpp` 里新增一个 alignment error case。
-3. 在 `tests/driver_test.cpp` 里新增一个 driver argument validation case。
-4. 在 `docs/INTERFACE.md` 中补充一个说明性段落，然后确认不影响 ABI。
-5. 在 `sim/top_tb.cpp` 中新增一个小尺寸 GEMM case，比如 `3x5x7`。
-
-每次练习都遵守：
-
-```sh
-cmake --build --preset debug --parallel 2
-ctest --preset debug -j 2 --output-on-failure
-ctest --preset lint -j 2 --output-on-failure
-python3 tools/check_rtl_interface_usage.py
-```
-
-## 16. 项目当前最重要的边界
-
-请始终记住：
-
-- `spec/holon_npu_abi.json` 是 ABI 可编辑权威。
-- `docs/INTERFACE.md` 是生成出来的人读 ABI 说明。
-- `docs/ROADMAP.md` 是范围权威。
-- `docs/PROGRESS.md` 是实际进度权威。
-- `docs/DECISIONS.md` 是架构决策历史。
-- `rtl/common/npu_pkg.sv` 和 `include/*.h` 是生成文件，必须通过
-  `tools/gen_abi.py --check` 保持一致。
-- `npu_top.sv` 是 SoC 集成入口和产品 pin boundary；其内部实例化
-  interface-native `npu_top_core`。
-- `sim/rtl/` 下的 `*_test_wrapper.sv`、`*_test_top.sv` 和 smoke top 只服务
-  C++/Verilator 测试，不能作为产品 RTL 内部连接层。
-- `sim/top_tb.cpp` 是最重要的系统级行为参考。
-
-如果你不确定某个改动是否合理，先回答三个问题：
-
-1. 这个改动是否属于 v1 范围？
-2. ABI 是否需要更新？
-3. 有没有对应测试能证明它正确？
-
-如果任意一个答案不清楚，先更新文档或补测试，不要直接改 RTL。
-
-## 17. GitHub Actions CI
-
-云端 CI 配置文件在：
-
-```text
-.github/workflows/cmake-single-platform.yml
-```
-
-它基于 GitHub 官方的 CMake single-platform starter workflow，但已经按
-`HolonNPU` 的真实工具链和 release gate 做了项目化配置。
-
-### 17.1 CI 什么时候运行
-
-CI 会在这些情况下运行：
-
-- push 到 `master`。
-- 向 `master` 发 pull request。
-- push `v*` tag，例如 `v1`。
-- 在 GitHub Actions 页面手动触发 `workflow_dispatch`。
-
-### 17.2 CI 使用什么环境
-
-当前 CI 使用：
-
-- `ubuntu-26.04`
-- `gcc-15` / `g++-15`
+# HolonNPU 入门指南
+
+HolonNPU 当前主线是一个可编程的整数/量化 NPU tile。Host 提交的不是
+GEMM descriptor，而是 ABI 3.0 program descriptor；reference frontend 执行
+Holon ISA 1.0 程序，并调度 DMA、vector、matrix 和同步操作。
+
+旧的 descriptor-driven GEMM 实现只保存在 `v1.5` tag 中，不与当前产品
+源码共同维护。
+
+## 先理解运行流程
+
+一次程序执行包含以下步骤：
+
+1. 软件构造 Holon program image、argument block 和 program descriptor。
+2. 软件通过 AXI-Lite 写 descriptor 地址并触发 doorbell。
+3. loader 通过 AXI4 读取并验证 descriptor。
+4. loader 将代码复制到 program memory，将参数复制到 data scratchpad。
+5. control plane 从 `LOADING` 进入 `RUNNING`，reference frontend 开始取指。
+6. frontend 执行控制流，并通过 interface issue DMA、vector、matrix 工作。
+7. 程序使用 DMA STORE 将结果写回 system memory。
+8. 若配置 completion record，硬件先完成并确认写回，再暴露 `DONE` 或
+   `FAULT` 以及 IRQ。
+
+`DONE`/`FAULT` 是 sticky 状态，下一次提交前必须执行
+`CLEAR_TERMINAL`。软件 reset 会先进入可见的 `RESETTING`，排空已接受的
+AXI/local-memory 工作后才回到 `IDLE`。
+
+## 代码结构
+
+| 路径 | 内容 |
+| ---- | ---- |
+| `spec/` | ABI、ISA、coverage baseline 的机器可检查来源。 |
+| `rtl/common/` | AXI/AXI-Lite/valid-ready interface 和生成 package。 |
+| `rtl/control/` | control registers、program loader、completion writer。 |
+| `rtl/frontend/` | frontend interface 和 reference frontend。 |
+| `rtl/localmem/` | program/data local memory 及仲裁。 |
+| `rtl/dma/` | frontend-issued DMA fabric。 |
+| `rtl/vector/` | integer/quant vector engine。 |
+| `rtl/matrix/` | PE、systolic array、matrix micro-op engine。 |
+| `rtl/integration/` | control plane、engine integration、canonical `npu_top`。 |
+| `sim/rtl/` | 仅供 Verilator/C++ 使用的 flattened wrapper。 |
+| `sim/model/` | C++26 architectural model。 |
+| `sim/` | C++ testbench 和 typed coverage runtime。 |
+| `include/` | 生成的 public headers 和 C++ runtime API。 |
+| `sw/` | C23 driver 与 C++26 runtime 实现。 |
+| `tools/` | schema generation、结构检查、coverage gate。 |
+
+`rtl/` 中的模块必须能从 `npu_top` 产品图到达。`sim/rtl/` wrapper 只是测试
+边界，不允许参与产品内部连接。program-level 测试也不能通过产品 test
+probe 读取 scratchpad，而要执行 DMA STORE 后比较模拟 system memory。
+
+## 环境要求
+
+- CMake 4.0+
 - Ninja
 - Verilator
+- 支持 C23 的 C compiler
+- 支持 C++26 的 C++ compiler
 - Python 3
-- CMake 4.x
 
-这里特意不用 runner 自带的旧 CMake，因为项目 `CMakePresets.json` 明确要求
-CMake 4.0+。CI 也显式使用 `g++-15`，避免 C++26 feature 检测因为默认编译器
-过旧而失败。
+确认入口：
 
-### 17.3 CI 实际跑哪些命令
+```bash
+cmake --list-presets
+cmake --list-presets=build
+cmake --list-presets=test
+```
 
-云端流程和本地 release gate 对齐：
+## 日常构建
 
-```sh
+Debug 配置与构建：
+
+```bash
 cmake --preset debug
 cmake --build --preset debug --parallel 2
-ctest --preset debug -j 2 --output-on-failure
-ctest --preset lint -j 2 --output-on-failure
+```
+
+快速测试和 lint 分开执行：
+
+```bash
+ctest --preset debug --output-on-failure
+ctest --preset lint --output-on-failure
+```
+
+优化后的完整回归：
+
+```bash
 cmake --preset regression
 cmake --build --preset regression --parallel 2
-ctest --preset regression -j 2 --output-on-failure
+ctest --preset regression --output-on-failure
+```
+
+覆盖率构建：
+
+```bash
 cmake --preset coverage
 cmake --build --preset coverage --parallel 2
-ctest --preset coverage -j 2 --output-on-failure
-```
-
-这意味着 CI 不只是“能编译”，还会跑：
-
-- debug 快速测试。
-- ABI consistency check。
-- RTL interface usage check。
-- RTL lint。
-- RelWithDebInfo 完整 regression。
-- coverage 插桩仿真和 functional coverage gate。
-- 顶层 `npu_top` 集成测试。
-
-### 17.4 如果 CI 失败，先看哪里
-
-建议按这个顺序定位：
-
-1. 看失败 step 名称：
-   - `Configure` 通常是 CMake、编译器、Verilator 包问题。
-   - `Build` 通常是 C++/RTL 编译问题。
-   - `Test` 或 `Regression test` 通常是 CTest 行为失败。
-   - `RTL lint` 通常是 Verilator warning/error。
-2. 看失败日志里第一个明确的 test name 或 Verilator diagnostic。
-3. 在本地跑同一条命令复现。
-4. 如果是 CTest 失败，优先看 `--output-on-failure` 打印的 testbench 信息。
-5. 如果需要完整 CTest 日志，CI 失败时会上传 `ctest-logs` artifact。
-
-### 17.5 本地如何复现 CI
-
-本地复现最小命令：
-
-```sh
-cmake --preset debug
-cmake --build --preset debug --parallel 2
-ctest --preset debug -j 2 --output-on-failure
-ctest --preset lint -j 2 --output-on-failure
-cmake --preset regression
-cmake --build --preset regression --parallel 2
-ctest --preset regression -j 2 --output-on-failure
-cmake --preset coverage
-cmake --build --preset coverage --parallel 2
-ctest --preset coverage -j 2 --output-on-failure
-```
-
-如果这些本地通过但 CI 失败，优先检查工具版本：
-
-```sh
-cmake --version
-verilator --version
-c++ --version
-python3 --version
-```
-
-## 18. 快速命令速查
-
-配置：
-
-```sh
-cmake --preset debug
-```
-
-构建：
-
-```sh
-cmake --build --preset debug --parallel 2
-```
-
-快速测试：
-
-```sh
-ctest --preset debug -j 2 --output-on-failure
-```
-
-RTL lint：
-
-```sh
-ctest --preset lint -j 2 --output-on-failure
-```
-
-完整 regression：
-
-```sh
-cmake --preset regression
-cmake --build --preset regression --parallel 2
-ctest --preset regression -j 2 --output-on-failure
-```
-
-ABI 检查：
-
-```sh
-python3 tools/gen_abi.py --check
-```
-
-coverage gate：
-
-```sh
-cmake --preset coverage
-cmake --build --preset coverage --parallel 2
-ctest --preset coverage -j 2 --output-on-failure
+ctest --preset coverage --output-on-failure
 python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
-顶层测试：
+`CMakePresets.json` 只固定 debug/regression/coverage build tree 和四个测试入口，
+不为每个子系统增加 preset。单独构建或观察测试时直接使用 target/regex：
 
-```sh
-cmake --build --preset debug --target npu_top_tb
-ctest --preset regression -R npu_top --verbose
+```bash
+cmake --build --preset debug --target npu_dma_fabric_tb
+ctest --preset debug -R '^npu_dma_fabric$' --verbose
 ```
 
-GEMM 测试：
+## ABI 与 ISA 单一来源
 
-```sh
-cmake --build --preset debug --target npu_gemm_tb
-ctest --preset regression -R npu_gemm --verbose
+不要直接修改以下生成文件：
+
+- `rtl/common/npu_pkg.sv`
+- `rtl/common/npu_isa_pkg.sv`
+- `include/holon_npu_program.h`
+- `include/holon_npu_isa.h`
+- `docs/INTERFACE_REFERENCE.md`
+- `docs/ISA_REFERENCE.md`
+
+ABI 修改流程：
+
+1. 先更新 `docs/INTERFACE.md` 和 ADR。
+2. 修改 `spec/holon_npu_abi.json`。
+3. 运行 `python3 tools/gen_abi.py`。
+4. 运行 `python3 tools/gen_abi.py --check`。
+5. 更新 RTL、driver、model、tests 和 coverage evidence。
+
+ISA 修改流程：
+
+1. 先更新 `docs/ISA.md` 和 ADR。
+2. 修改 `spec/holon_npu_isa.json`。
+3. 运行 `python3 tools/gen_isa.py`。
+4. 运行 `python3 tools/gen_isa.py --check` 和
+   `python3 tools/check_isa.py`。
+5. 同步 decoder、encoder、model、RTL、runtime 和测试。
+
+ABI generator 会同时读取 ISA schema，从而自动派生 ISA version 和
+operation-class capability mask；不要在 ABI schema 中复制 operation-class
+数字。
+
+## RTL 阅读顺序
+
+推荐按控制流阅读：
+
+1. `rtl/common/npu_pkg.sv` 和 `npu_isa_pkg.sv`：生成常量和类型。
+2. `rtl/common/npu_axi_lite_if.sv`、`npu_axi4_if.sv`：协议与通用 SVA。
+3. `rtl/control/npu_control_regs.sv`：lifecycle、IRQ、reset、doorbell。
+4. `rtl/control/npu_program_loader.sv`：descriptor 验证和 code/arg 加载。
+5. `rtl/frontend/npu_frontend_if.sv` 与 `npu_reference_frontend.sv`：ISA
+   执行及 engine issue。
+6. `rtl/dma/npu_dma_fabric.sv`、`rtl/vector/npu_vector_engine.sv`、
+   `rtl/matrix/npu_matrix_engine.sv`：执行引擎。
+7. `rtl/integration/npu_frontend_tile.sv` 和 `npu_top.sv`：完整产品流程。
+
+Matrix datapath 可继续深入阅读 `npu_pe_i8.sv` 和
+`npu_systolic_array.sv`。B weight 驻留在 PE 中，A 水平传播，partial sum
+垂直传播，architectural accumulator 为 INT32 wraparound。
+
+## 软件入口
+
+C23 driver 位于 `sw/holon_npu_driver.c` 和 `.h`，提供：
+
+- capability/status/fault/perf 读取；
+- descriptor 初始化、校验和提交；
+- halt/resume/debug-step；
+- IRQ clear；
+- soft reset 与 `holon_npu_wait_idle()`；
+- terminal wait/clear。
+
+C++26 runtime 位于 `include/holon_npu_runtime.hpp` 和
+`sw/holon_npu_runtime.cpp`，提供 typed program builder 和示例 kernel 构造。
+编码常量来自生成的 `holon_npu_isa.h`。
+
+## 验证方法
+
+验证不是只依赖外部 C++ compare：
+
+- product RTL 内直接使用 named native `assert property`；
+- `npu_assert_fail` 证明 assertion 在 Verilator 中真实启用；
+- C++ architectural model 给出 decode/retire/fault/engine semantics；
+- AXI directed tests 覆盖 4 KiB split 和各 channel backpressure；
+- reset tests 在 AR/R/AW/W/B stall 中验证 drain；
+- typed functional coverage 只在 monitor/scoreboard 完成观察和校验时记录；
+- checker 强制所有 named RTL `cover property` 非零；
+- line/branch/toggle/expr 不得低于 checked baseline。
+
+coverage run 开始前会删除旧 artifacts，并生成本轮
+`expected_tests.txt`。因此缺失测试或旧 `.dat` 文件都不能掩盖问题。
+
+## 常见修改检查表
+
+修改 AXI/DMA：
+
+- 检查 VALID/payload stability；
+- 检查 burst length、alignment、4 KiB split；
+- 添加 backpressure/error/reset-drain tests；
+- 添加或更新 native SVA 和 functional event。
+
+修改 vector/matrix：
+
+- 先固定 ISA semantic；
+- 同步 C++ model；
+- 覆盖 tail、predicate、overflow、rounding、bounds 和 illegal mode；
+- program-level 结果通过 DMA STORE 观察。
+
+新增 RTL module：
+
+- 使用 interface/modport 表达协议；
+- 从 `npu_top` 产品图接入；
+- 添加 lint、module test、assertion 和 coverage；
+- 不在 `rtl/` 放 test wrapper。
+
+## 提交前检查
+
+```bash
+python3 tools/gen_abi.py --check
+python3 tools/gen_isa.py --check
+python3 tools/check_isa.py
+python3 tools/check_rtl_interface_usage.py
+python3 tools/check_macro_policy.py
+git diff --check
 ```
 
-DMA 测试：
-
-```sh
-cmake --build --preset debug --target npu_read_dma_tb npu_write_dma_tb
-ctest --preset debug -R 'npu_read_dma|npu_write_dma' --verbose
-```
-
-driver 测试：
-
-```sh
-cmake --build --preset debug --target holon_npu_driver_test
-ctest --preset debug -R holon_npu_driver --verbose
-```
-
-## 19. 读完本文后你应该能做到什么
-
-读完并按顺序浏览代码后，你应该能够：
-
-- 解释 CPU 如何启动一次 NPU GEMM。
-- 找到 AXI-Lite register 实现位置。
-- 找到 descriptor 解码位置。
-- 找到 DMA read/write 实现位置。
-- 找到 systolic array 和 PE 实现位置。
-- 找到 GEMM tile scheduler 实现位置。
-- 知道 `npu_top.sv` 如何把各模块连接起来。
-- 知道 C driver 如何构造和提交 descriptor。
-- 知道每个模块对应哪个 testbench。
-- 能安全地做小范围修改并运行对应测试。
-
-下一步建议：从 `sim/top_tb.cpp` 开始，跟着一个 `1x1x1` GEMM case，把
-descriptor、AXI-Lite 写寄存器、AXI4 memory model、GEMM 结果比对这条链路完整
-走一遍。理解这条链路后，整个项目的结构就会清晰很多。
+随后运行 debug、lint、regression 和 coverage 四个 gate。真实结果记录到
+`docs/PROGRESS.md`，长期变更记录写入 `CHANGELOG.md`。

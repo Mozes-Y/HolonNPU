@@ -43,6 +43,20 @@ interface npu_axi4_if #(
     logic              rvalid;
     logic              rready;
 
+    function automatic logic burst_within_4k(
+        input logic [ADDR_W-1:0] address,
+        input logic [7:0] length,
+        input logic [2:0] size
+    );
+        logic [20:0] transfer_bytes;
+        logic [20:0] page_end;
+        begin
+            transfer_bytes = (21'(length) + 21'd1) << size;
+            page_end = {9'd0, address[11:0]} + transfer_bytes;
+            burst_within_4k = page_end <= 21'd4096;
+        end
+    endfunction
+
     modport master (
         input  aclk_i,
         input  aresetn_i,
@@ -215,6 +229,14 @@ interface npu_axi4_if #(
             rvalid && !rready |=>
                 rvalid && $stable(rid) && $stable(rdata) &&
                 $stable(rresp) && $stable(rlast)
+    );
+    axi_aw_burst_within_4k: assert property (
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            awvalid |-> burst_within_4k(awaddr, awlen, awsize)
+    );
+    axi_ar_burst_within_4k: assert property (
+        @(posedge aclk_i) disable iff (!aresetn_i)
+            arvalid |-> burst_within_4k(araddr, arlen, arsize)
     );
 
     axi_read_burst_seen: cover property (

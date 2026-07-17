@@ -56,6 +56,7 @@ typedef struct holon_npu_status {
     int done;
     int fault;
     int irq_pending;
+    int resetting;
 } holon_npu_status_t;
 
 typedef struct holon_npu_fault_snapshot {
@@ -85,6 +86,11 @@ holon_npu_result_t holon_npu_halt(const holon_npu_dev_t* dev);
 holon_npu_result_t holon_npu_resume(const holon_npu_dev_t* dev);
 holon_npu_result_t holon_npu_debug_step(const holon_npu_dev_t* dev);
 holon_npu_result_t holon_npu_soft_reset(const holon_npu_dev_t* dev);
+holon_npu_result_t holon_npu_wait_idle(
+    const holon_npu_dev_t* dev,
+    uint32_t timeout_polls,
+    holon_npu_status_t* final_status
+);
 holon_npu_result_t holon_npu_clear_terminal(const holon_npu_dev_t* dev);
 holon_npu_result_t holon_npu_get_fault_snapshot(
     const holon_npu_dev_t* dev,

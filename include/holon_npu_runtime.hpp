@@ -10,24 +10,24 @@
 #include <span>
 #include <vector>
 
-namespace holon_npu::v2::runtime {
+namespace holon_npu::runtime {
 
 enum class fault_code : std::uint32_t {
-    none = HOLON_NPU_V2_FAULT_NONE,
-    invalid_program_descriptor = HOLON_NPU_V2_FAULT_INVALID_PROGRAM_DESCRIPTOR,
-    unsupported_abi_or_isa = HOLON_NPU_V2_FAULT_UNSUPPORTED_ABI_OR_ISA,
-    unsupported_program_format = HOLON_NPU_V2_FAULT_UNSUPPORTED_PROGRAM_FORMAT,
-    unsupported_capability = HOLON_NPU_V2_FAULT_UNSUPPORTED_CAPABILITY,
-    unsupported_operation_class = HOLON_NPU_V2_FAULT_UNSUPPORTED_OPERATION_CLASS,
-    alignment = HOLON_NPU_V2_FAULT_ALIGNMENT,
-    local_memory_bounds = HOLON_NPU_V2_FAULT_LOCAL_MEMORY_BOUNDS,
-    illegal_instruction = HOLON_NPU_V2_FAULT_ILLEGAL_INSTRUCTION,
-    vector_config = HOLON_NPU_V2_FAULT_VECTOR_CONFIG,
-    matrix_issue = HOLON_NPU_V2_FAULT_MATRIX_ISSUE,
-    dma_request = HOLON_NPU_V2_FAULT_DMA_REQUEST,
-    axi_read = HOLON_NPU_V2_FAULT_AXI_READ,
-    axi_write = HOLON_NPU_V2_FAULT_AXI_WRITE,
-    explicit_program_fault = HOLON_NPU_V2_FAULT_EXPLICIT_PROGRAM_FAULT,
+    none = HOLON_NPU_FAULT_NONE,
+    invalid_program_descriptor = HOLON_NPU_FAULT_INVALID_PROGRAM_DESCRIPTOR,
+    unsupported_abi_or_isa = HOLON_NPU_FAULT_UNSUPPORTED_ABI_OR_ISA,
+    unsupported_program_format = HOLON_NPU_FAULT_UNSUPPORTED_PROGRAM_FORMAT,
+    unsupported_capability = HOLON_NPU_FAULT_UNSUPPORTED_CAPABILITY,
+    unsupported_operation_class = HOLON_NPU_FAULT_UNSUPPORTED_OPERATION_CLASS,
+    alignment = HOLON_NPU_FAULT_ALIGNMENT,
+    local_memory_bounds = HOLON_NPU_FAULT_LOCAL_MEMORY_BOUNDS,
+    illegal_instruction = HOLON_NPU_FAULT_ILLEGAL_INSTRUCTION,
+    vector_config = HOLON_NPU_FAULT_VECTOR_CONFIG,
+    matrix_issue = HOLON_NPU_FAULT_MATRIX_ISSUE,
+    dma_request = HOLON_NPU_FAULT_DMA_REQUEST,
+    axi_read = HOLON_NPU_FAULT_AXI_READ,
+    axi_write = HOLON_NPU_FAULT_AXI_WRITE,
+    explicit_program_fault = HOLON_NPU_FAULT_EXPLICIT_PROGRAM_FAULT,
 };
 
 enum class opcode : std::uint8_t {
@@ -161,7 +161,7 @@ std::uint32_t encode_sync_wait_dma();
 std::uint32_t encode_sync_fence_local();
 std::uint32_t encode_sync_fence_dma();
 std::uint32_t encode_system_exit();
-std::uint32_t encode_system_fault(fault_code fault);
+std::uint32_t encode_system_fault();
 class program_builder {
 public:
     program_builder& raw(std::uint32_t word);
@@ -226,7 +226,7 @@ public:
     program_builder& fence_local();
     program_builder& fence_dma();
     program_builder& exit();
-    program_builder& fault(fault_code fault);
+    program_builder& fault();
 
     [[nodiscard]] const std::vector<std::uint32_t>& words() const { return words_; }
     [[nodiscard]] std::span<const std::uint32_t> span() const { return words_; }
@@ -310,4 +310,4 @@ std::expected<tiled_matrix_program, matrix_program_error> tiled_int8_gemm(
 
 }  // namespace examples
 
-}  // namespace holon_npu::v2::runtime
+}  // namespace holon_npu::runtime

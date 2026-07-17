@@ -3,34 +3,14 @@ from __future__ import annotations
 
 import argparse
 import difflib
-import json
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
+from check_abi import ABI_SCHEMA_PATH, ROOT, as_int, load_schema as load_checked_schema
 
-ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = ROOT / "spec/holon_npu_abi.json"
 
 BANNER = "Generated from spec/holon_npu_abi.json by tools/gen_abi.py. Do not edit."
-
-
-def load_schema(path: Path = SCHEMA_PATH) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        schema = json.load(f)
-    if schema.get("schema_version") != 1:
-        raise ValueError("unsupported ABI schema_version")
-    return schema
-
-
-def as_int(value: int | str) -> int:
-    if isinstance(value, int):
-        return value
-    value = value.replace("_", "")
-    if value.startswith(("0x", "0X")):
-        return int(value, 16)
-    return int(value, 10)
 
 
 def c_hex(value: int | str, width: int = 8) -> str:
@@ -42,17 +22,22 @@ def c_const(type_name: str, name: str, value: int | str, width: int = 8, pad: in
     return f"static constexpr {type_name} {name}{spacer}= {c_hex(value, width)};"
 
 
-def sv_u32(value: int | str) -> str:
-    raw = f"{as_int(value):08X}"
-    return f"32'h{raw[:4]}_{raw[4:]}"
+def sv_hex(value: int | str, bits: int) -> str:
+    return f"{bits}'h{as_int(value):0{max(bits // 4, 1)}X}"
 
 
-def sv_reg_offset(value: int | str) -> str:
-    return f"12'h{as_int(value):03X}"
+def sv_const_logic(bits: int, name: str, value: int | str, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"    localparam logic [{bits - 1}:0] {name}{spacer}= {sv_hex(value, bits)};"
 
 
-def md_hex32(value: int | str) -> str:
-    return f"0x{as_int(value):08X}"
+def sv_const_int(name: str, value: int | str, pad: int = 0) -> str:
+    spacer = " " * max(pad - len(name), 1)
+    return f"    localparam int unsigned {name}{spacer}= {as_int(value)};"
+
+
+def md_hex(value: int | str, width: int = 8) -> str:
+    return f"0x{as_int(value):0{width}X}"
 
 
 def md_offset(value: int | str) -> str:
@@ -63,149 +48,55 @@ def md_desc_offset(value: int | str) -> str:
     return f"0x{as_int(value):02X}"
 
 
-def generated_sv(schema: dict[str, Any]) -> str:
+def load_schema(path: Path = ABI_SCHEMA_PATH) -> dict[str, Any]:
+    return load_checked_schema(path)
+
+
+def generated_header(schema: dict[str, Any]) -> str:
     abi = schema["abi"]
     constants = schema["constants"]
-    caps = schema["capabilities"]
-    desc = schema["descriptor"]
-    command = schema["internal_command"]
+    descriptor = schema["descriptor"]
+    completion_record = schema["completion_record"]
+    registers = schema["registers"]
 
-    lines: list[str] = [
-        f"// {BANNER}",
-        "/* verilator lint_off UNUSEDPARAM */",
-        "package npu_pkg;",
-        f"    localparam int unsigned NPU_ABI_MAJOR = {abi['major']};",
-        f"    localparam int unsigned NPU_ABI_MINOR = {abi['minor']};",
-        "",
-        f"    localparam int unsigned NPU_DESC_SIZE_BYTES = {constants['desc_size']};",
-        f"    localparam int unsigned NPU_DESC_ALIGN_BYTES = {constants['desc_align']};",
-        f"    localparam int unsigned NPU_TENSOR_ALIGN_BYTES = {constants['tensor_align']};",
-        "",
-        f"    localparam int unsigned NPU_ARRAY_K = {constants['array_k']};",
-        f"    localparam int unsigned NPU_ARRAY_N = {constants['array_n']};",
-        f"    localparam int unsigned NPU_INPUT_BITS = {constants['input_bits']};",
-        f"    localparam int unsigned NPU_ACC_BITS = {constants['acc_bits']};",
-        "",
+    register_constants = [(f"HOLON_NPU_REG_{reg['name']}", reg["offset"]) for reg in registers]
+    register_reset_constants = [
+        (f"HOLON_NPU_RESET_{reg['name']}", reg["reset"]) for reg in registers
     ]
-
-    for opcode in schema["opcodes"]:
-        lines.append(
-            f"    localparam int unsigned NPU_OPCODE_{opcode['name']} = {opcode['value']};"
-        )
-
-    lines.extend(
-        [
-            "",
-            f"    localparam logic [31:0] NPU_DEVICE_ID_RESET = {sv_u32(caps['device_id_reset'])};",
-            f"    localparam logic [31:0] NPU_ABI_VERSION_RESET = {sv_u32(abi['version_reset'])};",
-            f"    localparam logic [31:0] NPU_CAP0_RESET = {sv_u32(caps['cap0_reset'])};",
-            f"    localparam logic [31:0] NPU_CAP1_RESET = {sv_u32(caps['cap1_reset'])};",
-            "",
-        ]
-    )
-
-    reg_name_width = max(len(f"NPU_REG_{reg['name']}") for reg in schema["registers"])
-    for reg in schema["registers"]:
-        name = f"NPU_REG_{reg['name']}"
-        lines.append(
-            f"    localparam logic [11:0] {name:<{reg_name_width}} = {sv_reg_offset(reg['offset'])};"
-        )
-
-    lines.append("")
-    for field in desc["fields"]:
-        suffix = field.get("macro_suffix")
-        if suffix:
-            lines.append(
-                f"    localparam int unsigned NPU_DESC_OFF_{suffix} = {as_int(field['offset'])};"
-            )
-
-    for flag in desc["flags"]:
-        lines.append(
-            f"    localparam logic [31:0] NPU_DESC_FLAG_{flag['name']} = {sv_u32(flag['value'])};"
-        )
-    lines.append(
-        f"    localparam logic [31:0] NPU_DESC_FLAG_VALID_MASK = {sv_u32(desc['flags_valid_mask'])};"
-    )
-    lines.append("")
-
-    for field in command["fields"]:
-        lines.append(
-            f"    localparam int unsigned NPU_GEMM_CMD_{field['name']} = {field['value']};"
-        )
-    lines.append(f"    localparam int unsigned NPU_GEMM_CMD_W = {command['width']};")
-    lines.append("")
-
-    error_name_width = max(len(f"NPU_ERR_{err['name']}") for err in schema["errors"])
-    lines.append("    typedef enum logic [3:0] {")
-    for index, err in enumerate(schema["errors"]):
-        comma = "," if index + 1 < len(schema["errors"]) else ""
-        name = f"NPU_ERR_{err['name']}"
-        lines.append(f"        {name:<{error_name_width}} = 4'd{err['value']}{comma}")
-    lines.extend(["    } npu_error_e;", "", "endpackage", "/* verilator lint_on UNUSEDPARAM */", ""])
-    return "\n".join(lines)
-
-
-def generated_regs_h(schema: dict[str, Any]) -> str:
-    abi = schema["abi"]
-    constants = schema["constants"]
-    caps = schema["capabilities"]
-    non_reserved_regs = [reg for reg in schema["registers"] if not reg["name"].startswith("RESERVED_")]
-
-    lines = [
-        f"/* {BANNER} */",
-        "#pragma once",
-        "",
-        "#include <stdint.h>",
-        "",
-        c_const("uint32_t", "HOLON_NPU_DEVICE_ID_RESET", caps["device_id_reset"], pad=36),
-        c_const("uint32_t", "HOLON_NPU_ABI_VERSION_RESET", abi["version_reset"], pad=36),
-        c_const("uint32_t", "HOLON_NPU_CAP0_RESET", caps["cap0_reset"], pad=36),
-        c_const("uint32_t", "HOLON_NPU_CAP1_RESET", caps["cap1_reset"], pad=36),
-        "",
-        c_const("uint8_t", "HOLON_NPU_ABI_MAJOR", abi["major"], width=2, pad=36),
-        c_const("uint8_t", "HOLON_NPU_ABI_MINOR", abi["minor"], width=2, pad=36),
-        c_const("uint16_t", "HOLON_NPU_DESC_SIZE", constants["desc_size"], width=4, pad=36),
-        c_const("uint32_t", "HOLON_NPU_DESC_ALIGN", constants["desc_align"], pad=36),
-        c_const("uint32_t", "HOLON_NPU_TENSOR_ALIGN", constants["tensor_align"], pad=36),
-        c_const("uint16_t", "HOLON_NPU_ARRAY_K", constants["array_k"], width=4, pad=36),
-        c_const("uint16_t", "HOLON_NPU_ARRAY_N", constants["array_n"], width=4, pad=36),
-        c_const("uint16_t", "HOLON_NPU_INPUT_BITS", constants["input_bits"], width=4, pad=36),
-        c_const("uint16_t", "HOLON_NPU_ACC_BITS", constants["acc_bits"], width=4, pad=36),
-        "",
+    lifecycle_constants = [
+        (f"HOLON_NPU_STATUS_{state['name']}", state["value"])
+        for state in schema["lifecycle_states"]
     ]
-
-    macro_width = max(len(f"HOLON_NPU_REG_{reg['name']}") for reg in non_reserved_regs)
-    for reg in non_reserved_regs:
-        name = f"HOLON_NPU_REG_{reg['name']}"
-        lines.append(c_const("uint32_t", name, reg["offset"], width=2, pad=macro_width))
-
-    field_macros: list[tuple[str, str]] = []
-    for reg in schema["registers"]:
-        for field in reg.get("fields", []):
-            if "macro" in field:
-                field_macros.append((f"HOLON_NPU_{field['macro']}", field["value"]))
-        if "valid_mask_macro" in reg:
-            field_macros.append((f"HOLON_NPU_{reg['valid_mask_macro']}", reg["valid_mask"]))
-
-    lines.append("")
-    field_width = max(len(name) for name, _ in field_macros)
-    for name, value in field_macros:
-        lines.append(c_const("uint32_t", name, value, pad=field_width))
-
-    lines.append("")
-    err_width = max(len(f"HOLON_NPU_ERR_{err['name']}") for err in schema["errors"])
-    for err in schema["errors"]:
-        name = f"HOLON_NPU_ERR_{err['name']}"
-        lines.append(c_const("uint32_t", name, err["value"], width=2, pad=err_width))
-
-    lines.append("")
-    return "\n".join(lines)
-
-
-def generated_desc_h(schema: dict[str, Any]) -> str:
-    desc = schema["descriptor"]
-    constants = schema["constants"]
-    opcode = schema["opcodes"][0]
+    flag_constants = [(f"HOLON_NPU_PROGRAM_FLAG_{flag['name']}", flag["value"]) for flag in schema["flags"]]
+    flag_constants.append(("HOLON_NPU_PROGRAM_FLAG_VALID_MASK", schema["flags_valid_mask"]))
+    control_constants = [(f"HOLON_NPU_CONTROL_{entry['name']}", entry["value"]) for entry in schema["control_bits"]]
+    control_constants.append(("HOLON_NPU_CONTROL_VALID_MASK", schema["control_valid_mask"]))
+    doorbell_constants = [(f"HOLON_NPU_DOORBELL_{entry['name']}", entry["value"]) for entry in schema["doorbell_bits"]]
+    doorbell_constants.append(("HOLON_NPU_DOORBELL_VALID_MASK", schema["doorbell_valid_mask"]))
+    irq_constants = [(f"HOLON_NPU_IRQ_{entry['name']}", entry["value"]) for entry in schema["irq_bits"]]
+    irq_constants.append(("HOLON_NPU_IRQ_VALID_MASK", schema["irq_valid_mask"]))
+    op_class_constants = [
+        (f"HOLON_NPU_PROGRAM_OP_CLASS_{entry['name']}", entry["value"])
+        for entry in schema["op_classes"]
+    ]
+    capability_constants = [
+        (f"HOLON_NPU_CAP_{entry['name']}", entry["value"])
+        for entry in schema["capabilities"]
+    ]
+    fault_constants = [(f"HOLON_NPU_FAULT_{fault['name']}", fault["value"]) for fault in schema["faults"]]
+    completion_status_constants = [
+        (f"HOLON_NPU_COMPLETION_STATUS_{status['name']}", status["value"])
+        for status in schema["completion_status"]
+    ]
+    offset_constants = [
+        (f"HOLON_NPU_PROGRAM_DESC_OFF_{field['macro_suffix']}", field["offset"])
+        for field in descriptor["fields"]
+        if "macro_suffix" in field
+    ]
+    completion_offset_constants = [
+        (f"HOLON_NPU_COMPLETION_OFF_{field['macro_suffix']}", field["offset"])
+        for field in completion_record["fields"]
+    ]
 
     lines = [
         f"/* {BANNER} */",
@@ -214,314 +105,339 @@ def generated_desc_h(schema: dict[str, Any]) -> str:
         "#include <stddef.h>",
         "#include <stdint.h>",
         "",
-        '#include "holon_npu_regs.h"',
+        '#include "holon_npu_isa.h"',
         "",
-        c_const("uint8_t", f"HOLON_NPU_OPCODE_{opcode['name']}", opcode["value"], width=2),
+        c_const("uint8_t", "HOLON_NPU_ABI_MAJOR", abi["major"], width=2, pad=42),
+        c_const("uint8_t", "HOLON_NPU_ABI_MINOR", abi["minor"], width=2, pad=42),
+        c_const("uint32_t", "HOLON_NPU_ABI_VERSION_RESET", abi["version_reset"], pad=42),
+        "",
+        c_const("uint16_t", "HOLON_NPU_PROGRAM_DESC_SIZE", constants["program_desc_size"], width=4, pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_DESC_ALIGN", constants["program_desc_align"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_IMAGE_ALIGN", constants["program_image_align"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_ARGUMENT_ALIGN", constants["argument_align"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_COMPLETION_ALIGN", constants["completion_align"], pad=42),
+        c_const("uint16_t", "HOLON_NPU_COMPLETION_RECORD_SIZE", constants["completion_record_size"], width=4, pad=42),
+        c_const("uint8_t", "HOLON_NPU_PROGRAM_FORMAT_HOLON", constants["program_format_holon"], width=2, pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_MEM_MAX_BYTES", constants["program_mem_max_bytes"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_LOCAL_MEM_MAX_BYTES", constants["local_mem_max_bytes"], pad=42),
+        c_const("uint32_t", "HOLON_NPU_PROGRAM_STACK_MAX_BYTES", constants["stack_max_bytes"], pad=42),
         "",
     ]
 
-    flag_names = [(f"HOLON_NPU_DESC_FLAG_{flag['name']}", flag["value"]) for flag in desc["flags"]]
-    flag_names.append(("HOLON_NPU_DESC_FLAG_VALID_MASK", desc["flags_valid_mask"]))
-    flag_width = max(len(name) for name, _ in flag_names)
-    for name, value in flag_names:
-        lines.append(c_const("uint32_t", name, value, pad=flag_width))
+    for title, consts, type_name, width in (
+        ("Register offsets", register_constants, "uint32_t", 3),
+        ("Register reset values", register_reset_constants, "uint32_t", 8),
+        ("Lifecycle status bits", lifecycle_constants, "uint32_t", 8),
+        ("Program descriptor flags", flag_constants, "uint32_t", 8),
+        ("Control bits", control_constants, "uint32_t", 8),
+        ("Doorbell bits", doorbell_constants, "uint32_t", 8),
+        ("IRQ bits", irq_constants, "uint32_t", 8),
+        ("Required operation class bits", op_class_constants, "uint64_t", 16),
+        ("Capability bits", capability_constants, "uint64_t", 16),
+        ("Fault codes", fault_constants, "uint32_t", 2),
+        ("Completion status values", completion_status_constants, "uint32_t", 8),
+        ("Program descriptor offsets", offset_constants, "uint32_t", 2),
+        ("Completion record offsets", completion_offset_constants, "uint32_t", 2),
+    ):
+        lines.append(f"/* {title}. */")
+        pad = max(len(name) for name, _ in consts)
+        for name, value in consts:
+            lines.append(c_const(type_name, name, value, width=width, pad=pad))
+        lines.append("")
 
-    lines.append("")
-    offset_macros: list[tuple[str, str]] = []
-    for field in desc["fields"]:
-        suffix = field.get("macro_suffix")
-        if suffix:
-            offset_macros.append((f"HOLON_NPU_DESC_OFF_{suffix}", field["offset"]))
-    off_width = max(len(name) for name, _ in offset_macros)
-    for name, value in offset_macros:
-        lines.append(c_const("uint32_t", name, value, width=2, pad=off_width))
-
-    lines.extend(["", f"typedef struct {desc['struct_name']} {{"])
-    for field in desc["fields"]:
+    lines.append(f"typedef struct {descriptor['struct_name']} {{")
+    for field in descriptor["fields"]:
         lines.append(f"    {field['ctype']} {field['name']};")
-    lines.extend([f"}} {desc['typedef_name']};", ""])
+    lines.extend([f"}} {descriptor['typedef_name']};", ""])
 
-    config_fields = [
-        ("uint32_t", "m"),
-        ("uint32_t", "n"),
-        ("uint32_t", "k"),
-        ("uint32_t", "flags"),
-        ("uint64_t", "a_addr"),
-        ("uint64_t", "b_addr"),
-        ("uint64_t", "c_addr"),
-        ("uint32_t", "a_row_stride_bytes"),
-        ("uint32_t", "b_row_stride_bytes"),
-        ("uint32_t", "c_row_stride_bytes"),
-    ]
-    lines.append("typedef struct holon_npu_gemm_config {")
-    for ctype, name in config_fields:
-        lines.append(f"    {ctype} {name};")
-    lines.extend([f"}} {desc['config_typedef_name']};", ""])
+    lines.append(f"typedef struct {completion_record['struct_name']} {{")
+    for field in completion_record["fields"]:
+        lines.append(f"    {field['ctype']} {field['name']};")
+    lines.extend([f"}} {completion_record['typedef_name']};", ""])
 
     lines.extend(
         [
-            "static_assert(sizeof(holon_npu_gemm_desc_t) == HOLON_NPU_DESC_SIZE,",
-            '              "holon_npu_gemm_desc_t must be 128 bytes");',
+            f"static_assert(sizeof({descriptor['typedef_name']}) == HOLON_NPU_PROGRAM_DESC_SIZE);",
+            f"static_assert(sizeof({completion_record['typedef_name']}) == HOLON_NPU_COMPLETION_RECORD_SIZE);",
+            f"static_assert(HOLON_NPU_ABI_VERSION_RESET == {c_hex(abi['version_reset'])});",
+            "static_assert(HOLON_NPU_PROGRAM_FORMAT_HOLON == 0x01u);",
+            "static_assert(HOLON_NPU_ISA_MAJOR == 0x01u);",
         ]
     )
-
-    for field in desc["fields"]:
+    for field in descriptor["fields"]:
         suffix = field.get("macro_suffix")
-        expected = (
-            f"HOLON_NPU_DESC_OFF_{suffix}" if suffix else f"0x{as_int(field['offset']):02X}"
-        )
-        lines.extend(
-            [
-                f"static_assert(offsetof(holon_npu_gemm_desc_t, {field['name']}) == {expected},",
-                f'              "descriptor {field["name"]} offset mismatch");',
-            ]
+        if suffix:
+            lines.append(
+                f"static_assert(offsetof({descriptor['typedef_name']}, {field['name']}) == "
+                f"HOLON_NPU_PROGRAM_DESC_OFF_{suffix});"
+            )
+    for field in completion_record["fields"]:
+        lines.append(
+            f"static_assert(offsetof({completion_record['typedef_name']}, {field['name']}) == "
+            f"HOLON_NPU_COMPLETION_OFF_{field['macro_suffix']});"
         )
 
     lines.append("")
     return "\n".join(lines)
 
 
-def field_rows(schema: dict[str, Any], reg: dict[str, Any]) -> list[dict[str, Any]]:
-    if "fields_ref" in reg:
-        return schema["capabilities"][reg["fields_ref"]]
-    return reg.get("fields", [])
-
-
-def generated_interface_md(schema: dict[str, Any]) -> str:
+def generated_sv_package(schema: dict[str, Any]) -> str:
     abi = schema["abi"]
     constants = schema["constants"]
-    desc = schema["descriptor"]
-    opcode = schema["opcodes"][0]
+    descriptor = schema["descriptor"]
+    completion_record = schema["completion_record"]
+    registers = schema["registers"]
+
+    register_offsets = [(f"NPU_REG_{reg['name']}", reg["offset"]) for reg in registers]
+    register_resets = [(f"NPU_RESET_{reg['name']}", reg["reset"]) for reg in registers]
+    lifecycle_constants = [
+        (f"NPU_STATUS_{state['name']}", state["value"])
+        for state in schema["lifecycle_states"]
+    ]
+    flag_constants = [(f"NPU_PROGRAM_FLAG_{flag['name']}", flag["value"]) for flag in schema["flags"]]
+    flag_constants.append(("NPU_PROGRAM_FLAG_VALID_MASK", schema["flags_valid_mask"]))
+    control_constants = [(f"NPU_CONTROL_{entry['name']}", entry["value"]) for entry in schema["control_bits"]]
+    control_constants.append(("NPU_CONTROL_VALID_MASK", schema["control_valid_mask"]))
+    doorbell_constants = [(f"NPU_DOORBELL_{entry['name']}", entry["value"]) for entry in schema["doorbell_bits"]]
+    doorbell_constants.append(("NPU_DOORBELL_VALID_MASK", schema["doorbell_valid_mask"]))
+    irq_constants = [(f"NPU_IRQ_{entry['name']}", entry["value"]) for entry in schema["irq_bits"]]
+    irq_constants.append(("NPU_IRQ_VALID_MASK", schema["irq_valid_mask"]))
+    op_class_constants = [
+        (f"NPU_OP_CLASS_{entry['name']}", entry["value"])
+        for entry in schema["op_classes"]
+    ]
+    capability_constants = [
+        (f"NPU_CAP_{entry['name']}", entry["value"])
+        for entry in schema["capabilities"]
+    ]
+    fault_constants = [(f"NPU_FAULT_{fault['name']}", fault["value"]) for fault in schema["faults"]]
+    completion_status_constants = [
+        (f"NPU_COMPLETION_STATUS_{status['name']}", status["value"])
+        for status in schema["completion_status"]
+    ]
+    offset_constants = [
+        (f"NPU_PROGRAM_DESC_OFF_{field['macro_suffix']}", field["offset"])
+        for field in descriptor["fields"]
+        if "macro_suffix" in field
+    ]
+    completion_offset_constants = [
+        (f"NPU_COMPLETION_OFF_{field['macro_suffix']}", field["offset"])
+        for field in completion_record["fields"]
+    ]
 
     lines = [
-        f"<!-- {BANNER} -->",
-        "# HolonNPU Interface Specification",
+        f"// {BANNER}",
+        "/* verilator lint_off UNUSEDPARAM */",
+        "package npu_pkg;",
+        sv_const_int("NPU_ABI_MAJOR", abi["major"], pad=34),
+        sv_const_int("NPU_ABI_MINOR", abi["minor"], pad=34),
+        sv_const_logic(32, "NPU_ABI_VERSION_RESET", abi["version_reset"], pad=34),
         "",
-        "This document defines the software-visible ABI, register map, descriptor",
-        "layout, and protocol-level software contract for HolonNPU. The tables in",
-        "this file are generated from `spec/holon_npu_abi.json`; edit the schema",
+        sv_const_int("NPU_PROGRAM_DESC_SIZE", constants["program_desc_size"], pad=38),
+        sv_const_int("NPU_PROGRAM_DESC_ALIGN", constants["program_desc_align"], pad=38),
+        sv_const_int("NPU_PROGRAM_IMAGE_ALIGN", constants["program_image_align"], pad=38),
+        sv_const_int("NPU_PROGRAM_ARGUMENT_ALIGN", constants["argument_align"], pad=38),
+        sv_const_int("NPU_PROGRAM_COMPLETION_ALIGN", constants["completion_align"], pad=38),
+        sv_const_int("NPU_COMPLETION_RECORD_SIZE", constants["completion_record_size"], pad=38),
+        sv_const_int("NPU_PROGRAM_FORMAT_HOLON", constants["program_format_holon"], pad=38),
+        sv_const_int("NPU_PROGRAM_MEM_MAX_BYTES", constants["program_mem_max_bytes"], pad=38),
+        sv_const_int("NPU_LOCAL_MEM_MAX_BYTES", constants["local_mem_max_bytes"], pad=38),
+        sv_const_int("NPU_PROGRAM_STACK_MAX_BYTES", constants["stack_max_bytes"], pad=38),
+        "",
+    ]
+
+    for title, consts, bits in (
+        ("register offsets", register_offsets, 12),
+        ("register reset values", register_resets, 32),
+        ("lifecycle status bits", lifecycle_constants, 32),
+        ("program flags", flag_constants, 32),
+        ("control bits", control_constants, 32),
+        ("doorbell bits", doorbell_constants, 32),
+        ("IRQ bits", irq_constants, 32),
+        ("operation classes", op_class_constants, 64),
+        ("capabilities", capability_constants, 64),
+        ("fault codes", fault_constants, 32),
+        ("completion status values", completion_status_constants, 32),
+    ):
+        lines.append(f"    // {title}.")
+        pad = max(len(name) for name, _ in consts)
+        for name, value in consts:
+            lines.append(sv_const_logic(bits, name, value, pad=pad))
+        lines.append("")
+
+    lines.append("    // Program descriptor offsets.")
+    pad = max(len(name) for name, _ in offset_constants)
+    for name, value in offset_constants:
+        lines.append(sv_const_int(name, value, pad=pad))
+    lines.append("")
+
+    lines.append("    // Completion record offsets.")
+    pad = max(len(name) for name, _ in completion_offset_constants)
+    for name, value in completion_offset_constants:
+        lines.append(sv_const_int(name, value, pad=pad))
+    lines.append("")
+
+    lines.extend(["endpackage", "/* verilator lint_on UNUSEDPARAM */", ""])
+    return "\n".join(lines)
+
+
+def generated_reference_md(schema: dict[str, Any]) -> str:
+    abi = schema["abi"]
+    constants = schema["constants"]
+    descriptor = schema["descriptor"]
+    completion_record = schema["completion_record"]
+    lines = [
+        f"<!-- {BANNER} -->",
+        "# HolonNPU ABI 3.0 Reference",
+        "",
+        "This file is generated from `spec/holon_npu_abi.json`. Edit the schema",
         "and regenerate outputs instead of editing this file by hand.",
+        "",
+        "## ABI Version",
+        "",
+        f"- ABI version: {abi['major']}.{abi['minor']}.",
+        f"- Reset value: `{md_hex(abi['version_reset'])}`.",
+        f"- Program descriptor size: `{constants['program_desc_size']}` bytes.",
+        f"- Program descriptor alignment: `{constants['program_desc_align']}` bytes.",
+        f"- Program image alignment: `{constants['program_image_align']}` bytes.",
+            f"- Argument/completion alignment: `{constants['argument_align']}` / `{constants['completion_align']}` bytes.",
+            f"- Completion record size: `{constants['completion_record_size']}` bytes.",
         "",
         "## ABI Rules",
         "",
-        f"- ABI version: {abi['major']}.{abi['minor']}.",
     ]
-    lines.extend(f"- {rule}" for rule in abi["rules"])
+    for rule in abi["rules"]:
+        lines.append(f"- {rule}")
 
     lines.extend(
         [
             "",
-            "## Constants",
+            "## Register Map",
             "",
-            "| Name | Value | Description |",
-            "| ---- | ----- | ----------- |",
-            f"| `HOLON_NPU_ABI_MAJOR` | `{abi['major']}` | Major ABI version. |",
-            f"| `HOLON_NPU_ABI_MINOR` | `{abi['minor']}` | Minor ABI version. |",
-            f"| `HOLON_NPU_DESC_SIZE` | `{constants['desc_size']}` | GEMM descriptor size in bytes. |",
-            f"| `HOLON_NPU_DESC_ALIGN` | `{constants['desc_align']}` | Descriptor base alignment in bytes. |",
-            f"| `HOLON_NPU_TENSOR_ALIGN` | `{constants['tensor_align']}` | Tensor base and row-stride alignment. |",
-            f"| `HOLON_NPU_OPCODE_{opcode['name']}` | `{opcode['value']}` | {opcode['description']} |",
-            f"| `HOLON_NPU_ARRAY_K` | `{constants['array_k']}` | v1.1 stationary B-weight/K lanes. |",
-            f"| `HOLON_NPU_ARRAY_N` | `{constants['array_n']}` | v1.1 systolic-array columns. |",
-            f"| `HOLON_NPU_INPUT_BITS` | `{constants['input_bits']}` | A and B operand width. |",
-            f"| `HOLON_NPU_ACC_BITS` | `{constants['acc_bits']}` | Accumulator and output width. |",
-            "",
-            "## AXI-Lite Control Interface",
-            "",
-            "### Protocol",
-            "",
-            "- Address width: at least 12 bits for the v1 4 KiB register aperture.",
-            "- Data width: 32 bits.",
-            "- Write strobes: byte strobes are supported.",
-            "- AW and W may arrive in the same cycle or on independent cycles.",
-            "  Hardware pairs one accepted address with one accepted data beat before",
-            "  issuing `B`.",
-            "- Supported responses: `OKAY` and `SLVERR`.",
-            "- Writes to read-only registers have no state side effect and return `SLVERR`.",
-            "- Reads from write-only registers return zero and `OKAY`.",
-            "- Unmapped reads and writes return `SLVERR`.",
-            "",
-            "### Register Map",
-            "",
-            "| Offset | Name | Width | Access | Reset | Description |",
-            "| ------ | ---- | ----- | ------ | ----- | ----------- |",
+            "| Offset | Name | Access | Reset | Description |",
+            "| ------ | ---- | ------ | ----- | ----------- |",
         ]
     )
     for reg in schema["registers"]:
-        name = reg.get("doc_name", reg["name"])
         lines.append(
-            f"| `{md_offset(reg['offset'])}` | `{name}` | {reg['width']} | {reg['access']} | "
-            f"`{md_hex32(reg['reset'])}` | {reg['description']} |"
+            f"| `{md_offset(reg['offset'])}` | `{reg['name']}` | `{reg['access']}` | "
+            f"`{md_hex(reg['reset'])}` | {reg['description']} |"
         )
 
     lines.extend(
         [
             "",
-            "### Register Fields",
+            "## Lifecycle Status Bits",
             "",
-            "| Register | Bits | Name | Reset | Description |",
-            "| -------- | ---- | ---- | ----- | ----------- |",
+            "| Name | Value | Description |",
+            "| ---- | ----- | ----------- |",
         ]
     )
-    for reg in schema["registers"]:
-        for field in field_rows(schema, reg):
-            name = reg.get("doc_name", reg["name"])
-            lines.append(
-                f"| `{name}` | `{field['bits']}` | `{field['name']}` | `{field['reset']}` | "
-                f"{field['description']} |"
-            )
+    for state in schema["lifecycle_states"]:
+        lines.append(f"| `{state['name']}` | `{md_hex(state['value'])}` | {state['description']} |")
 
     lines.extend(
         [
             "",
-            "### Register Side Effects",
+            "## Program Descriptor Layout",
             "",
-            "- `DOORBELL.START=1` is accepted only when `STATUS.BUSY=0`.",
-            "- A valid doorbell write clears `STATUS.DONE`, clears `STATUS.ERROR`,",
-            "  clears `ERROR_CODE`, and starts descriptor fetch.",
-            "- A doorbell write while busy returns `SLVERR` and has no state side effect.",
-            "- A doorbell write with reserved bits set returns `SLVERR` and has no state side effect.",
-            "- `CONTROL.SOFT_RESET=1` returns the control plane to reset state and cancels",
-            "  any active descriptor. The write returns `OKAY`.",
-            "- `CLEAR.DONE=1` clears `STATUS.DONE` and `IRQ_STATUS.DONE_IRQ`.",
-            "- `CLEAR.ERROR=1` clears `STATUS.ERROR`, `ERROR_CODE`, and `IRQ_STATUS.ERROR_IRQ`.",
-            "- `CLEAR.PERF=1` clears all performance counters.",
-            "- `PERF_CYCLES` increments while a descriptor is architecturally in flight.",
-            "- `PERF_BUSY_CYCLES` increments on in-flight cycles where the backend reports active work.",
-            "- `irq_o` is asserted when `(IRQ_ENABLE & IRQ_STATUS) != 0`.",
-            "",
-            "## Status And Error Codes",
-            "",
-            "`STATUS` is bit-based, not an enum. Legal terminal combinations are:",
-            "",
-            "- Idle: `IDLE=1`, `BUSY=0`, `DONE=0`, `ERROR=0`.",
-            "- Busy: `IDLE=0`, `BUSY=1`, `DONE=0`, `ERROR=0`.",
-            "- Done: `IDLE=1`, `BUSY=0`, `DONE=1`, `ERROR=0`.",
-            "- Error: `IDLE=1`, `BUSY=0`, `DONE=0`, `ERROR=1`.",
-            "",
-            "| Code | Name | Description |",
-            "| ---- | ---- | ----------- |",
+            "| Offset | Field | C Type | Required | Description |",
+            "| ------ | ----- | ------ | -------- | ----------- |",
         ]
     )
-    for err in schema["errors"]:
-        lines.append(f"| `{err['value']}` | `ERR_{err['name']}` | {err['description']} |")
-
-    lines.extend(
-        [
-            "",
-            "## AXI4 Master Interface",
-            "",
-            "### Protocol",
-            "",
-            "- Address width: 64 bits.",
-            "- Data width: 128 bits.",
-            "- Burst type: `INCR` only.",
-            "- Burst length: 1 to 16 beats.",
-            "- Maximum burst payload: 256 bytes.",
-            "- Outstanding reads: 1.",
-            "- Outstanding writes: 1.",
-            "- Descriptor fetch: one aligned 128-byte read.",
-            "- Tensor reads and writes are generated as aligned 16-byte beat accesses.",
-            "- Phase 7 DMA requests must use a 16-byte aligned base address and a nonzero",
-            "  byte count that is a multiple of 16 bytes.",
-            "- Requests that violate alignment or size constraints fail before issuing AXI",
-            "  traffic and report `ERR_UNSUPPORTED_ALIGNMENT`.",
-            "",
-            "### Response Mapping",
-            "",
-            "| AXI Response | Handling |",
-            "| ------------ | -------- |",
-            "| `OKAY` | Continue. |",
-            "| `EXOKAY` | Treat as `OKAY`; exclusive access is not generated. |",
-            "| `SLVERR` | Set `ERR_AXI_READ` or `ERR_AXI_WRITE`. |",
-            "| `DECERR` | Set `ERR_AXI_READ` or `ERR_AXI_WRITE`. |",
-            "",
-            "## GEMM Descriptor ABI",
-            "",
-            "The command processor fetches exactly one 128-byte descriptor from",
-            "`DESC_ADDR_HI:DESC_ADDR_LO` after a valid doorbell write.",
-            "",
-            "### Descriptor Layout",
-            "",
-            "| Byte Offset | Field | Width | Required Value | Description |",
-            "| ----------- | ----- | ----- | -------------- | ----------- |",
-        ]
-    )
-    for field in desc["fields"]:
+    for field in descriptor["fields"]:
         lines.append(
-            f"| `{md_desc_offset(field['offset'])}` | `{field['name']}` | {field['width']} | "
+            f"| `{md_desc_offset(field['offset'])}` | `{field['name']}` | `{field['ctype']}` | "
             f"`{field['required']}` | {field['description']} |"
         )
 
     lines.extend(
         [
             "",
-            "### Descriptor Flags",
+            "## Completion Record Layout",
             "",
-            "| Bit | Name | Reset/Required | Description |",
-            "| --- | ---- | -------------- | ----------- |",
+            "| Offset | Field | C Type | Required | Description |",
+            "| ------ | ----- | ------ | -------- | ----------- |",
         ]
     )
-    for flag in desc["flags"]:
+    for field in completion_record["fields"]:
         lines.append(
-            f"| `[{flag['bit']}]` | `{flag['name']}` | Optional | {flag['description']} |"
+            f"| `{md_desc_offset(field['offset'])}` | `{field['name']}` | `{field['ctype']}` | "
+            f"`{field['required']}` | {field['description']} |"
         )
-    lines.append("| `[31:3]` | `RESERVED` | `0` | Nonzero value raises `ERR_INVALID_FLAGS`. |")
 
     lines.extend(
         [
             "",
-            "### GEMM Semantics",
+            "## Completion Status Values",
             "",
-            "```text",
-            "C[m,n] = sum(k: 0..K-1) int32(A[m,k]) * int32(B[k,n])",
-            "```",
-            "",
-            "- A and B elements are signed INT8.",
-            "- C elements are signed INT32.",
-            "- Accumulation uses signed INT32 wraparound semantics matching two's-complement hardware arithmetic.",
-            "- A, B, and C are row-major.",
-            "- HolonNPU v1.5 uses a B-weight-stationary systolic array with streaming partial sums.",
-            "- v1 does not add bias, scaling, activation, transposition, saturation, or accumulation with an existing C matrix.",
-            "- Non-multiple tile dimensions are valid; inactive M, N, and K lanes are masked.",
-            "",
-            "## Interrupt Semantics",
-            "",
-            "- `IRQ_STATUS.DONE_IRQ` is set only if descriptor flag `IRQ_ON_DONE` is set.",
-            "- `IRQ_STATUS.ERROR_IRQ` is set if descriptor flag `IRQ_ON_ERROR` is set.",
-            "- If an error occurs before descriptor flags are available, `ERROR_IRQ` is set.",
-            "- The external interrupt line is level-sensitive and asserted while any enabled IRQ status bit is set.",
-            "- Software clears interrupt causes with `IRQ_STATUS` write-one-to-clear or with matching `CLEAR` bits.",
-            "",
-            "## Software API Contract",
-            "",
-            "| Function | Purpose |",
-            "| -------- | ------- |",
-            "| `holon_npu_init(base)` | Bind a driver instance to an MMIO base pointer. |",
-            "| `holon_npu_get_caps(dev, caps)` | Read `DEVICE_ID`, `ABI_VERSION`, `CAP0`, and `CAP1`. |",
-            "| `holon_npu_build_gemm_desc(desc, cfg)` | Fill a 128-byte GEMM descriptor and zero reserved fields. |",
-            "| `holon_npu_submit(dev, desc_pa)` | Write descriptor address and doorbell. |",
-            "| `holon_npu_poll(dev)` | Read `STATUS` once and return decoded state. |",
-            "| `holon_npu_wait(dev, timeout)` | Poll until done, error, or timeout. |",
-            "| `holon_npu_error(dev)` | Read `ERROR_CODE`. |",
-            "| `holon_npu_clear(dev, mask)` | Clear done, error, or performance counters. |",
-            "| `holon_npu_read_perf(dev, perf)` | Read performance counters for software diagnostics. |",
-            "",
-            "The driver must not submit a descriptor while `STATUS.BUSY=1`. The driver",
-            "must align descriptor and tensor addresses according to this ABI or return an",
-            "argument error before touching hardware.",
-            "",
+            "| Name | Value | Description |",
+            "| ---- | ----- | ----------- |",
         ]
     )
+    for status in schema["completion_status"]:
+        lines.append(
+            f"| `{status['name']}` | `{md_hex(status['value'])}` | {status['description']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Program Flags",
+            "",
+            "| Name | Value | Description |",
+            "| ---- | ----- | ----------- |",
+        ]
+    )
+    for flag in schema["flags"]:
+        lines.append(f"| `{flag['name']}` | `{md_hex(flag['value'])}` | {flag['description']} |")
+    lines.append(f"| `VALID_MASK` | `{md_hex(schema['flags_valid_mask'])}` | OR of all defined program flags. |")
+
+    for title, key, mask_key in (
+        ("Control Bits", "control_bits", "control_valid_mask"),
+        ("Doorbell Bits", "doorbell_bits", "doorbell_valid_mask"),
+        ("IRQ Bits", "irq_bits", "irq_valid_mask"),
+    ):
+        lines.extend(
+            [
+                "",
+                f"## {title}",
+                "",
+                "| Name | Value | Description |",
+                "| ---- | ----- | ----------- |",
+            ]
+        )
+        for entry in schema[key]:
+            lines.append(f"| `{entry['name']}` | `{md_hex(entry['value'])}` | {entry['description']} |")
+        lines.append(f"| `VALID_MASK` | `{md_hex(schema[mask_key])}` | OR of all defined {title.lower()}. |")
+
+    for title, key in (
+        ("Required Operation Classes", "op_classes"),
+        ("Capability Bits", "capabilities"),
+        ("Fault Codes", "faults"),
+    ):
+        lines.extend(
+            [
+                "",
+                f"## {title}",
+                "",
+                "| Name | Value | Description |",
+                "| ---- | ----- | ----------- |",
+            ]
+        )
+        for entry in schema[key]:
+            value_width = 16 if key in {"op_classes", "capabilities"} else 2
+            lines.append(f"| `{entry['name']}` | `{md_hex(entry['value'], value_width)}` | {entry['description']} |")
+
+    lines.append("")
     return "\n".join(lines)
 
 
 def render_all(schema: dict[str, Any]) -> dict[str, str]:
     return {
-        "rtl/common/npu_pkg.sv": generated_sv(schema),
-        "include/holon_npu_regs.h": generated_regs_h(schema),
-        "include/holon_npu_desc.h": generated_desc_h(schema),
-        "docs/INTERFACE.md": generated_interface_md(schema),
+        "rtl/common/npu_pkg.sv": generated_sv_package(schema),
+        "include/holon_npu_program.h": generated_header(schema),
+        "docs/INTERFACE_REFERENCE.md": generated_reference_md(schema),
     }
 
 
@@ -540,11 +456,10 @@ def check_outputs(outputs: dict[str, str], root: Path) -> int:
             print(f"missing generated output: {rel_path}", file=sys.stderr)
             errors += 1
             continue
-
         actual = actual_path.read_text(encoding="utf-8")
         if actual != expected:
             errors += 1
-            print(f"{rel_path} is not up to date with {SCHEMA_PATH.relative_to(ROOT)}", file=sys.stderr)
+            print(f"{rel_path} is not up to date with {ABI_SCHEMA_PATH.relative_to(ROOT)}", file=sys.stderr)
             diff = difflib.unified_diff(
                 actual.splitlines(),
                 expected.splitlines(),
@@ -552,7 +467,7 @@ def check_outputs(outputs: dict[str, str], root: Path) -> int:
                 tofile=f"{rel_path} (generated)",
                 lineterm="",
             )
-            for line in list(diff)[:120]:
+            for line in list(diff)[:140]:
                 print(line, file=sys.stderr)
     if errors == 0:
         print(f"ABI generated-source check passed ({len(outputs)} outputs).")
@@ -570,9 +485,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    schema = load_schema()
-    outputs = render_all(schema)
+    try:
+        schema = load_schema()
+    except Exception as exc:  # noqa: BLE001 - command-line generator
+        print(f"ABI generation failed: {exc}", file=sys.stderr)
+        return 1
 
+    outputs = render_all(schema)
     if args.check:
         return check_outputs(outputs, args.output_root)
 

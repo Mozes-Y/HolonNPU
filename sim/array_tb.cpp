@@ -187,12 +187,19 @@ int main(int argc, char** argv) {
     Vnpu_systolic_array_test_top dut;
     bool ok = true;
 
-    ok &= run_case(dut, 1, 1, 1, 0, "1x1x1");
-    ok &= run_case(dut, 16, 16, 16, 1, "16x16x16");
-    ok &= run_case(dut, 17, 19, 23, 2, "17x19x23");
+    using enum holon_npu_tb::coverage_point;
+    const bool shape_1 = run_case(dut, 1, 1, 1, 0, "1x1x1");
+    test.observe(array_shape_1, shape_1);
+    ok &= shape_1;
+
+    const bool shape_16 = run_case(dut, 16, 16, 16, 1, "16x16x16");
+    test.observe(array_shape_16, shape_16);
+    ok &= shape_16;
+
+    const bool mixed_tail = run_case(dut, 17, 19, 23, 2, "17x19x23");
+    test.observe(array_shape_mixed_tail, mixed_tail);
+    ok &= mixed_tail;
 
     dut.final();
-    using enum holon_npu_tb::coverage_point;
-    test.cover({array_shape_1, array_shape_16, array_shape_mixed_tail});
     return test.finish(ok);
 }

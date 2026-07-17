@@ -99,7 +99,16 @@ test_run::test_run(std::string_view test_name, int argc, char** argv)
     Verilated::commandArgs(static_cast<int>(verilator_argv_.size()), verilator_argv_.data());
 }
 
-void test_run::cover(std::initializer_list<coverage_point> points) {
+void test_run::observe(coverage_point point, bool verified) {
+    if (verified) {
+        hit_points_.push_back(point);
+    }
+}
+
+void test_run::observe(std::initializer_list<coverage_point> points, bool verified) {
+    if (!verified) {
+        return;
+    }
     for (const coverage_point point : points) {
         hit_points_.push_back(point);
     }

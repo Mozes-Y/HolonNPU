@@ -1,185 +1,176 @@
 # HolonNPU Verification
 
-This document defines the current verification contract. Historical phase
-checklists are intentionally not repeated here; the active release gate is the
-source of truth.
+Verification is part of the product contract. External scoreboards, internal
+native SVA, architectural differential testing, functional event coverage, and
+structural coverage must agree before release.
 
-## Verification Stack
+## Verification Layers
 
-- Build orchestration: CMake 4.0+ with Ninja.
-- RTL simulation and lint: Verilator.
-- Testbench language: C++26.
-- C driver/API language: C23.
-- Test runner: CTest presets.
-- ABI sources: `spec/holon_npu_abi.json` for v1.5 and
-  `spec/holon_npu_v2_abi.json` for V2.
-- Assertions: native named SystemVerilog `assert property` and
-  `cover property`, enabled through Verilator `--assert`.
-- Coverage: dedicated coverage build with Verilator structural/user coverage
-  plus a typed C++ functional coverage gate.
-- V2 architectural model: stdlib-only C++26 code under `sim/model/`, used by
-  program-level RTL differential tests.
+| Layer | Purpose |
+| ----- | ------- |
+| Schema checks | Regenerate ABI/ISA artifacts and reject metadata drift or encoding overlap. |
+| Structure checks | Enforce interface-native RTL, product reachability, canonical naming, and macro policy. |
+| Module tests | Exercise control, loader, completion, local memory, DMA, vector, matrix, PE, and array behavior. |
+| Product tests | Execute programs through AXI-Lite/AXI4 and compare system-memory effects. |
+| Architectural model | Define decode, retirement, fault, scalar/vector/predicate, memory, DMA, and matrix semantics. |
+| Native SVA | Check protocol and internal invariants at the cycle boundary. |
+| Coverage gate | Require observed functional events, RTL cover properties, exact artifacts, and structural baselines. |
 
-## Required Gates
+## Required Entry Points
 
-Fast local gate:
+Development feedback:
 
-```sh
+```bash
 cmake --preset debug
 cmake --build --preset debug --parallel 2
-ctest --preset debug -j 2 --output-on-failure
-ctest --preset lint -j 2 --output-on-failure
+ctest --preset debug --output-on-failure
 ```
 
-Release gate:
+RTL lint:
 
-```sh
+```bash
+ctest --preset lint --output-on-failure
+```
+
+Optimized regression:
+
+```bash
 cmake --preset regression
 cmake --build --preset regression --parallel 2
-ctest --preset regression -j 2 --output-on-failure
+ctest --preset regression --output-on-failure
+```
+
+Coverage:
+
+```bash
 cmake --preset coverage
 cmake --build --preset coverage --parallel 2
-ctest --preset coverage -j 2 --output-on-failure
+ctest --preset coverage --output-on-failure
 python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
-Static checks that must stay green:
+Presets default to two CTest jobs. Command-line `-j N` may override that based on
+available memory. Build and test remain separate operations.
 
-```sh
-python3 -m json.tool CMakePresets.json
+## Static Gates
+
+```bash
 python3 tools/gen_abi.py --check
 python3 tools/gen_isa.py --check
 python3 tools/check_isa.py
-python3 tools/gen_v2_abi.py --check
-python3 tools/check_v2_abi.py
 python3 tools/check_rtl_interface_usage.py
 python3 tools/check_macro_policy.py
+python3 -m json.tool CMakePresets.json
 git diff --check
 ```
 
-## ABI And Interface Consistency
+The ABI generator consumes both ABI and ISA schemas. The ISA checker rejects
+class/opcode overlap, invalid reserved regions, and incomplete semantic or
+coverage metadata. The RTL checker treats only the `npu_top` product graph as
+evidence of use; test wrappers are not product consumers.
 
-- ABI, register, descriptor, error, and capability values are generated from
-  the versioned schemas; Holon ISA encodings come from
-  `spec/holon_npu_isa.json`.
-- `tools/gen_abi.py --check` regenerates outputs into a temporary directory and
-  byte-compares them with checked-in files.
-- Product RTL must use `npu_vr_if`, `npu_axi_lite_if`, and `npu_axi4_if`
-  internally.
-- Test-only flattened SystemVerilog harnesses must live under `sim/rtl/` and
-  must not be used as product architecture boundaries.
+## Native Assertions
 
-## Assertion Strategy
+Verilator builds use native `--assert`. Assertions are written directly as
+named `assert property` statements, without project assertion macros.
 
-Assertions are written directly as native SVA in the interfaces and modules
-they protect. Verilator `--assert` is enabled by default for debug,
-regression, coverage, and lint paths.
+Required protocol properties include:
 
-Required assertion coverage:
+- VALID and payload stability while READY is low;
+- AXI-Lite AW/W pairing and legal response behavior;
+- AXI4 INCR profile, maximum burst length, alignment, and 4 KiB boundary;
+- accepted read owner stability through `RLAST`;
+- DMA data preservation under R/W/B backpressure and error drain;
+- local-memory bounds and response ownership;
+- legal lifecycle transitions and sticky terminal/IRQ behavior;
+- no frontend issue during `RESETTING`;
+- completion acknowledgment before terminal visibility;
+- engine issue/result and matrix shape/mode invariants.
 
-- valid-ready payload stability under backpressure;
-- AXI-Lite and AXI4 payload stability under `VALID && !READY`;
-- control legal status, IRQ consistency, and busy-doorbell rejection;
-- DMA burst profile, one-outstanding behavior, error drain, and terminal
-  response behavior;
-- command validation preventing invalid descriptors from issuing GEMM work;
-- GEMM stage legality, tile bounds, and no writeback before all K tiles finish;
-- top read-arbiter ownership stability until `RLAST`.
-- V2 lifecycle legality, loader bounds, precise frontend retirement, local
-  memory ownership, engine issue/result handshakes, completion-record ordering,
-  and terminal visibility only after AXI write response.
+Software reset does not disable frontend, DMA, AXI, or top ownership assertions.
+Local modules may disable state assertions only on the final internal clear
+pulse after quiescence. External `aresetn` is the protocol abort boundary.
 
-`npu_assert_fail` is intentionally marked `WILL_FAIL` in CTest so the gate
-proves assertions are compiled and active.
+`npu_assert_fail` is an expected-fail test. CTest passing that test proves a
+deliberately violated native assertion terminates simulation.
 
-## Coverage Strategy
+## Directed Protocol Tests
 
-Coverage uses one dedicated `coverage` preset because Verilator coverage changes
-generated model code.
+AXI tests place descriptor, code, argument, DMA, and completion addresses at
+`...FF0`, `...FFC`, and adjacent page boundaries. Monitors verify every AR/AW
+burst remains within one 4 KiB page and split data/response ordering is exact.
 
-- Functional coverage points are `enum class coverage_point` values in the
-  C++ test runtime registry.
-- CTest passes `--tb-coverage-root` explicitly for coverage tests.
-- Each test emits required/hit functional manifests.
-- `tools/check_coverage.py` checks manifests and merges Verilator raw coverage.
-- Verilator line, toggle, FSM, and user coverage reports are generated for
-  review, but structural percentage thresholds are not enforced yet.
+Product reset tests stall ARREADY, RVALID, AWREADY, WREADY, and BVALID in turn,
+request software reset, and verify:
 
-Required functional coverage classes:
+- immediate visible `RESETTING`;
+- stable VALID payload;
+- accepted transaction completion/drain;
+- no new frontend or engine issue;
+- clean final `IDLE`, IRQ, fault, terminal, and performance state.
 
-- descriptor success and validation failures;
-- control status, IRQ, clear, and error transitions;
-- DMA single-burst, multi-burst, read error, and write error paths;
-- GEMM fixed shapes including `1x1x1`, `16x16x16`, `17x19x23`, and
-  `64x64x64`;
-- deterministic constrained-random GEMM and top-level tile shapes, including
-  M/N/K tails and multi-tile cases;
-- reset at idle and reset while work is in flight;
-- V2 descriptor compatibility, frontend lifecycle/control flow, vector tails
-  and helper classes, DMA/local-memory faults, matrix issue, program flags,
-  completion ordering, CSR/debug reads, halt/debug, and IRQ policy;
-- exact metadata-owned ISA class/instruction coverage names;
-- deterministic random vector RTL/model differential programs, signed INT8
-  matrix tiles with padded strides, and runtime-generated multi-tile GEMM.
+## Program And Random Tests
+
+Fixed tests anchor encoding and corner behavior. Deterministic random tests log
+their seed and dimensions so failures are reproducible. Vector testing covers
+element widths, signedness, predicates, tails, arithmetic boundaries,
+rounding/saturation, reductions, permutes, and invalid configurations. Matrix
+testing covers edge tiles, accumulation modes, INT32 wraparound, and local
+bounds.
+
+Program-level results are never read through a product test probe. Programs
+issue DMA STORE and the scoreboard compares simulated system memory. Module-only
+local-memory wrappers may use hierarchical observation under `sim/rtl/`.
+
+The architectural model is the semantic oracle for decode, PC/retirement,
+faults, scalar and vector state, local memory, and engine effects. RTL-visible
+execution must match it.
+
+## Functional Coverage
+
+`holon_npu_tb::test_run` owns test artifacts. Testbenches call
+`test.observe(coverage_point, verified)` at the monitor or scoreboard location
+where an event has been observed and checked. Bulk declarations at test exit are
+forbidden.
+
+The C++ `constexpr` registry is the functional-event authority. Each test writes
+its required and hit manifests only after success. CMake's coverage fixture:
+
+1. deletes the previous coverage directory;
+2. writes `expected_tests.txt` for the current Verilated CTest set;
+3. runs instrumented tests in parallel;
+4. checks the raw `.dat` set exactly;
+5. merges data with `verilator_coverage`;
+6. gates functional events and named RTL covers;
+7. writes annotated and summary artifacts.
+
+## RTL And Structural Coverage
+
+Every named product `cover property` is discovered from `rtl/` and must have a
+nonzero aggregate Verilator user-coverage count. Unreachable properties are
+design or property bugs; they are not retained as pretend goals.
+
+`spec/holon_npu_coverage_baseline.json` contains clean-build integer floors for
+line, branch, toggle, and expression coverage. Thresholds may only increase.
+FSM is not gated while the tool reports no FSM denominator.
 
 ## Debug Workflow
 
-1. Reproduce with the narrowest CTest command, usually `ctest --preset debug -R
-   <test> --verbose`.
-2. Record the failing seed, descriptor, dimensions, and relevant base
-   addresses.
-3. If needed, rebuild with wave dumping support and inspect the smallest module
-   boundary that shows divergence.
-4. Fix the focused issue and add the smallest regression that would have caught
-   it.
-5. Update `docs/PROGRESS.md` only when the current gate result or known
-   limitations change.
+Build and run one case verbosely:
 
-## Current Known Limits
+```bash
+cmake --build --preset debug --target npu_top_tb
+ctest --preset debug -R '^npu_top$' --verbose
+```
 
-- Functional coverage is hard-gated; structural coverage percentages are
-  reported but not thresholded.
-- Verilator is the active RTL verification backend.
-- The V2 first implementation remains integer/quant only and uses one active
-  program plus one active transaction per DMA engine.
+On failure, preserve seed, descriptor/program addresses, dimensions, fault/PC,
+AXI channel state, and the first mismatching architectural result. Add waveform
+generation locally only when cycle inspection is necessary; the checked tests
+must remain deterministic without waveform dependence.
 
-## V2 Verification Contract
+## Current Limits
 
-V2 extends the V1.5 gates rather than replacing them. The required reference is
-the C++26 architectural simulator plus the public program runtime; test programs
-use generated ISA constants or `program_builder`, never private encodings.
-
-Model and host tests cover:
-
-- ABI 3.0 descriptor compatibility, image/argument loading, and local bounds;
-- wrapped descriptor, code, argument, completion, and DMA address rejection,
-  plus joint argument/stack allocation bounds;
-- generated decode/disassemble metadata and precise frontend PC/fault state;
-- frontend control flow, DMA ordering, predicate state, and vector-length tails;
-- signed/unsigned i8/i16/i32 ALU, saturation, select, gather, zip/unzip,
-  transpose, reductions, and requantization;
-- INT8-to-INT32 matrix clear/accumulate/store semantics and issue faults;
-- public example programs for vector add, ReLU, reduction, requantization,
-  transpose, and matrix GEMM.
-
-RTL module and integration tests cover:
-
-- lifecycle, doorbell policy, halt/resume/debug-step, sticky IRQ, terminal
-  clear, descriptor flags, counters, and reset;
-- descriptor/program/argument AXI reads, compatibility faults, and local writes;
-- local-memory arbitration and DMA/vector/matrix ownership under backpressure;
-- executable frontend-control, predicate, vector/helper, matrix, DMA,
-  CSR/debug, sync, and system instructions with precise retirement and faults;
-  sync operations cross an explicit backpressured issue handshake before
-  retirement;
-- completion-record done/fault contents, AXI write failure, and product-top
-  ordering that withholds terminal MMIO/IRQ until `BRESP`;
-- program-level output comparison with the architectural simulator;
-- public runtime example images executed unchanged in simulator and RTL;
-- public runtime-generated `17x19x23` and `64x64x64` matrix tile traversal,
-  plus deterministic random single-tile matrix/vector differential tests.
-
-Coverage is metadata-driven. Every implemented ISA instruction carries a
-required coverage point, while the typed C++ registry gates lifecycle,
-compatibility, engine, completion, and fault scenarios. Structural coverage is
-reported separately and remains advisory until a threshold policy is adopted.
+- Structural thresholds are initial baselines, not a claim of exhaustive proof.
+- Formal verification is not yet integrated.
+- The current engine schedule is mostly single-command; future concurrency will
+  require additional ordering and arbitration scenarios.
