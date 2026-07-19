@@ -208,3 +208,29 @@ completion record is incomplete.
 **Consequences:** Completion writeback participates in reset quiescence and AXI
 write arbitration. A record at a page boundary is split into independently
 acknowledged transactions.
+
+## ADR-0056: Simulator-First Architecture Evolution
+
+**Status:** Accepted
+
+**Decision:** New architecture behavior is implemented first in one C++26 Holon
+semantic core. A fast direct runner and an external gem5 SimObject consume that
+same core. gem5 is the only performance and full-system model and uses a
+cycle-accounted event model with a RISC-V Host. RTL requires a separate ADR that
+accepts semantic, gem5, workload, cost, and verification evidence.
+
+The gem5 integration tracks the upstream `stable` branch. Every result records
+the exact commit, C++26 toolchain, model configuration, workload, and seed. The
+complete gem5 binary, including upstream sources, is built in verified C++26
+mode.
+
+**Rationale:** A deterministic semantic core supports exhaustive and random
+correctness testing, while gem5 supplies Host, memory-system, contention, and
+performance context. Sharing semantics prevents drift without coupling the
+architecture contract to gem5 events or duplicating a performance model.
+
+**Consequences:** New ISA, ABI, engine, ordering, fault, capability, and
+software-visible performance mechanisms cannot begin in RTL. Behavior-preserving
+RTL fixes remain allowed against existing semantics. Upstream gem5
+incompatibilities must be fixed explicitly without changing branch or lowering
+the C++26 requirement.

@@ -35,6 +35,32 @@ The execution path is:
 See [Architecture](docs/ARCHITECTURE.md), [ISA](docs/ISA.md), and
 [Interface](docs/INTERFACE.md) for the normative contracts.
 
+## Simulator-First Development
+
+New architecture behavior does not enter RTL first. It must be implemented and
+tested in one C++26 Holon semantic core, evaluated through the Holon gem5
+SimObject, and approved by an architecture ADR before RTL work begins. The fast
+runner and gem5 use the same semantics; gem5 is the only performance and
+full-system model.
+
+The planned gem5 integration uses the upstream `stable` branch, builds the
+complete simulator in C++26 mode, uses a RISC-V Host, and applies a
+cycle-accounted event model. See the [Simulation Contract](docs/SIMULATION.md)
+for the ownership boundary and RTL admission gate.
+
+## Architecture Roadmap
+
+| Generation | Evidence-driven direction |
+| ---------- | ------------------------- |
+| v2.x | Build the shared semantic core and gem5 foundation, then harden programs, runtime, workloads, and measurement. |
+| v3 | Explore Transformer and BF16 requirements after workload characterization. |
+| v4 | Explore FP8 and block/MX scaling only after numerical and system-level evidence. |
+| v5 | Explore contexts, IOMMU, queues, and multi-tile scaling when system workloads justify them. |
+
+These are research directions, not current capabilities or frozen interfaces.
+The authoritative requirements, gates, and non-goals are in the
+[Roadmap](docs/ROADMAP.md).
+
 ## Requirements
 
 - CMake 4.0 or newer
@@ -121,6 +147,9 @@ The release gate combines:
 - nonzero named RTL `cover property` checks;
 - line, branch, toggle, and expression coverage baselines.
 
+Future architecture work additionally requires semantic-core, gem5 device and
+timing, RISC-V bare-metal, and applicable Linux full-system evidence before RTL.
+
 Coverage artifacts are recreated for every coverage run. The checker rejects
 missing and stale raw files, missing functional events, unhit RTL cover
 properties, and structural regressions below
@@ -148,6 +177,7 @@ properties, and structural regressions below
 - Product RTL uses SystemVerilog interfaces internally.
 - Simulation wrappers never become product interconnect.
 - Public contract changes begin in schema and documentation.
+- New architecture behavior is semantic-core and gem5 validated before RTL.
 - New RTL must be reachable from `npu_top`; simulation-only consumers do not
   justify product RTL.
 - C23 and C++26 project code does not use project-defined behavior macros.

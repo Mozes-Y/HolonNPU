@@ -126,6 +126,28 @@ The architectural model is the semantic oracle for decode, PC/retirement,
 faults, scalar and vector state, local memory, and engine effects. RTL-visible
 execution must match it.
 
+## Simulator-First Architecture Verification
+
+The current architectural model is the starting point for the v2.x simulation
+foundation. It will become one C++26 semantic core used by both the fast direct
+runner and the Holon gem5 SimObject. No independent gem5 expected-result logic
+or separate performance model is permitted.
+
+Future architecture behavior must pass these tiers before RTL:
+
+| Tier | Gate |
+| ---- | ---- |
+| Semantic core | Directed, property-based, and deterministic random behavior. |
+| gem5 device | MMIO, DMA, IRQ, lifecycle, fault, and completion integration. |
+| gem5 timing | Cycle-accounted queues, pipelines, banks, contention, and sensitivity. |
+| RISC-V bare-metal | Daily driver and end-to-end program execution. |
+| RISC-V Linux full-system | Nightly/release OS, memory-system, interrupt, and workload execution. |
+
+An accepted ADR must review correctness, measured workload benefit, alternatives,
+software cost, RTL cost, and verification scope before implementation begins.
+After RTL exists, differential results validate semantics and measured timing
+calibrates gem5. Exact requirements are defined in `docs/SIMULATION.md`.
+
 ## Functional Coverage
 
 `holon_npu_tb::test_run` owns test artifacts. Testbenches call

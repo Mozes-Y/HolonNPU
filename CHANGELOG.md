@@ -4,7 +4,17 @@ All notable project-level release changes are recorded here.
 
 ## Unreleased
 
-No changes yet.
+### Added
+
+- Added the simulator-first architecture roadmap and simulation contract for a
+  shared C++26 Holon semantic core and upstream `stable` gem5 SimObject.
+
+### Changed
+
+- Made semantic, gem5 device/timing, RISC-V system, and explicit architecture
+  review evidence mandatory before future architecture behavior enters RTL.
+- Restored the v2.x through v5 research roadmap without presenting candidate
+  BF16, FP8, scaling, context, IOMMU, or multi-tile work as current capability.
 
 ## v2.0 - 2026-07-18
 

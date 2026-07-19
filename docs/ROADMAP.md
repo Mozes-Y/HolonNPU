@@ -1,134 +1,153 @@
 # HolonNPU Roadmap
 
-`master` is the only active product line. This roadmap describes the current
-programmable NPU architecture and its forward work. Historical source is
-preserved by Git tags and release notes rather than parallel directories,
-targets, schemas, or compatibility aliases.
+`master` is the only active product line. This file is the authority for future
+architecture work. Released behavior is described by the current architecture,
+ISA, interface, and verification documents; Git tags preserve historical source.
+
+Future items in this roadmap are research candidates, not implemented
+capabilities or frozen ABI/ISA commitments.
 
 ## Engineering Discipline
 
 Before implementation:
 
-1. Read this file and `docs/PROGRESS.md`.
-2. Update architecture, interface, ISA, or an ADR before changing a contract.
-3. Change ABI/ISA metadata through the canonical schemas.
-4. Define acceptance tests and coverage evidence for the intended behavior.
+1. Read this file, `docs/PROGRESS.md`, and `docs/SIMULATION.md`.
+2. Define the target workload and quantify the limitation in the current
+   architecture.
+3. Update architecture, interface, ISA, or an ADR before changing a contract.
+4. Change ABI/ISA metadata only through the canonical schemas.
+5. Define simulator evidence, acceptance tests, and coverage before RTL work.
 
-A phase is complete only when implementation, generated artifacts, native SVA,
-tests, coverage, and current-state documentation agree. Product RTL must be
-reachable from `npu_top`; simulation-only use does not justify product code.
+New architecture behavior is simulator-first. It must progress through:
 
-## Product Baseline
+1. requirements, workload, and measured bottleneck;
+2. ISA/ABI proposal and at least two alternatives;
+3. C++26 Holon semantic core implementation and tests;
+4. gem5 device, timing, and RISC-V system evaluation;
+5. performance sensitivity, software cost, RTL cost, and verification report;
+6. an accepted ADR authorizing RTL implementation;
+7. RTL differential verification and gem5 calibration.
 
-The current mainline is a programmable integer/quant NPU tile with:
+Behavior-preserving RTL fixes may proceed against existing model semantics. They
+must not introduce new architectural behavior without completing this gate.
+
+## Released Baseline: v2.0
+
+The current product is a programmable integer/quant NPU tile with:
 
 - ABI 3.0 program submission and lifecycle control;
-- Holon ISA 1.0;
-- replaceable frontend microarchitecture;
-- local program memory and data scratchpad;
-- frontend-issued DMA, vector, matrix, and synchronization work;
-- integer/quant vector execution;
+- Holon ISA 1.0 and a replaceable frontend implementation;
+- explicit program memory, data scratchpad, and ordered DMA;
+- integer/quant VLA vector execution;
 - B-weight-stationary INT8 matrix execution;
-- completion records, IRQ, debug, faults, and performance counters;
+- completion, IRQ, debug, fault, and performance facilities;
 - schema-generated ABI/ISA contracts;
 - native SVA and evidence-driven coverage gates.
 
-The prior GEMM-only generation is archived at tag `v1.5`.
+The descriptor-driven GEMM generation is archived at tag `v1.5`.
 
-## Active Phase: Single-Mainline Release Hardening
+## v2.x: Simulation Foundation
 
-Goal: make the programmable architecture the only coherent product before its
-first release.
-
-Deliverables:
-
-- remove all old descriptor-driven product RTL, software, tests, and build
-  targets from `master`;
-- canonical product names without architecture-version prefixes;
-- canonical ABI and ISA schemas/generators;
-- AXI 4 KiB split correctness for loader, DMA, and completion writeback;
-- observable safe software reset with transaction drain;
-- fixed `SYSTEM_FAULT` semantics;
-- no product test probes or simulation-only product consumers;
-- event-driven functional coverage, named RTL cover gating, exact raw artifact
-  set checking, and structural coverage baselines;
-- current-state architecture, ISA, interface, verification, and onboarding
-  documentation.
-
-Acceptance:
-
-- debug, lint, regression, and coverage presets pass from clean build trees;
-- all required functional events and product RTL cover properties are hit;
-- line/branch/toggle/expression coverage meets or exceeds the checked baseline;
-- all AXI bursts stay within one 4 KiB page under directed boundary tests;
-- software reset drains AR/R/AW/W/B and local-memory work under backpressure;
-- schema generation, ISA metadata, macro policy, RTL ownership, canonical naming,
-  JSON, and whitespace checks pass;
-- no current product file, public symbol, CMake target, or test has an
-  architecture-version compatibility prefix.
-
-Risks:
-
-- soft-reset bugs may only appear under channel-specific stalls;
-- structural coverage may expose untested error-state transitions;
-- canonical deletion can leave stale CMake sources or generated references;
-- firmware-visible ordering must not depend on current single-command timing.
-
-## Next Phase: Program And Runtime Hardening
-
-Goal: expand program-level confidence without changing the architecture.
+Goal: establish the mandatory architecture-exploration platform before adding
+new product behavior.
 
 Planned work:
 
-- larger deterministic random Holon programs differential-tested against the
-  C++ architectural model;
-- randomized control flow, predicate tails, quantization boundaries, DMA page
-  splits, and matrix tile traversal;
-- public assembler/disassembler diagnostics generated from ISA metadata;
-- example programs for vector add, requantization, reduction, transpose, and
-  tiled GEMM;
-- firmware image/version tooling and completion-debug utilities.
+- refactor `sim/model` into one deterministic C++26 Holon semantic core;
+- expose typed issue/effect/completion contracts without gem5 or RTL coupling;
+- retain a fast direct runner for semantic and constrained-random tests;
+- integrate the same core into a gem5 external SimObject with MMIO, DMA, IRQ,
+  engine timing, local-memory resources, and statistics;
+- provide a RISC-V device/bare-metal configuration for normal development and a
+  RISC-V Linux full-system configuration for nightly/release evaluation;
+- build the complete gem5 simulator and Holon extension in verified C++26 mode;
+- calibrate implemented behavior against the v2.0 RTL and record the exact gem5
+  `stable` commit, C++26 toolchain, model parameters, and workloads.
 
 Acceptance:
 
-- every implemented ISA opcode has directed and constrained-random execution;
-- model and RTL agree on retirement, fault PC, local memory, and system-memory
-  effects;
-- examples execute through the public runtime and product top.
+- the direct runner and gem5 device execute one semantic implementation;
+- gem5 contains the only performance and full-system model;
+- semantic, device, timing, bare-metal, and Linux tests are reproducible;
+- result, fault, and ordering behavior matches current RTL;
+- timing statistics identify frontend, DMA, scratchpad, vector, matrix, and
+  synchronization costs separately;
+- no future architecture phase begins before this foundation is accepted.
 
-## Performance Phase
+Non-goals: signal-level AXI simulation inside gem5, a second functional model,
+or new product ABI/ISA behavior.
 
-Goal: improve throughput without changing program semantics.
+## v2.x: Program And Runtime Hardening
 
-Candidate work, in order of measured value:
+Goal: build representative software and measurements before selecting hardware
+optimizations.
 
-- queue multiple frontend DMA commands while preserving in-order events;
-- permit multiple AXI outstanding transactions with explicit ownership tags;
-- pipeline vector issue and local-memory access;
-- overlap DMA, vector, and matrix execution behind existing sync contracts;
-- add banked local memory only when conflict measurements justify it.
+Planned work:
 
-Each optimization requires unchanged architectural-model results, new protocol
-assertions, backpressure/reset tests, and updated coverage baselines. No
-performance mechanism becomes software-visible unless deliberately added to ABI
-capabilities.
+- larger deterministic random programs and metadata-driven diagnostics;
+- assembler/disassembler support and reproducible program images;
+- vector, requantization, reduction, transpose, and tiled GEMM workloads;
+- profiling of launch, instruction, DMA, scratchpad, engine, and synchronization
+  overhead in gem5;
+- sensitivity studies for DMA concurrency, engine overlap, frontend issue, and
+  local-memory organization.
 
-## Future Data Types
+Candidate mechanisms such as queued DMA, multiple outstanding transactions,
+banked scratchpad, or engine overlap enter RTL only when measurements identify
+the bottleneck and an ADR selects them. Firmware-visible ordering must remain
+independent of implementation timing.
 
-BF16 and FP8 are future architecture work, not dormant implementation in the
-current tree. Before implementation they require:
+## v3: Transformer And BF16 Exploration
 
-- arithmetic and exception semantics;
-- vector/matrix encoding allocation;
-- scale metadata and capability ABI;
-- C++ reference semantics;
-- accuracy, edge-case, and coverage plans.
+Problem to study: future Transformer workloads may require wider dynamic range,
+higher matrix utilization, and more efficient attention and normalization data
+movement than the integer/quant baseline provides.
 
-## Future System Features
+Candidate research:
 
-IOMMU integration, multiple contexts, multiple program queues, coherent memory,
-graph scheduling, and multi-tile scaling remain out of scope until their
-security, ordering, isolation, and software contracts are designed.
+- BF16 vector/matrix arithmetic and mixed accumulation;
+- batched GEMM and QKV/attention dataflows;
+- softmax, normalization, activation, and reduction assistance;
+- local-memory bandwidth and synchronization changes.
+
+Before selection, representative prefill, decode, sequence-length, batch, and
+model-size workloads must quantify utilization, capacity, bandwidth, numerical
+accuracy, and software overhead. Programmable kernels, helper instructions, and
+dedicated resources must be compared before any opcode or ABI is frozen.
+
+## v4: Modern Low-Precision Exploration
+
+Problem to study: emerging models may benefit from lower precision only when
+scaling metadata, conversion overhead, accumulation accuracy, and memory traffic
+are treated as one system.
+
+Candidate research:
+
+- FP8 E4M3/E5M2 semantics;
+- per-channel, per-block, and MX/block scaling;
+- scale metadata movement and storage;
+- conversion, rounding, saturation, and mixed accumulation.
+
+Semantic-core accuracy studies and gem5 workload measurements must establish a
+quality/performance/energy case before a format or metadata path is selected.
+No dormant FP8 or scaling RTL is allowed.
+
+## v5: System Scaling Exploration
+
+Problem to study: multi-program throughput, isolation, virtual memory, and
+multi-tile scaling may require system facilities beyond the single-program tile.
+
+Candidate research:
+
+- multiple queues and contexts;
+- IOMMU and address-translation integration;
+- additional outstanding DMA and local-memory partitioning;
+- inter-tile communication, synchronization, and scheduling;
+- coherence only if platform workloads demonstrate a requirement.
+
+Security, ordering, isolation, recovery, software ownership, and operating-system
+integration must be modeled in RISC-V full-system gem5 before public interfaces
+or RTL are approved.
 
 ## Release Policy
 
@@ -154,5 +173,7 @@ python3 tools/check_coverage.py --build-dir build/coverage
 git diff --check
 ```
 
-Release status and known limits are recorded in `docs/PROGRESS.md`; long-term
-history belongs in `CHANGELOG.md` and Git tags.
+Once the simulation foundation exists, its semantic, gem5 device, timing, and
+required RISC-V system gates become part of this release policy. Release status
+and known limits belong in `docs/PROGRESS.md`; history belongs in
+`CHANGELOG.md` and Git tags.

@@ -44,6 +44,7 @@ AXI/local-memory 工作后才回到 `IDLE`。
 | `include/` | 生成的 public headers 和 C++ runtime API。 |
 | `sw/` | C23 driver 与 C++26 runtime 实现。 |
 | `tools/` | schema generation、结构检查、coverage gate。 |
+| `docs/SIMULATION.md` | simulator-first model boundary 和 RTL 准入规则。 |
 
 `rtl/` 中的模块必须能从 `npu_top` 产品图到达。`sim/rtl/` wrapper 只是测试
 边界，不允许参与产品内部连接。program-level 测试也不能通过产品 test
@@ -190,6 +191,11 @@ coverage run 开始前会删除旧 artifacts，并生成本轮
 
 ## 常见修改检查表
 
+新增架构行为必须先完成 `docs/SIMULATION.md` 定义的流程：在共享 C++26
+semantic core 中实现并测试，通过 gem5 device/timing 和 RISC-V system
+workload 评估，经 ADR 批准后才能开始 RTL。直接运行 semantic core 的快速测试
+与 gem5 使用同一份语义实现，不能各自维护 expected behavior。
+
 修改 AXI/DMA：
 
 - 检查 VALID/payload stability；
@@ -201,6 +207,7 @@ coverage run 开始前会删除旧 artifacts，并生成本轮
 
 - 先固定 ISA semantic；
 - 同步 C++ model；
+- 新架构机制先完成 gem5 性能和 workload 评估；
 - 覆盖 tail、predicate、overflow、rounding、bounds 和 illegal mode；
 - program-level 结果通过 DMA STORE 观察。
 

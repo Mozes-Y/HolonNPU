@@ -1,6 +1,6 @@
 # HolonNPU Progress
 
-Last updated: 2026-07-18.
+Last updated: 2026-07-19.
 
 ## Current Status
 
@@ -85,6 +85,11 @@ FSM is not assigned a threshold because Verilator reports no FSM denominator.
 
 ## Next Work
 
-After `v2.0`, prioritize larger random program differential testing, generated
-assembler/disassembler diagnostics, synthesis/CDC planning, and measured
-performance optimization behind the existing ISA ordering contracts.
+The next architecture phase is the v2.x simulation foundation. It will separate
+the current C++26 model into a shared Holon semantic core, integrate that core
+with an upstream `stable` gem5 SimObject, establish RISC-V device/bare-metal and
+Linux full-system tests, and calibrate current behavior against the v2.0 RTL.
+
+The gem5 integration is planned but is not present in the repository yet. New
+architecture features remain blocked from RTL until the simulator-first gate in
+`docs/SIMULATION.md` is implemented and their evidence is approved.

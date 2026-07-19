@@ -170,6 +170,22 @@ counters clear only after every component reports quiescent. External
 
 See `docs/INTERFACE.md` and `docs/ISA.md` for software-visible semantics.
 
+## Simulation And Evolution
+
+This document describes implemented product behavior. Future candidates remain
+in `docs/ROADMAP.md` until evidence authorizes an architecture change.
+
+Architecture evolution is simulator-first. The current C++26 architectural
+model will be separated into a deterministic Holon semantic core shared by a
+fast runner and a gem5 SimObject. The semantic core owns architectural results,
+faults, and ordering; gem5 owns cycle-accounted resources, Host integration,
+memory-system behavior, and performance statistics. RTL remains an independent
+implementation checked against that contract.
+
+No new software-visible behavior or performance mechanism enters RTL until the
+semantic and gem5 evidence is approved by ADR. See `docs/SIMULATION.md` for the
+model boundary and `docs/ROADMAP.md` for the phase gates.
+
 ## Deliberate Limits
 
 - One active program.
