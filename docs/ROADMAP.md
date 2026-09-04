@@ -17,6 +17,14 @@ Before implementation:
 3. Update architecture, interface, ISA, or an ADR before changing a contract.
 4. Change ABI/ISA metadata only through the canonical schemas.
 5. Define simulator evidence, acceptance tests, and coverage before RTL work.
+6. Develop one reviewable feature at a time. After its acceptance commands pass,
+   update `docs/PROGRESS.md` and `CHANGELOG.md`, commit the feature immediately,
+   and start the next feature only from a clean tracked worktree.
+
+Do not accumulate completed features as one long-lived uncommitted change. A
+feature commit must contain its implementation, tests, generated artifacts, and
+current-state documentation together. Build products and external dependencies
+remain ignored and are never committed.
 
 New architecture behavior is simulator-first. It must progress through:
 

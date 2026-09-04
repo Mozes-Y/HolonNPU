@@ -51,6 +51,11 @@ AXI/local-memory 工作后才回到 `IDLE`。
 边界，不允许参与产品内部连接。program-level 测试也不能通过产品 test
 probe 读取 scratchpad，而要执行 DMA STORE 后比较模拟 system memory。
 
+每次只开发一个可审查 feature。验收命令通过后，必须同步更新
+`docs/PROGRESS.md` 与 `CHANGELOG.md` 并立即提交；只有 tracked worktree
+恢复干净后才能开始下一个 feature。实现、测试、生成文件和当前态文档应在
+同一个 feature commit 中，`build/` 等生成产物不得提交。
+
 ## 环境要求
 
 - CMake 4.0+
