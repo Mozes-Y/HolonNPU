@@ -1,11 +1,13 @@
 # HolonNPU Progress
 
-Last updated: 2026-07-19.
+Last updated: 2026-07-22.
 
 ## Current Status
 
-The programmable NPU single-mainline convergence is complete and validated for
-the `v2.0` release.
+The programmable NPU single-mainline convergence remains the released `v2.0`
+baseline. The v2.x Simulation Foundation semantic, gem5 fast, bare-metal, and
+Linux full-system paths are implemented and passing. Broader calibration and
+sensitivity workloads remain active.
 
 - `master` contains one canonical product rooted at `npu_top`.
 - Public contract is ABI 3.0 and Holon ISA 1.0.
@@ -46,7 +48,7 @@ the `v2.0` release.
 
 ## Release Verification
 
-Fresh configurations were used on 2026-07-18.
+Fresh configurations were used on 2026-07-22.
 
 | Gate | Result |
 | ---- | ------ |
@@ -56,10 +58,10 @@ Fresh configurations were used on 2026-07-18.
 | ABI schema | `python3 tools/check_abi.py` passed |
 | RTL ownership/interfaces | 21 product targets reachable; passed |
 | Macro policy | passed |
-| Debug | `22/22` passed |
+| Debug | `23/23` passed |
 | RTL lint | `11/11` passed |
-| Regression | `33/33` passed |
-| Coverage preset | `35/35` passed |
+| Regression | `34/34` passed |
+| Coverage preset | `36/36` passed |
 | Coverage evidence | 12 raw files, 137/137 functional events, 56/56 RTL covers |
 
 Structural coverage:
@@ -73,6 +75,28 @@ Structural coverage:
 
 FSM is not assigned a threshold because Verilator reports no FSM denominator.
 
+## Simulation Foundation Verification
+
+Verified locally on 2026-07-22:
+
+| Gate | Result |
+| ---- | ------ |
+| Semantic core | migrated model/runtime/frontend differential tests passed; 13/13 typed required events observed |
+| Typed completion protocol | wrong, duplicate, and invalid completions rejected transactionally |
+| gem5 upstream | official `stable` SHA `51edbbb9cfd37e92e9901aea2caa4a8f20eda005` |
+| C++ standard audit | 27,552/27,552 translation units use effective C++26 |
+| gem5 build | complete `RISCV/gem5.opt` built with 16 SCons jobs |
+| gem5 fast gate | `5/5` passed |
+| RISC-V bare-metal | vector, matrix, DMA, completion, IRQ, fault, and reset passed |
+| RISC-V Linux full-system | locked Ubuntu 24.04, Linux 6.8.12, matching module, DMA/IRQ smoke, and PASS sentinel completed in 1516.59 s |
+| DMA profile | 256-byte maximum and 4 KiB splitting exercised at page-edge addresses |
+| Timing calibration | vector config/ALU 1 cycle, 4-lane load/store 9 cycles, `2x2x2` matrix 93 cycles |
+
+Build metadata, gem5 stats, and Linux resource/kernel/guest evidence are
+generated under `build/gem5/`. gem5 `stable` warns that GCC 15.3 is newer than
+its listed support range; the reviewed C++26 overlay builds successfully and
+the full compile database is audited.
+
 ## Known Limits
 
 - One active program and one synchronous engine command at a time.
@@ -82,14 +106,19 @@ FSM is not assigned a threshold because Verilator reports no FSM denominator.
 - No multiple contexts, program queues, graph scheduler, or multi-tile scaling.
 - Formal verification, CDC signoff, synthesis timing, power, and physical design
   are not yet release gates.
+- gem5 DMA callbacks do not expose an architectural bus-error response; system
+  address faults remain covered by semantic/direct and RTL tests.
+- Current timing calibration directly gates vector/matrix zero-stall latency;
+  frontend, DMA setup, and full-program calibration need broader workloads.
 
 ## Next Work
 
-The next architecture phase is the v2.x simulation foundation. It will separate
-the current C++26 model into a shared Holon semantic core, integrate that core
-with an upstream `stable` gem5 SimObject, establish RISC-V device/bare-metal and
-Linux full-system tests, and calibrate current behavior against the v2.0 RTL.
+Simulation Foundation follow-up is:
 
-The gem5 integration is planned but is not present in the repository yet. New
-architecture features remain blocked from RTL until the simulator-first gate in
-`docs/SIMULATION.md` is implemented and their evidence is approved.
+- extend calibration to frontend, loader, DMA setup, and representative whole
+  programs without equating real memory latency to the RTL test memory;
+- add sensitivity workloads and idle-state checkpoint tests.
+
+New architecture features remain blocked from RTL until their semantic, gem5,
+workload, cost, and ADR evidence passes the simulator-first gate. This page
+records only verified results; incomplete work is never counted as evidence.

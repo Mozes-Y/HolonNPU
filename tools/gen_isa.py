@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.dont_write_bytecode = True
+
 from check_isa import ISA_SCHEMA_PATH, ROOT, as_int, check_schema
 
 

@@ -1,6 +1,8 @@
 #include "Vnpu_matrix_engine.h"
 
 #include "holon_npu_isa.h"
+#include "holon_npu_semantic.hpp"
+#include "holon_npu_timing.hpp"
 #include "holon_npu_program.h"
 #include "tb_coverage.hpp"
 
@@ -152,6 +154,7 @@ struct event_result {
     bool valid = false;
     bool fault = false;
     std::uint32_t fault_code = 0;
+    std::uint32_t latency_cycles = 0;
 };
 
 event_result issue(Vnpu_matrix_engine& dut, std::uint32_t instruction) {
@@ -176,6 +179,7 @@ event_result issue(Vnpu_matrix_engine& dut, std::uint32_t instruction) {
             event.valid = accepted;
             event.fault = (dut.event_data_o & 1U) != 0;
             event.fault_code = static_cast<std::uint32_t>(dut.event_data_o >> 32U);
+            event.latency_cycles = static_cast<std::uint32_t>(cycle + 1);
             tick(dut);
             break;
         }
@@ -260,7 +264,23 @@ bool test_clear_accumulate_store(Vnpu_matrix_engine& dut) {
         dut,
         HOLON_NPU_ISA_MATRIX_FLAG_CLEAR | HOLON_NPU_ISA_MATRIX_FLAG_STORE
     );
-    ok &= expect_event_ok("clear/store", issue(dut, matrix_instruction(0, kCommandOffset)));
+    const auto clear_store_event = issue(dut, matrix_instruction(0, kCommandOffset));
+    ok &= expect_event_ok("clear/store", clear_store_event);
+    const holon_npu::gem5_model::timing_model timing;
+    const auto expected_cycles = timing.estimate(holon_npu::semantic::matrix_operation{
+        .command = {
+            .m = 2,
+            .n = 2,
+            .k = 2,
+            .clear_accumulator = true,
+            .store_result = true,
+        },
+    }).cycles;
+    ok &= expect_eq(
+        "2x2x2 issue-to-event cycles",
+        clear_store_event.latency_cycles,
+        expected_cycles
+    );
     const std::array<std::int32_t, 4> first{19, 22, 43, 50};
     ok &= expect_c(dut, first);
 

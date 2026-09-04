@@ -39,7 +39,8 @@ AXI/local-memory 工作后才回到 `IDLE`。
 | `rtl/matrix/` | PE、systolic array、matrix micro-op engine。 |
 | `rtl/integration/` | control plane、engine integration、canonical `npu_top`。 |
 | `sim/rtl/` | 仅供 Verilator/C++ 使用的 flattened wrapper。 |
-| `sim/model/` | C++26 architectural model。 |
+| `sim/semantic/` | C++26 semantic core 与 direct runner。 |
+| `sim/gem5/` | gem5 SimObject、timing model、RISC-V 配置与 simulation-only guest。 |
 | `sim/` | C++ testbench 和 typed coverage runtime。 |
 | `include/` | 生成的 public headers 和 C++ runtime API。 |
 | `sw/` | C23 driver 与 C++26 runtime 实现。 |
@@ -100,8 +101,25 @@ ctest --preset coverage --output-on-failure
 python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
-`CMakePresets.json` 只固定 debug/regression/coverage build tree 和四个测试入口，
-不为每个子系统增加 preset。单独构建或观察测试时直接使用 target/regex：
+Simulation foundation 使用独立 build tree，并允许 16 路并行构建完整 gem5：
+
+```bash
+cmake --preset gem5
+cmake --build --preset gem5 --parallel 16
+ctest --preset gem5 --output-on-failure
+```
+
+该测试会验证 upstream `stable` SHA、完整 C++26 compile database、timing
+calculator 和 RISC-V bare-metal 的 vector/matrix/DMA/IRQ/fault/reset 流程。
+Linux full-system 需要锁定的大型资源和 matching kernel/module bundle，不属于
+普通开发 gate。其资源准备、kernel build 与 guest build 均由 lock file 驱动，
+gem5 运行阶段不会访问在线 resource catalog。完整命令见
+`docs/SIMULATION.md` 的 Linux full-system gate 一节；当前通过结果记录在
+`docs/PROGRESS.md`。
+
+`CMakePresets.json` 只固定 debug/regression/coverage 产品 build tree、独立 gem5
+build tree 和五个测试入口，不为每个子系统增加 preset。单独构建或观察测试时
+直接使用 target/regex：
 
 ```bash
 cmake --build --preset debug --target npu_dma_fabric_tb

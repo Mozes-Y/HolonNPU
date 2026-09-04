@@ -175,12 +175,19 @@ See `docs/INTERFACE.md` and `docs/ISA.md` for software-visible semantics.
 This document describes implemented product behavior. Future candidates remain
 in `docs/ROADMAP.md` until evidence authorizes an architecture change.
 
-Architecture evolution is simulator-first. The current C++26 architectural
-model will be separated into a deterministic Holon semantic core shared by a
-fast runner and a gem5 SimObject. The semantic core owns architectural results,
-faults, and ordering; gem5 owns cycle-accounted resources, Host integration,
-memory-system behavior, and performance statistics. RTL remains an independent
-implementation checked against that contract.
+Architecture evolution is simulator-first. `sim/semantic/` is the deterministic
+C++26 Holon semantic core shared by the direct runner and the gem5 SimObject.
+The semantic core owns architectural results, faults, and ordering; gem5 owns
+cycle-accounted resources, Host integration, memory-system behavior, and
+performance statistics. RTL remains an independent implementation checked
+against that contract.
+
+The current gem5 default models one issue at a time, one DMA transaction at a
+time, 16 vector lanes, the `16x16` matrix array, and the current two-phase
+scratchpad service. Verilator module tests directly compare zero-stall vector
+and matrix issue-to-event latency against the gem5 timing calculator. Real gem5
+cache/DRAM response time is accounted separately and is not equated with the
+simple RTL test memory.
 
 No new software-visible behavior or performance mechanism enters RTL until the
 semantic and gem5 evidence is approved by ADR. See `docs/SIMULATION.md` for the

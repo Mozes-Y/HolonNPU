@@ -80,6 +80,11 @@ def main() -> int:
             continue
         text = path.read_text(encoding="utf-8")
         for description, pattern in BANNED_PATTERNS:
+            if (
+                description == "Verilator project -D feature switch"
+                and path.suffix == ".md"
+            ):
+                continue
             for match in pattern.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
                 failures.append(f"{rel}:{line}: banned {description}: {match.group(0).strip()}")

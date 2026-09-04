@@ -1,12 +1,13 @@
-#include "holon_npu_model.hpp"
+#include "holon_npu_semantic.hpp"
 
 #include <algorithm>
 #include <bit>
 #include <cstring>
 #include <format>
 #include <limits>
+#include <ranges>
 
-namespace holon_npu::model {
+namespace holon_npu::semantic {
 namespace {
 
 constexpr std::uint32_t k_opcode_shift = HOLON_NPU_ISA_OPCODE_SHIFT;
@@ -369,7 +370,7 @@ std::string disassemble(const decoded_instruction& inst) {
     return std::format("{}.unknown opcode=0x{:X} word=0x{:08X}", cls, inst.opcode, inst.word);
 }
 
-machine::machine(std::size_t scratchpad_bytes, std::size_t max_vl)
+program_machine::program_machine(std::size_t scratchpad_bytes, std::size_t max_vl)
     : scratchpad_(scratchpad_bytes),
       active_local_mem_bytes_(scratchpad_bytes),
       predicate_active_(max_vl, 1),
@@ -379,7 +380,7 @@ machine::machine(std::size_t scratchpad_bytes, std::size_t max_vl)
     }
 }
 
-void machine::reset() {
+void program_machine::reset() {
     std::ranges::fill(scratchpad_, std::byte{0});
     active_local_mem_bytes_ = scratchpad_.size();
     for (auto& reg : vector_registers_) {
@@ -392,7 +393,7 @@ void machine::reset() {
     matrix_accumulator_m_ = 0;
     matrix_accumulator_n_ = 0;
     state_ = lifecycle_state::idle;
-    fault_ = model_error::none;
+    fault_ = architectural_fault::none;
     pc_ = 0;
     vl_ = 0;
     element_width_ = vector_element_width::bits_32;
@@ -408,16 +409,18 @@ void machine::reset() {
     matrix_accumulator_n_ = 0;
     next_dma_sequence_ = 0;
     next_matrix_sequence_ = 0;
+    next_token_ = 1;
+    pending_.reset();
 }
 
-void machine::resize_system_memory(std::size_t byte_count) {
-    system_memory_.assign(byte_count, std::byte{0});
-}
-
-void machine::load_program(std::span<const std::uint32_t> words) {
+void program_machine::initialize(
+    std::span<const std::uint32_t> words,
+    std::size_t active_local_mem_bytes,
+    instruction_address entry
+) {
     program_.assign(words.begin(), words.end());
     state_ = lifecycle_state::idle;
-    fault_ = model_error::none;
+    fault_ = architectural_fault::none;
     pc_ = 0;
     retired_ = 0;
     std::ranges::fill(scalar_registers_, 0);
@@ -429,244 +432,87 @@ void machine::load_program(std::span<const std::uint32_t> words) {
     matrix_accumulator_n_ = 0;
     next_dma_sequence_ = 0;
     next_matrix_sequence_ = 0;
-    active_local_mem_bytes_ = scratchpad_.size();
+    next_token_ = 1;
+    pending_.reset();
+    active_local_mem_bytes_ = std::min(active_local_mem_bytes, scratchpad_.size());
+    pc_ = entry.value();
 }
 
-run_result machine::load_program_descriptor(
-    const holon_npu_program_desc_t& desc,
-    std::span<const std::uint32_t> program_words,
-    std::span<const std::byte> argument_bytes,
-    const loader_config& config
-) {
-    state_ = lifecycle_state::idle;
-    fault_ = model_error::none;
-    pc_ = 0;
-    retired_ = 0;
-    program_.clear();
-    dma_events_.clear();
-    matrix_events_.clear();
-    next_dma_sequence_ = 0;
-    next_matrix_sequence_ = 0;
-
-    if (desc.size_bytes != HOLON_NPU_PROGRAM_DESC_SIZE || !descriptor_reserved_zero(desc)) {
-        raise_fault(model_error::invalid_program_descriptor);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if (desc.version != HOLON_NPU_ABI_MAJOR || desc.holon_isa_major != config.isa_major ||
-        desc.holon_isa_minor > config.isa_minor) {
-        raise_fault(model_error::unsupported_abi_or_isa);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if (desc.program_format != HOLON_NPU_PROGRAM_FORMAT_HOLON) {
-        raise_fault(model_error::unsupported_program_format);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if ((desc.flags & ~HOLON_NPU_PROGRAM_FLAG_VALID_MASK) != 0) {
-        raise_fault(model_error::invalid_program_descriptor);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if ((desc.required_caps & ~config.implemented_caps) != 0) {
-        raise_fault(model_error::unsupported_capability);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if ((desc.required_op_classes & ~config.implemented_op_classes) != 0) {
-        raise_fault(model_error::unsupported_operation_class);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if (!range_fits_u64(desc.code_addr, desc.code_size_bytes) ||
-        !range_fits_u64(desc.arg_addr, desc.arg_size_bytes) ||
-        (desc.completion_addr != 0 &&
-         !range_fits_u64(desc.completion_addr, HOLON_NPU_COMPLETION_RECORD_SIZE))) {
-        raise_fault(model_error::invalid_program_descriptor);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if (!aligned(desc.code_addr, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
-        !aligned(desc.code_size_bytes, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
-        !aligned(desc.entry_pc, HOLON_NPU_ISA_INSTRUCTION_BYTES) ||
-        !aligned(desc.arg_addr, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
-        !aligned(desc.arg_size_bytes, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
-        (desc.completion_addr != 0 &&
-         !aligned(desc.completion_addr, HOLON_NPU_PROGRAM_COMPLETION_ALIGN))) {
-        raise_fault(model_error::alignment);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    if (desc.code_size_bytes == 0 ||
-        desc.code_size_bytes != program_words.size_bytes() ||
-        desc.arg_size_bytes != argument_bytes.size() ||
-        desc.program_mem_bytes < desc.code_size_bytes ||
-        desc.local_mem_bytes < desc.arg_size_bytes ||
-        desc.program_mem_bytes > HOLON_NPU_PROGRAM_MEM_MAX_BYTES ||
-        desc.local_mem_bytes > scratchpad_.size() ||
-        desc.stack_bytes > HOLON_NPU_PROGRAM_STACK_MAX_BYTES ||
-        static_cast<std::uint64_t>(desc.arg_size_bytes) + desc.stack_bytes >
-            desc.local_mem_bytes ||
-        desc.entry_pc >= desc.code_size_bytes) {
-        raise_fault(model_error::local_memory_bounds);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-
-    load_program(program_words);
-    active_local_mem_bytes_ = desc.local_mem_bytes;
-    pc_ = desc.entry_pc;
-    if (!load_arguments(argument_bytes, 0)) {
-        raise_fault(model_error::local_memory_bounds);
-        return run_result{state_, fault_, pc_, retired_};
-    }
-    return run_result{state_, fault_, pc_, retired_};
-}
-
-bool machine::load_arguments(std::span<const std::byte> bytes, std::uint32_t local_byte_offset) {
-    if (!local_range_ok(local_byte_offset, bytes.size())) {
+bool program_machine::load_arguments(std::span<const std::byte> bytes, local_address destination) {
+    if (!local_range_ok(destination, bytes.size())) {
         return false;
     }
-    std::ranges::copy(bytes, scratchpad_.begin() + local_byte_offset);
+    std::ranges::copy(bytes, scratchpad_.begin() + destination.value());
     return true;
 }
 
-bool machine::write_i8(std::uint32_t local_byte_offset, std::span<const std::int8_t> values) {
-    if (!local_range_ok(local_byte_offset, values.size())) {
+bool program_machine::write_i8(local_address destination, std::span<const std::int8_t> values) {
+    if (!local_range_ok(destination, values.size())) {
         return false;
     }
     for (std::size_t index = 0; index < values.size(); ++index) {
-        store_i8(local_byte_offset + static_cast<std::uint32_t>(index), values[index]);
+        store_i8(destination.value() + static_cast<std::uint32_t>(index), values[index]);
     }
     return true;
 }
 
-std::vector<std::int8_t> machine::read_i8(std::uint32_t local_byte_offset, std::size_t count) const {
+std::vector<std::int8_t> program_machine::read_i8(local_address source, std::size_t count) const {
     std::vector<std::int8_t> values;
     values.reserve(count);
     for (std::size_t index = 0; index < count; ++index) {
-        const auto offset = local_byte_offset + static_cast<std::uint32_t>(index);
-        values.push_back(local_range_ok(offset, sizeof(std::int8_t)) ? load_i8(offset) : 0);
+        const auto offset = source.value() + static_cast<std::uint32_t>(index);
+        values.push_back(local_range_ok(local_address{offset}, sizeof(std::int8_t)) ? load_i8(offset) : 0);
     }
     return values;
 }
 
-bool machine::write_i16(std::uint32_t local_byte_offset, std::span<const std::int16_t> values) {
+bool program_machine::write_i16(local_address destination, std::span<const std::int16_t> values) {
     const auto byte_count = values.size_bytes();
-    if (!local_range_ok(local_byte_offset, byte_count)) {
+    if (!local_range_ok(destination, byte_count)) {
         return false;
     }
     for (std::size_t index = 0; index < values.size(); ++index) {
-        store_i16(local_byte_offset + static_cast<std::uint32_t>(index * sizeof(std::int16_t)), values[index]);
+        store_i16(destination.value() + static_cast<std::uint32_t>(index * sizeof(std::int16_t)), values[index]);
     }
     return true;
 }
 
-std::vector<std::int16_t> machine::read_i16(std::uint32_t local_byte_offset, std::size_t count) const {
+std::vector<std::int16_t> program_machine::read_i16(local_address source, std::size_t count) const {
     std::vector<std::int16_t> values;
     values.reserve(count);
     for (std::size_t index = 0; index < count; ++index) {
-        const auto offset = local_byte_offset + static_cast<std::uint32_t>(index * sizeof(std::int16_t));
-        values.push_back(local_range_ok(offset, sizeof(std::int16_t)) ? load_i16(offset) : 0);
+        const auto offset = source.value() + static_cast<std::uint32_t>(index * sizeof(std::int16_t));
+        values.push_back(local_range_ok(local_address{offset}, sizeof(std::int16_t)) ? load_i16(offset) : 0);
     }
     return values;
 }
 
-bool machine::write_i32(std::uint32_t local_byte_offset, std::span<const std::int32_t> values) {
+bool program_machine::write_i32(local_address destination, std::span<const std::int32_t> values) {
     const auto byte_count = values.size_bytes();
-    if (!local_range_ok(local_byte_offset, byte_count)) {
+    if (!local_range_ok(destination, byte_count)) {
         return false;
     }
     for (std::size_t index = 0; index < values.size(); ++index) {
-        store_i32(local_byte_offset + static_cast<std::uint32_t>(index * sizeof(std::int32_t)), values[index]);
+        store_i32(destination.value() + static_cast<std::uint32_t>(index * sizeof(std::int32_t)), values[index]);
     }
     return true;
 }
 
-std::vector<std::int32_t> machine::read_i32(std::uint32_t local_byte_offset, std::size_t count) const {
+std::vector<std::int32_t> program_machine::read_i32(local_address source, std::size_t count) const {
     std::vector<std::int32_t> values;
     values.reserve(count);
     for (std::size_t index = 0; index < count; ++index) {
-        const auto offset = local_byte_offset + static_cast<std::uint32_t>(index * sizeof(std::int32_t));
-        values.push_back(local_range_ok(offset, sizeof(std::int32_t)) ? load_i32(offset) : 0);
+        const auto offset = source.value() + static_cast<std::uint32_t>(index * sizeof(std::int32_t));
+        values.push_back(local_range_ok(local_address{offset}, sizeof(std::int32_t)) ? load_i32(offset) : 0);
     }
     return values;
 }
 
-bool machine::write_system_i32(std::uint64_t system_byte_offset, std::span<const std::int32_t> values) {
-    const auto byte_count = values.size_bytes();
-    if (!system_range_ok(system_byte_offset, byte_count)) {
-        return false;
-    }
-    for (std::size_t index = 0; index < values.size(); ++index) {
-        store_system_i32(system_byte_offset + static_cast<std::uint64_t>(index * sizeof(std::int32_t)), values[index]);
-    }
-    return true;
-}
-
-std::vector<std::int32_t> machine::read_system_i32(std::uint64_t system_byte_offset, std::size_t count) const {
-    std::vector<std::int32_t> values;
-    values.reserve(count);
-    for (std::size_t index = 0; index < count; ++index) {
-        const auto offset = system_byte_offset + static_cast<std::uint64_t>(index * sizeof(std::int32_t));
-        values.push_back(system_range_ok(offset, sizeof(std::int32_t)) ? load_system_i32(offset) : 0);
-    }
-    return values;
-}
-
-bool machine::issue_dma_load(
-    std::uint64_t system_byte_offset,
-    std::uint32_t local_byte_offset,
-    std::uint32_t byte_count
-) {
-    if (!local_range_ok(local_byte_offset, byte_count)) {
-        raise_fault(model_error::local_memory_bounds);
-        return false;
-    }
-    if (!system_range_ok(system_byte_offset, byte_count)) {
-        raise_fault(model_error::dma_request);
-        return false;
-    }
-    std::ranges::copy(
-        system_memory_.begin() + static_cast<std::ptrdiff_t>(system_byte_offset),
-        system_memory_.begin() + static_cast<std::ptrdiff_t>(system_byte_offset + byte_count),
-        scratchpad_.begin() + local_byte_offset
-    );
-    dma_events_.push_back(dma_event{
-        .sequence = next_dma_sequence_++,
-        .direction = dma_direction::system_to_local,
-        .system_byte_offset = system_byte_offset,
-        .local_byte_offset = local_byte_offset,
-        .byte_count = byte_count,
-    });
-    return true;
-}
-
-bool machine::issue_dma_store(
-    std::uint32_t local_byte_offset,
-    std::uint64_t system_byte_offset,
-    std::uint32_t byte_count
-) {
-    if (!local_range_ok(local_byte_offset, byte_count)) {
-        raise_fault(model_error::local_memory_bounds);
-        return false;
-    }
-    if (!system_range_ok(system_byte_offset, byte_count)) {
-        raise_fault(model_error::dma_request);
-        return false;
-    }
-    std::ranges::copy(
-        scratchpad_.begin() + local_byte_offset,
-        scratchpad_.begin() + local_byte_offset + byte_count,
-        system_memory_.begin() + static_cast<std::ptrdiff_t>(system_byte_offset)
-    );
-    dma_events_.push_back(dma_event{
-        .sequence = next_dma_sequence_++,
-        .direction = dma_direction::local_to_system,
-        .system_byte_offset = system_byte_offset,
-        .local_byte_offset = local_byte_offset,
-        .byte_count = byte_count,
-    });
-    return true;
-}
-
-void machine::clear_dma_events() {
+void program_machine::clear_dma_events() {
     dma_events_.clear();
 }
 
-bool machine::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
+bool program_machine::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
     const auto flags_valid = op.clear_accumulator != op.accumulate;
     if (op.accumulator_id != 0 || !flags_valid ||
         op.m == 0 || op.n == 0 || op.k == 0 ||
@@ -676,28 +522,28 @@ bool machine::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
         op.b_row_stride_bytes < op.n ||
         (op.store_result &&
          (op.c_row_stride_bytes < static_cast<std::uint32_t>(op.n) * sizeof(std::int32_t) ||
-          op.c_offset % sizeof(std::int32_t) != 0 ||
+          op.c_offset.value() % sizeof(std::int32_t) != 0 ||
           op.c_row_stride_bytes % sizeof(std::int32_t) != 0)) ||
         (op.accumulate &&
          (!matrix_accumulator_valid_ || matrix_accumulator_m_ != op.m ||
           matrix_accumulator_n_ != op.n))) {
-        raise_fault(model_error::matrix_issue);
+        raise_fault(architectural_fault::matrix_issue);
         return false;
     }
 
-    const auto a_last = op.a_offset +
+    const auto a_last = op.a_offset.value() +
                         static_cast<std::uint64_t>(op.m - 1U) * op.a_row_stride_bytes +
                         static_cast<std::uint64_t>(op.k);
-    const auto b_last = op.b_offset +
+    const auto b_last = op.b_offset.value() +
                         static_cast<std::uint64_t>(op.k - 1U) * op.b_row_stride_bytes +
                         static_cast<std::uint64_t>(op.n);
     const auto c_last = op.store_result
-        ? op.c_offset + static_cast<std::uint64_t>(op.m - 1U) * op.c_row_stride_bytes +
+        ? op.c_offset.value() + static_cast<std::uint64_t>(op.m - 1U) * op.c_row_stride_bytes +
               static_cast<std::uint64_t>(op.n) * sizeof(std::int32_t)
         : std::uint64_t{0};
     if (a_last > active_local_mem_bytes_ || b_last > active_local_mem_bytes_ ||
         (op.store_result && c_last > active_local_mem_bytes_)) {
-        raise_fault(model_error::matrix_issue);
+        raise_fault(architectural_fault::matrix_issue);
         return false;
     }
 
@@ -712,10 +558,10 @@ bool machine::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
         for (std::uint16_t col = 0; col < op.n; ++col) {
             auto acc = matrix_accumulator_.at(row).at(col);
             for (std::uint16_t kk = 0; kk < op.k; ++kk) {
-                const auto a_offset = op.a_offset +
+                const auto a_offset = op.a_offset.value() +
                                       static_cast<std::uint32_t>(row) * op.a_row_stride_bytes +
                                       kk;
-                const auto b_offset = op.b_offset +
+                const auto b_offset = op.b_offset.value() +
                                       static_cast<std::uint32_t>(kk) * op.b_row_stride_bytes +
                                       col;
                 const auto product = static_cast<std::int32_t>(load_i8(a_offset)) *
@@ -724,7 +570,7 @@ bool machine::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
             }
             matrix_accumulator_.at(row).at(col) = acc;
             if (op.store_result) {
-                const auto c_offset = op.c_offset +
+                const auto c_offset = op.c_offset.value() +
                                       static_cast<std::uint32_t>(row) * op.c_row_stride_bytes +
                                       static_cast<std::uint32_t>(col) * sizeof(std::int32_t);
                 store_i32(c_offset, acc);
@@ -744,16 +590,273 @@ bool machine::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
     return true;
 }
 
-void machine::clear_matrix_events() {
+void program_machine::clear_matrix_events() {
     matrix_events_.clear();
 }
 
-run_result machine::step() {
+std::optional<operation> program_machine::operation_for(const decoded_instruction& inst) {
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_FRONTEND_CONTROL) {
+        const auto opcode = static_cast<instruction_opcode>(inst.opcode);
+        if (opcode == instruction_opcode::frontend_control_load ||
+            opcode == instruction_opcode::frontend_control_store) {
+            const auto base = static_cast<std::uint64_t>(
+                std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1))
+            );
+            const auto address = static_cast<std::int64_t>(base) + sign_extend_imm12(inst.imm);
+            return scalar_local_operation{
+                .address = local_address{
+                    address >= 0 && address <= std::numeric_limits<std::uint32_t>::max()
+                        ? static_cast<std::uint32_t>(address)
+                        : 0U
+                },
+                .write = opcode == instruction_opcode::frontend_control_store,
+            };
+        }
+        return std::nullopt;
+    }
+
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_PREDICATE ||
+        inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_CONFIG ||
+        inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU ||
+        inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_MEMORY ||
+        inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_PERMUTE ||
+        inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_REDUCTION ||
+        inst.isa_class == HOLON_NPU_ISA_ENUM_QUANTIZATION) {
+        auto active_lanes = vl_;
+        std::optional<std::uint8_t> predicate_index;
+        if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_MEMORY) {
+            predicate_index = inst.rs1;
+        } else if (inst.isa_class == HOLON_NPU_ISA_ENUM_QUANTIZATION) {
+            predicate_index = inst.rs2;
+        } else if (inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_ALU ||
+                   inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_PERMUTE ||
+                   inst.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_REDUCTION) {
+            predicate_index = static_cast<std::uint8_t>(
+                inst.imm & HOLON_NPU_ISA_FIELD_MASK
+            );
+        }
+        if (predicate_index && predicate_index_ok(*predicate_index)) {
+            active_lanes = static_cast<std::uint32_t>(std::ranges::count(
+                predicate_active_ | std::views::take(vl_),
+                std::uint8_t{1}
+            ));
+        }
+        return vector_operation{
+            .instruction = inst,
+            .vl = vl_,
+            .active_lanes = active_lanes,
+            .element_bytes = static_cast<std::uint8_t>(element_bytes()),
+        };
+    }
+
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_MATRIX) {
+        matrix_gemm_i8_i32_op command{};
+        if (local_range_ok(inst.imm, HOLON_NPU_ISA_MATRIX_COMMAND_BYTES)) {
+            const auto command_word = [&](std::uint32_t offset) {
+                return std::bit_cast<std::uint32_t>(load_i32(inst.imm + offset));
+            };
+            const auto shape = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_SHAPE_OFFSET);
+            const auto flags = static_cast<std::uint8_t>(
+                shape >> HOLON_NPU_ISA_MATRIX_SHAPE_FLAGS_SHIFT
+            );
+            command = matrix_gemm_i8_i32_op{
+                .a_offset = local_address{command_word(HOLON_NPU_ISA_MATRIX_COMMAND_A_OFFSET)},
+                .b_offset = local_address{command_word(HOLON_NPU_ISA_MATRIX_COMMAND_B_OFFSET)},
+                .c_offset = local_address{command_word(HOLON_NPU_ISA_MATRIX_COMMAND_C_OFFSET)},
+                .a_row_stride_bytes = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_A_STRIDE_OFFSET),
+                .b_row_stride_bytes = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_B_STRIDE_OFFSET),
+                .c_row_stride_bytes = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_C_STRIDE_OFFSET),
+                .m = static_cast<std::uint16_t>(
+                    (shape >> HOLON_NPU_ISA_MATRIX_SHAPE_M_SHIFT) &
+                    HOLON_NPU_ISA_MATRIX_DIMENSION_MASK
+                ),
+                .n = static_cast<std::uint16_t>(
+                    (shape >> HOLON_NPU_ISA_MATRIX_SHAPE_N_SHIFT) &
+                    HOLON_NPU_ISA_MATRIX_DIMENSION_MASK
+                ),
+                .k = static_cast<std::uint16_t>(
+                    (shape >> HOLON_NPU_ISA_MATRIX_SHAPE_K_SHIFT) &
+                    HOLON_NPU_ISA_MATRIX_DIMENSION_MASK
+                ),
+                .accumulator_id = inst.rd,
+                .clear_accumulator = (flags & HOLON_NPU_ISA_MATRIX_FLAG_CLEAR) != 0,
+                .accumulate = (flags & HOLON_NPU_ISA_MATRIX_FLAG_ACCUMULATE) != 0,
+                .store_result = (flags & HOLON_NPU_ISA_MATRIX_FLAG_STORE) != 0,
+            };
+        }
+        return matrix_operation{.command = command};
+    }
+
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_DMA) {
+        const auto opcode = static_cast<instruction_opcode>(inst.opcode);
+        if (opcode != instruction_opcode::dma_load && opcode != instruction_opcode::dma_store) {
+            raise_fault(architectural_fault::dma_request);
+            return std::nullopt;
+        }
+        const auto system = system_address{
+            static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rd))) |
+            (static_cast<std::uint64_t>(
+                 std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1))) << 32U)
+        };
+        const auto local = local_address{
+            std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs2))
+        };
+        const auto byte_count = static_cast<std::uint32_t>(
+            static_cast<std::size_t>(inst.imm + 1U) * HOLON_NPU_ISA_DMA_WORD_BYTES
+        );
+        if (!local_range_ok(local, byte_count)) {
+            raise_fault(architectural_fault::local_memory_bounds);
+            return std::nullopt;
+        }
+        return program_dma_operation{
+            .direction = opcode == instruction_opcode::dma_load
+                ? dma_direction::system_to_local
+                : dma_direction::local_to_system,
+            .system = system,
+            .local = local,
+            .byte_count = byte_count,
+            .store_payload = opcode == instruction_opcode::dma_store
+                ? read_local_bytes(local, byte_count)
+                : std::vector<std::byte>{},
+        };
+    }
+
+    if (inst.isa_class == HOLON_NPU_ISA_ENUM_SYNC) {
+        return sync_operation{.opcode = static_cast<instruction_opcode>(inst.opcode)};
+    }
+    return std::nullopt;
+}
+
+std::expected<execution_event, api_error> program_machine::advance() {
+    if (pending_) {
+        return std::unexpected(api_error::operation_pending);
+    }
+    if (state_ == lifecycle_state::done || state_ == lifecycle_state::fault) {
+        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+    }
+    if (pc_ % k_pc_increment != 0 || pc_ / k_pc_increment >= program_.size()) {
+        raise_fault(architectural_fault::illegal_instruction);
+        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+    }
+
+    state_ = lifecycle_state::running;
+    const auto inst = decode(program_.at(pc_ / k_pc_increment));
+    if (auto request = operation_for(inst)) {
+        pending_operation public_request{
+            .token = operation_token{next_token_++},
+            .pc = instruction_address{pc_},
+            .value = std::move(*request),
+        };
+        pending_ = pending_context{public_request, inst};
+        return public_request;
+    }
+    if (state_ == lifecycle_state::fault) {
+        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+    }
+
+    const auto retired_pc = pc_;
+    const auto result = execute_current_instruction();
+    if (result.state == lifecycle_state::done || result.state == lifecycle_state::fault) {
+        return terminal_event{result.state, result.fault, instruction_address{result.pc}, result.retired};
+    }
+    return retired_event{instruction_address{retired_pc}, inst.word, result.retired};
+}
+
+bool program_machine::complete_dma(
+    const program_dma_operation& request,
+    const operation_result& result
+) {
+    if (request.direction == dma_direction::system_to_local) {
+        const auto* payload = std::get_if<read_payload>(&result);
+        if (payload == nullptr || payload->bytes.size() != request.byte_count ||
+            !write_local_bytes(request.local, payload->bytes)) {
+            return false;
+        }
+    } else if (!std::holds_alternative<operation_success>(result)) {
+        return false;
+    }
+
+    dma_events_.push_back(dma_event{
+        .sequence = next_dma_sequence_++,
+        .direction = request.direction,
+        .system_byte_offset = request.system,
+        .local_byte_offset = request.local,
+        .byte_count = request.byte_count,
+    });
+    pc_ += k_pc_increment;
+    ++retired_;
+    return true;
+}
+
+std::expected<execution_event, api_error> program_machine::complete(
+    operation_token token,
+    operation_result result
+) {
+    if (!pending_) {
+        return std::unexpected(api_error::no_pending_operation);
+    }
+    if (pending_->public_operation.token != token) {
+        return std::unexpected(api_error::token_mismatch);
+    }
+
+    if (!std::holds_alternative<operation_failure>(result)) {
+        const auto* dma = std::get_if<program_dma_operation>(
+            &pending_->public_operation.value
+        );
+        const auto valid_result = dma != nullptr &&
+                dma->direction == dma_direction::system_to_local
+            ? std::holds_alternative<read_payload>(result) &&
+                std::get<read_payload>(result).bytes.size() == dma->byte_count
+            : std::holds_alternative<operation_success>(result);
+        if (!valid_result) {
+            return std::unexpected(api_error::invalid_completion);
+        }
+    }
+
+    auto context = std::move(*pending_);
+    pending_.reset();
+    if (const auto* failure = std::get_if<operation_failure>(&result)) {
+        raise_fault(
+            failure->fault == architectural_fault::none
+                ? architectural_fault::dma_request
+                : failure->fault
+        );
+        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+    }
+
+    const auto retired_pc = pc_;
+    if (const auto* dma = std::get_if<program_dma_operation>(&context.public_operation.value)) {
+        if (!complete_dma(*dma, result)) {
+            return std::unexpected(api_error::invalid_completion);
+        }
+    } else {
+        if (!std::holds_alternative<operation_success>(result)) {
+            return std::unexpected(api_error::invalid_completion);
+        }
+        const auto execution = execute_current_instruction();
+        if (execution.state == lifecycle_state::done || execution.state == lifecycle_state::fault) {
+            return terminal_event{
+                execution.state,
+                execution.fault,
+                instruction_address{execution.pc},
+                execution.retired,
+            };
+        }
+    }
+
+    return retired_event{
+        instruction_address{retired_pc},
+        context.instruction.word,
+        retired_,
+    };
+}
+
+run_result program_machine::execute_current_instruction() {
     if (state_ == lifecycle_state::done || state_ == lifecycle_state::fault) {
         return run_result{state_, fault_, pc_, retired_};
     }
     if (pc_ % k_pc_increment != 0 || pc_ / k_pc_increment >= program_.size()) {
-        raise_fault(model_error::illegal_instruction);
+        raise_fault(architectural_fault::illegal_instruction);
         return run_result{state_, fault_, pc_, retired_};
     }
 
@@ -772,14 +875,14 @@ run_result machine::step() {
             };
             if (opcode ==  instruction_opcode::frontend_control_movi) {
                 if (inst.rs1 != 0 || inst.rs2 != 0) {
-                    raise_fault(model_error::illegal_instruction);
+                    raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 write_scalar(inst.rd, signed_imm);
                 pc_ = next_pc;
             } else if (opcode ==  instruction_opcode::frontend_control_add) {
                 if (inst.imm != 0) {
-                    raise_fault(model_error::illegal_instruction);
+                    raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 write_scalar(
@@ -789,7 +892,7 @@ run_result machine::step() {
                 pc_ = next_pc;
             } else if (opcode ==  instruction_opcode::frontend_control_addi) {
                 if (inst.rs2 != 0) {
-                    raise_fault(model_error::illegal_instruction);
+                    raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 write_scalar(inst.rd, wrap_add(scalar_registers_.at(inst.rs1), signed_imm));
@@ -798,7 +901,7 @@ run_result machine::step() {
                        opcode ==  instruction_opcode::frontend_control_store) {
                 if ((opcode ==  instruction_opcode::frontend_control_load && inst.rs2 != 0) ||
                     (opcode ==  instruction_opcode::frontend_control_store && inst.rd != 0)) {
-                    raise_fault(model_error::illegal_instruction);
+                    raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 const auto base = static_cast<std::uint64_t>(
@@ -808,7 +911,7 @@ run_result machine::step() {
                 if (address < 0 || address > std::numeric_limits<std::uint32_t>::max() ||
                     !aligned(static_cast<std::uint64_t>(address), sizeof(std::uint32_t)) ||
                     !local_range_ok(static_cast<std::uint32_t>(address), sizeof(std::uint32_t))) {
-                    raise_fault(model_error::local_memory_bounds);
+                    raise_fault(architectural_fault::local_memory_bounds);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 if (opcode ==  instruction_opcode::frontend_control_load) {
@@ -823,7 +926,7 @@ run_result machine::step() {
             } else if (opcode ==  instruction_opcode::frontend_control_beq ||
                        opcode ==  instruction_opcode::frontend_control_bne) {
                 if (inst.rd != 0) {
-                    raise_fault(model_error::illegal_instruction);
+                    raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 const auto equal = scalar_registers_.at(inst.rs1) == scalar_registers_.at(inst.rs2);
@@ -836,7 +939,7 @@ run_result machine::step() {
                     );
                     if (target < 0 || target + HOLON_NPU_ISA_INSTRUCTION_BYTES > program_bytes ||
                         target % HOLON_NPU_ISA_INSTRUCTION_BYTES != 0) {
-                        raise_fault(model_error::illegal_instruction);
+                        raise_fault(architectural_fault::illegal_instruction);
                         return run_result{state_, fault_, pc_, retired_};
                     }
                     pc_ = static_cast<std::uint32_t>(target);
@@ -844,7 +947,7 @@ run_result machine::step() {
                     pc_ = next_pc;
                 }
             } else {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             scalar_registers_.at(0) = 0;
@@ -854,12 +957,12 @@ run_result machine::step() {
 
         case HOLON_NPU_ISA_ENUM_PREDICATE:
             if (!predicate_index_ok(inst.rd) || inst.rs1 != 0 || inst.rs2 != 0) {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::predicate_ptrue)) {
                 if (inst.imm != 0 || vl_ == 0) {
-                    raise_fault(model_error::vector_config);
+                    raise_fault(architectural_fault::vector_config);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 for (std::size_t lane = 0; lane < predicate_active_.size(); ++lane) {
@@ -868,7 +971,7 @@ run_result machine::step() {
             } else if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::predicate_load)) {
                 if (!aligned(inst.imm, HOLON_NPU_ISA_PREDICATE_WORD_BYTES) ||
                     !local_range_ok(inst.imm, HOLON_NPU_ISA_PREDICATE_WORD_BYTES)) {
-                    raise_fault(model_error::local_memory_bounds);
+                    raise_fault(architectural_fault::local_memory_bounds);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 const auto bits = static_cast<std::uint32_t>(load_i32(inst.imm));
@@ -876,7 +979,7 @@ run_result machine::step() {
                     predicate_active_.at(lane) = (bits >> lane) & 1U;
                 }
             } else {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             pc_ = next_pc;
@@ -904,7 +1007,7 @@ run_result machine::step() {
                                   HOLON_NPU_ISA_VTYPE_SIGNED |
                                   HOLON_NPU_ISA_VTYPE_ROUND_MASK |
                                   HOLON_NPU_ISA_VTYPE_SATURATE)) != 0) {
-                    raise_fault(model_error::vector_config);
+                    raise_fault(architectural_fault::vector_config);
                     return run_result{state_, fault_, pc_, retired_};
                 }
                 vl_ = configured_vl;
@@ -920,12 +1023,12 @@ run_result machine::step() {
         case HOLON_NPU_ISA_ENUM_VECTOR_MEMORY:
             if (!register_index_ok(inst.rd) || !predicate_index_ok(inst.rs1) ||
                 inst.rs2 != 0 || vl_ == 0) {
-                raise_fault(model_error::vector_config);
+                raise_fault(architectural_fault::vector_config);
                 return run_result{state_, fault_, pc_, retired_};
             }
             if ((inst.imm % element_bytes()) != 0 ||
                 !local_range_ok(inst.imm, static_cast<std::size_t>(vl_) * element_bytes())) {
-                raise_fault(model_error::local_memory_bounds);
+                raise_fault(architectural_fault::local_memory_bounds);
                 return run_result{state_, fault_, pc_, retired_};
             }
             if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::vector_memory_load)) {
@@ -945,7 +1048,7 @@ run_result machine::step() {
                     }
                 }
             } else {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             pc_ = next_pc;
@@ -959,7 +1062,7 @@ run_result machine::step() {
             if (!register_index_ok(inst.rd) || !register_index_ok(inst.rs1) ||
                 !register_index_ok(inst.rs2) || !predicate_index_ok(predicate) || vl_ == 0 ||
                 (inst.imm & HOLON_NPU_ISA_VECTOR_PREDICATE_RESERVED_MASK) != 0) {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             const auto opcode = static_cast<instruction_opcode>(inst.opcode);
@@ -970,7 +1073,7 @@ run_result machine::step() {
                 opcode ==  instruction_opcode::vector_alu_srl || opcode ==  instruction_opcode::vector_alu_sra ||
                 opcode ==  instruction_opcode::vector_alu_select;
             if (!opcode_valid) {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             for (std::uint32_t lane = 0; lane < vl_; ++lane) {
@@ -1067,7 +1170,7 @@ run_result machine::step() {
             if (!opcode_valid || !register_index_ok(inst.rd) || !register_index_ok(inst.rs1) ||
                 !register_index_ok(inst.rs2) || !predicate_index_ok(predicate) || vl_ == 0 ||
                 (inst.imm & HOLON_NPU_ISA_VECTOR_PREDICATE_RESERVED_MASK) != 0) {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             if (((opcode ==  instruction_opcode::vector_permute_zip_lo ||
@@ -1076,7 +1179,7 @@ run_result machine::step() {
                   opcode ==  instruction_opcode::vector_permute_unzip_odd) && (vl_ % 2U) != 0U) ||
                 (opcode ==  instruction_opcode::vector_permute_transpose4 &&
                  (vl_ != 16U || inst.rs2 != 0))) {
-                raise_fault(model_error::vector_config);
+                raise_fault(architectural_fault::vector_config);
                 return run_result{state_, fault_, pc_, retired_};
             }
             const auto source = vector_registers_.at(inst.rs1);
@@ -1085,7 +1188,7 @@ run_result machine::step() {
                 for (std::uint32_t lane = 0; lane < vl_; ++lane) {
                     if (predicate_active_.at(lane) != 0 &&
                         static_cast<std::uint32_t>(source2.at(lane)) >= vl_) {
-                        raise_fault(model_error::vector_config);
+                        raise_fault(architectural_fault::vector_config);
                         return run_result{state_, fault_, pc_, retired_};
                     }
                 }
@@ -1139,7 +1242,7 @@ run_result machine::step() {
             if (!opcode_valid || !register_index_ok(inst.rd) || !register_index_ok(inst.rs1) ||
                 inst.rs2 != 0 || !predicate_index_ok(predicate) || vl_ == 0 ||
                 (inst.imm & HOLON_NPU_ISA_VECTOR_PREDICATE_RESERVED_MASK) != 0) {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             const auto element_bits = static_cast<std::uint32_t>(element_bytes() * 8U);
@@ -1185,7 +1288,7 @@ run_result machine::step() {
                 !predicate_index_ok(inst.rs2) || vl_ == 0 ||
                 !aligned(inst.imm, HOLON_NPU_ISA_QUANT_COMMAND_ALIGN) ||
                 !local_range_ok(inst.imm, HOLON_NPU_ISA_QUANT_COMMAND_BYTES)) {
-                raise_fault(model_error::vector_config);
+                raise_fault(architectural_fault::vector_config);
                 return run_result{state_, fault_, pc_, retired_};
             }
             const auto multiplier = load_i32(inst.imm + HOLON_NPU_ISA_QUANT_COMMAND_MULTIPLIER_OFFSET);
@@ -1197,7 +1300,7 @@ run_result machine::step() {
             const auto clamp_max = load_i32(inst.imm + HOLON_NPU_ISA_QUANT_COMMAND_CLAMP_MAX_OFFSET);
             const auto reserved = load_i32(inst.imm + HOLON_NPU_ISA_QUANT_COMMAND_RESERVED_OFFSET);
             if (shift_word > 31U || clamp_min > clamp_max || reserved != 0) {
-                raise_fault(model_error::vector_config);
+                raise_fault(architectural_fault::vector_config);
                 return run_result{state_, fault_, pc_, retired_};
             }
             for (std::uint32_t lane = 0; lane < vl_; ++lane) {
@@ -1230,7 +1333,7 @@ run_result machine::step() {
                 inst.rs1 != 0 || inst.rs2 != 0 ||
                 !aligned(inst.imm, HOLON_NPU_ISA_MATRIX_COMMAND_BYTES) ||
                 !local_range_ok(inst.imm, HOLON_NPU_ISA_MATRIX_COMMAND_BYTES)) {
-                raise_fault(model_error::matrix_issue);
+                raise_fault(architectural_fault::matrix_issue);
                 return run_result{state_, fault_, pc_, retired_};
             }
             const auto command_word = [&](std::uint32_t offset) {
@@ -1242,13 +1345,13 @@ run_result machine::step() {
             );
             if (command_word(HOLON_NPU_ISA_MATRIX_COMMAND_RESERVED_OFFSET) != 0 ||
                 (flags & ~HOLON_NPU_ISA_MATRIX_FLAGS_VALID_MASK) != 0) {
-                raise_fault(model_error::matrix_issue);
+                raise_fault(architectural_fault::matrix_issue);
                 return run_result{state_, fault_, pc_, retired_};
             }
             const auto op = matrix_gemm_i8_i32_op{
-                .a_offset = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_A_OFFSET),
-                .b_offset = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_B_OFFSET),
-                .c_offset = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_C_OFFSET),
+                .a_offset = local_address{command_word(HOLON_NPU_ISA_MATRIX_COMMAND_A_OFFSET)},
+                .b_offset = local_address{command_word(HOLON_NPU_ISA_MATRIX_COMMAND_B_OFFSET)},
+                .c_offset = local_address{command_word(HOLON_NPU_ISA_MATRIX_COMMAND_C_OFFSET)},
                 .a_row_stride_bytes = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_A_STRIDE_OFFSET),
                 .b_row_stride_bytes = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_B_STRIDE_OFFSET),
                 .c_row_stride_bytes = command_word(HOLON_NPU_ISA_MATRIX_COMMAND_C_STRIDE_OFFSET),
@@ -1280,7 +1383,7 @@ run_result machine::step() {
         case HOLON_NPU_ISA_ENUM_CSR_DEBUG: {
             if (inst.opcode != static_cast<std::uint8_t>( instruction_opcode::csr_debug_read) ||
                 inst.rs1 != 0 || inst.rs2 != 0) {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
 
@@ -1302,7 +1405,7 @@ run_result machine::step() {
                     value = static_cast<std::uint32_t>(active_local_mem_bytes_);
                     break;
                 default:
-                    raise_fault(model_error::illegal_instruction);
+                    raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
             }
             if (inst.rd != 0) {
@@ -1314,35 +1417,13 @@ run_result machine::step() {
         }
 
         case HOLON_NPU_ISA_ENUM_DMA: {
-            const auto system_address =
-                static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rd))) |
-                (static_cast<std::uint64_t>(
-                     std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1))) << 32U);
-            const auto local_address =
-                std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs2));
-            const auto byte_count =
-                static_cast<std::size_t>(inst.imm + 1U) * HOLON_NPU_ISA_DMA_WORD_BYTES;
-            if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::dma_load) &&
-                !issue_dma_load(system_address, local_address, byte_count)) {
-                return run_result{state_, fault_, pc_, retired_};
-            }
-            if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::dma_store) &&
-                !issue_dma_store(local_address, system_address, byte_count)) {
-                return run_result{state_, fault_, pc_, retired_};
-            }
-            if (inst.opcode != static_cast<std::uint8_t>( instruction_opcode::dma_load) &&
-                inst.opcode != static_cast<std::uint8_t>( instruction_opcode::dma_store)) {
-                raise_fault(model_error::dma_request);
-                return run_result{state_, fault_, pc_, retired_};
-            }
-            pc_ = next_pc;
-            ++retired_;
+            raise_fault(architectural_fault::dma_request);
             break;
         }
 
         case HOLON_NPU_ISA_ENUM_SYNC:
             if (inst.rd != 0 || inst.rs1 != 0 || inst.rs2 != 0 || inst.imm != 0) {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
                 return run_result{state_, fault_, pc_, retired_};
             }
             if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::sync_wait_dma) ||
@@ -1351,7 +1432,7 @@ run_result machine::step() {
                 pc_ = next_pc;
                 ++retired_;
             } else {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
             }
             break;
 
@@ -1363,100 +1444,94 @@ run_result machine::step() {
             } else if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::system_fault)) {
                 raise_fault(
                     inst.imm == 0
-                        ? model_error::explicit_program_fault
-                        : model_error::illegal_instruction
+                        ? architectural_fault::explicit_program_fault
+                        : architectural_fault::illegal_instruction
                 );
             } else {
-                raise_fault(model_error::illegal_instruction);
+                raise_fault(architectural_fault::illegal_instruction);
             }
             break;
 
         default:
-            raise_fault(model_error::illegal_instruction);
+            raise_fault(architectural_fault::illegal_instruction);
             break;
     }
 
     return run_result{state_, fault_, pc_, retired_};
 }
 
-run_result machine::run(std::uint64_t max_instructions) {
-    run_result result{state_, fault_, pc_, retired_};
-    for (std::uint64_t count = 0; count < max_instructions; ++count) {
-        result = step();
-        if (result.state == lifecycle_state::done || result.state == lifecycle_state::fault) {
-            return result;
-        }
-    }
-    raise_fault(model_error::explicit_program_fault);
-    return run_result{state_, fault_, pc_, retired_};
-}
-
-bool machine::local_range_ok(std::uint32_t local_byte_offset, std::size_t byte_count) const {
-    const auto offset = static_cast<std::size_t>(local_byte_offset);
+bool program_machine::local_range_ok(local_address address, std::size_t byte_count) const {
+    const auto offset = static_cast<std::size_t>(address.value());
     return offset <= active_local_mem_bytes_ &&
            byte_count <= active_local_mem_bytes_ - offset;
 }
 
-bool machine::system_range_ok(std::uint64_t system_byte_offset, std::size_t byte_count) const {
-    const auto offset = static_cast<std::size_t>(system_byte_offset);
-    return system_byte_offset <= static_cast<std::uint64_t>(system_memory_.size()) &&
-           offset <= system_memory_.size() && byte_count <= system_memory_.size() - offset;
+std::vector<std::byte> program_machine::read_local_bytes(
+    local_address address,
+    std::size_t byte_count
+) const {
+    if (!local_range_ok(address, byte_count)) {
+        return {};
+    }
+    const auto first = scratchpad_.begin() + address.value();
+    return {first, first + static_cast<std::ptrdiff_t>(byte_count)};
 }
 
-std::int8_t machine::load_i8(std::uint32_t local_byte_offset) const {
+bool program_machine::write_local_bytes(
+    local_address address,
+    std::span<const std::byte> bytes
+) {
+    if (!local_range_ok(address, bytes.size())) {
+        return false;
+    }
+    std::ranges::copy(bytes, scratchpad_.begin() + address.value());
+    return true;
+}
+
+std::int8_t program_machine::load_i8(std::uint32_t local_byte_offset) const {
     std::int8_t value = 0;
     std::memcpy(&value, scratchpad_.data() + local_byte_offset, sizeof(value));
     return value;
 }
 
-void machine::store_i8(std::uint32_t local_byte_offset, std::int8_t value) {
+void program_machine::store_i8(std::uint32_t local_byte_offset, std::int8_t value) {
     std::memcpy(scratchpad_.data() + local_byte_offset, &value, sizeof(value));
 }
 
-std::int16_t machine::load_i16(std::uint32_t local_byte_offset) const {
+std::int16_t program_machine::load_i16(std::uint32_t local_byte_offset) const {
     std::int16_t value = 0;
     std::memcpy(&value, scratchpad_.data() + local_byte_offset, sizeof(value));
     return value;
 }
 
-void machine::store_i16(std::uint32_t local_byte_offset, std::int16_t value) {
+void program_machine::store_i16(std::uint32_t local_byte_offset, std::int16_t value) {
     std::memcpy(scratchpad_.data() + local_byte_offset, &value, sizeof(value));
 }
 
-std::int32_t machine::load_i32(std::uint32_t local_byte_offset) const {
+std::int32_t program_machine::load_i32(std::uint32_t local_byte_offset) const {
     std::int32_t value = 0;
     std::memcpy(&value, scratchpad_.data() + local_byte_offset, sizeof(value));
     return value;
 }
 
-void machine::store_i32(std::uint32_t local_byte_offset, std::int32_t value) {
+void program_machine::store_i32(std::uint32_t local_byte_offset, std::int32_t value) {
     std::memcpy(scratchpad_.data() + local_byte_offset, &value, sizeof(value));
 }
 
-std::int32_t machine::load_system_i32(std::uint64_t system_byte_offset) const {
-    std::int32_t value = 0;
-    std::memcpy(&value, system_memory_.data() + system_byte_offset, sizeof(value));
-    return value;
-}
-
-void machine::store_system_i32(std::uint64_t system_byte_offset, std::int32_t value) {
-    std::memcpy(system_memory_.data() + system_byte_offset, &value, sizeof(value));
-}
-
-void machine::raise_fault(model_error fault) {
+void program_machine::raise_fault(architectural_fault fault) {
     state_ = lifecycle_state::fault;
     fault_ = fault;
 }
 
-bool machine::register_index_ok(std::uint8_t index) const {
+bool program_machine::register_index_ok(std::uint8_t index) const {
     return index < vector_registers_.size();
 }
 
-bool machine::predicate_index_ok(std::uint8_t index) const {
+bool program_machine::predicate_index_ok(std::uint8_t index) const {
     return index == 0;
 }
 
-std::size_t machine::element_bytes() const {
+std::size_t program_machine::element_bytes() const {
     switch (element_width_) {
         case vector_element_width::bits_8:
             return 1;
@@ -1468,7 +1543,7 @@ std::size_t machine::element_bytes() const {
     return 0;
 }
 
-std::int32_t machine::normalize_element(std::uint32_t value) const {
+std::int32_t program_machine::normalize_element(std::uint32_t value) const {
     const auto bits = static_cast<std::uint32_t>(element_bytes() * 8U);
     const auto mask = bits == 32U ? 0xFFFF'FFFFU : ((std::uint32_t{1} << bits) - 1U);
     auto normalized = value & mask;
@@ -1478,15 +1553,702 @@ std::int32_t machine::normalize_element(std::uint32_t value) const {
     return std::bit_cast<std::int32_t>(normalized);
 }
 
-std::int32_t machine::load_element(std::uint32_t local_byte_offset) const {
+std::int32_t program_machine::load_element(std::uint32_t local_byte_offset) const {
     std::uint32_t value = 0;
     std::memcpy(&value, scratchpad_.data() + local_byte_offset, element_bytes());
     return normalize_element(value);
 }
 
-void machine::store_element(std::uint32_t local_byte_offset, std::int32_t value) {
+void program_machine::store_element(std::uint32_t local_byte_offset, std::int32_t value) {
     const auto bits = static_cast<std::uint32_t>(value);
     std::memcpy(scratchpad_.data() + local_byte_offset, &bits, element_bytes());
 }
 
-}  // namespace holon_npu::model
+device::device(std::size_t scratchpad_bytes, std::size_t max_vl, loader_config config)
+    : program_(scratchpad_bytes, max_vl), config_(config) {}
+
+void device::reset() {
+    program_.reset();
+    phase_ = phase::idle;
+    state_ = lifecycle_state::idle;
+    fault_ = architectural_fault::none;
+    descriptor_address_ = system_address{};
+    descriptor_ = {};
+    fetched_program_.clear();
+    fetched_arguments_.clear();
+    pending_.reset();
+    deferred_terminal_.reset();
+    next_token_ = 1;
+    irq_pending_ = false;
+    reset_requested_ = false;
+    halted_ = false;
+    debug_step_active_ = false;
+}
+
+std::expected<void, api_error> device::submit(system_address descriptor_address) {
+    if (phase_ != phase::idle || pending_) {
+        return std::unexpected(api_error::invalid_state);
+    }
+    descriptor_address_ = descriptor_address;
+    descriptor_ = {};
+    fetched_program_.clear();
+    fetched_arguments_.clear();
+    deferred_terminal_.reset();
+    fault_ = architectural_fault::none;
+    irq_pending_ = false;
+    state_ = lifecycle_state::loading;
+    phase_ = phase::descriptor;
+    return {};
+}
+
+std::expected<void, api_error> device::soft_reset() {
+    if (phase_ == phase::idle) {
+        reset();
+        return {};
+    }
+    if (phase_ == phase::resetting || reset_requested_) {
+        return std::unexpected(api_error::invalid_state);
+    }
+    reset_requested_ = true;
+    state_ = lifecycle_state::resetting;
+    phase_ = phase::resetting;
+    if (!pending_) {
+        finish_reset();
+    }
+    return {};
+}
+
+std::expected<void, api_error> device::halt() {
+    if (phase_ != phase::execute || pending_ || state_ != lifecycle_state::running) {
+        return std::unexpected(api_error::invalid_state);
+    }
+    halted_ = true;
+    state_ = lifecycle_state::halted;
+    return {};
+}
+
+std::expected<void, api_error> device::resume() {
+    if (phase_ != phase::execute || !halted_ || pending_) {
+        return std::unexpected(api_error::invalid_state);
+    }
+    halted_ = false;
+    debug_step_active_ = false;
+    state_ = lifecycle_state::running;
+    return {};
+}
+
+std::expected<void, api_error> device::debug_step() {
+    if (phase_ != phase::execute || !halted_ || pending_) {
+        return std::unexpected(api_error::invalid_state);
+    }
+    halted_ = false;
+    debug_step_active_ = true;
+    state_ = lifecycle_state::running;
+    return {};
+}
+
+std::expected<void, api_error> device::clear_terminal() {
+    if (phase_ != phase::terminal ||
+        (state_ != lifecycle_state::done && state_ != lifecycle_state::fault)) {
+        return std::unexpected(api_error::invalid_state);
+    }
+    reset();
+    return {};
+}
+
+void device::finish_reset() {
+    reset();
+}
+
+pending_operation device::make_pending(operation value, instruction_address pc) {
+    return pending_operation{
+        .token = operation_token{next_token_++},
+        .pc = pc,
+        .value = std::move(value),
+    };
+}
+
+void device::enter_fault(architectural_fault fault) {
+    fault_ = fault;
+    state_ = lifecycle_state::fault;
+    deferred_terminal_ = terminal_event{
+        lifecycle_state::fault,
+        fault,
+        instruction_address{program_.pc()},
+        program_.retired(),
+    };
+    phase_ = descriptor_.completion_addr != 0 ? phase::completion : phase::terminal;
+}
+
+bool device::validate_descriptor_shape(const holon_npu_program_desc_t& desc) {
+    if (desc.size_bytes != HOLON_NPU_PROGRAM_DESC_SIZE || !descriptor_reserved_zero(desc) ||
+        (desc.flags & ~HOLON_NPU_PROGRAM_FLAG_VALID_MASK) != 0) {
+        enter_fault(architectural_fault::invalid_program_descriptor);
+        return false;
+    }
+    if (desc.version != HOLON_NPU_ABI_MAJOR || desc.holon_isa_major != config_.isa_major ||
+        desc.holon_isa_minor > config_.isa_minor) {
+        enter_fault(architectural_fault::unsupported_abi_or_isa);
+        return false;
+    }
+    if (desc.program_format != HOLON_NPU_PROGRAM_FORMAT_HOLON) {
+        enter_fault(architectural_fault::unsupported_program_format);
+        return false;
+    }
+    if ((desc.required_caps & ~config_.implemented_caps) != 0) {
+        enter_fault(architectural_fault::unsupported_capability);
+        return false;
+    }
+    if ((desc.required_op_classes & ~config_.implemented_op_classes) != 0) {
+        enter_fault(architectural_fault::unsupported_operation_class);
+        return false;
+    }
+    if (!range_fits_u64(desc.code_addr, desc.code_size_bytes) ||
+        !range_fits_u64(desc.arg_addr, desc.arg_size_bytes) ||
+        (desc.completion_addr != 0 &&
+         !range_fits_u64(desc.completion_addr, HOLON_NPU_COMPLETION_RECORD_SIZE))) {
+        enter_fault(architectural_fault::invalid_program_descriptor);
+        return false;
+    }
+    if (!aligned(desc.code_addr, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
+        !aligned(desc.code_size_bytes, HOLON_NPU_PROGRAM_IMAGE_ALIGN) ||
+        !aligned(desc.entry_pc, HOLON_NPU_ISA_INSTRUCTION_BYTES) ||
+        !aligned(desc.arg_addr, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
+        !aligned(desc.arg_size_bytes, HOLON_NPU_PROGRAM_ARGUMENT_ALIGN) ||
+        (desc.completion_addr != 0 &&
+         !aligned(desc.completion_addr, HOLON_NPU_PROGRAM_COMPLETION_ALIGN))) {
+        enter_fault(architectural_fault::alignment);
+        return false;
+    }
+    if (desc.code_size_bytes == 0 || desc.program_mem_bytes < desc.code_size_bytes ||
+        desc.local_mem_bytes < desc.arg_size_bytes ||
+        desc.program_mem_bytes > HOLON_NPU_PROGRAM_MEM_MAX_BYTES ||
+        desc.local_mem_bytes > program_.scratchpad_.size() ||
+        desc.stack_bytes > HOLON_NPU_PROGRAM_STACK_MAX_BYTES ||
+        static_cast<std::uint64_t>(desc.arg_size_bytes) + desc.stack_bytes >
+            desc.local_mem_bytes ||
+        desc.entry_pc >= desc.code_size_bytes) {
+        enter_fault(architectural_fault::local_memory_bounds);
+        return false;
+    }
+    return true;
+}
+
+run_result device::validate_and_start(
+    const holon_npu_program_desc_t& descriptor,
+    std::span<const std::uint32_t> program_words,
+    std::span<const std::byte> arguments
+) {
+    descriptor_ = descriptor;
+    fault_ = architectural_fault::none;
+    deferred_terminal_.reset();
+    if (!validate_descriptor_shape(descriptor)) {
+        return {state_, fault_, program_.pc(), program_.retired()};
+    }
+    if (descriptor.code_size_bytes != program_words.size_bytes() ||
+        descriptor.arg_size_bytes != arguments.size()) {
+        enter_fault(architectural_fault::local_memory_bounds);
+        return {state_, fault_, program_.pc(), program_.retired()};
+    }
+
+    program_.reset();
+    program_.initialize(
+        program_words,
+        descriptor.local_mem_bytes,
+        instruction_address{descriptor.entry_pc}
+    );
+    if (!program_.load_arguments(arguments)) {
+        enter_fault(architectural_fault::local_memory_bounds);
+        return {state_, fault_, program_.pc(), program_.retired()};
+    }
+    state_ = lifecycle_state::running;
+    phase_ = phase::execute;
+    return program_.snapshot();
+}
+
+run_result device::load_program_descriptor(
+    const holon_npu_program_desc_t& descriptor,
+    std::span<const std::uint32_t> program_words,
+    std::span<const std::byte> arguments
+) {
+    return validate_and_start(descriptor, program_words, arguments);
+}
+
+execution_event device::terminal() {
+    const auto event = deferred_terminal_.value_or(terminal_event{
+        state_,
+        fault_,
+        instruction_address{program_.pc()},
+        program_.retired(),
+    });
+    state_ = event.state;
+    fault_ = event.fault;
+    phase_ = phase::terminal;
+    const auto irq_flag = event.state == lifecycle_state::done
+        ? HOLON_NPU_PROGRAM_FLAG_IRQ_ON_DONE
+        : HOLON_NPU_PROGRAM_FLAG_IRQ_ON_FAULT;
+    irq_pending_ = (descriptor_.flags & irq_flag) != 0;
+    return event;
+}
+
+std::expected<execution_event, api_error> device::advance() {
+    if (pending_) {
+        return std::unexpected(api_error::operation_pending);
+    }
+    if (phase_ == phase::idle) {
+        return terminal_event{
+            lifecycle_state::idle,
+            architectural_fault::none,
+            instruction_address{},
+            0,
+        };
+    }
+    if (phase_ == phase::terminal) {
+        return terminal();
+    }
+    if (halted_) {
+        return std::unexpected(api_error::invalid_state);
+    }
+    if (phase_ == phase::resetting) {
+        finish_reset();
+        return terminal_event{
+            lifecycle_state::idle,
+            architectural_fault::none,
+            instruction_address{},
+            0,
+        };
+    }
+
+    if (phase_ == phase::descriptor) {
+        auto request = make_pending(descriptor_fetch{.address = descriptor_address_});
+        pending_ = external_pending{request, std::nullopt};
+        return request;
+    }
+    if (phase_ == phase::code) {
+        auto request = make_pending(code_fetch{
+            .address = system_address{descriptor_.code_addr},
+            .byte_count = descriptor_.code_size_bytes,
+        });
+        pending_ = external_pending{request, std::nullopt};
+        return request;
+    }
+    if (phase_ == phase::arguments) {
+        auto request = make_pending(argument_fetch{
+            .address = system_address{descriptor_.arg_addr},
+            .byte_count = descriptor_.arg_size_bytes,
+        });
+        pending_ = external_pending{request, std::nullopt};
+        return request;
+    }
+    if (phase_ == phase::completion) {
+        const auto terminal_event = deferred_terminal_.value();
+        const holon_npu_completion_record_t record{
+            .abi_version = HOLON_NPU_ABI_VERSION_RESET,
+            .status = terminal_event.state == lifecycle_state::done
+                ? HOLON_NPU_COMPLETION_STATUS_DONE
+                : HOLON_NPU_COMPLETION_STATUS_FAULT,
+            .fault_code = static_cast<std::uint32_t>(terminal_event.fault),
+            .debug_pc = terminal_event.pc.value(),
+            .cycle_count = 0,
+            .instret = terminal_event.instret,
+        };
+        completion_record_write write{.address = system_address{descriptor_.completion_addr}};
+        std::memcpy(write.payload.data(), &record, sizeof(record));
+        auto request = make_pending(std::move(write), terminal_event.pc);
+        pending_ = external_pending{request, std::nullopt};
+        return request;
+    }
+
+    auto program_event = program_.advance();
+    if (!program_event) {
+        return std::unexpected(program_event.error());
+    }
+    if (auto* request = std::get_if<pending_operation>(&*program_event)) {
+        auto external = make_pending(request->value, request->pc);
+        pending_ = external_pending{external, request->token};
+        return external;
+    }
+    if (auto* event = std::get_if<terminal_event>(&*program_event)) {
+        deferred_terminal_ = *event;
+        state_ = event->state;
+        fault_ = event->fault;
+        phase_ = descriptor_.completion_addr != 0 ? phase::completion : phase::terminal;
+        return phase_ == phase::completion ? advance() : terminal();
+    }
+    if (debug_step_active_ && std::holds_alternative<retired_event>(*program_event)) {
+        debug_step_active_ = false;
+        halted_ = true;
+        state_ = lifecycle_state::halted;
+    }
+    return *program_event;
+}
+
+std::expected<execution_event, api_error> device::complete(
+    operation_token token,
+    operation_result result
+) {
+    if (!pending_) {
+        return std::unexpected(api_error::no_pending_operation);
+    }
+    if (pending_->request.token != token) {
+        return std::unexpected(api_error::token_mismatch);
+    }
+
+    if (reset_requested_) {
+        auto context = std::move(*pending_);
+        pending_.reset();
+        if (context.program_token) {
+            const auto completed = program_.complete(*context.program_token, std::move(result));
+            if (!completed && completed.error() != api_error::invalid_completion) {
+                return std::unexpected(completed.error());
+            }
+        }
+        finish_reset();
+        return terminal_event{
+            lifecycle_state::idle,
+            architectural_fault::none,
+            instruction_address{},
+            0,
+        };
+    }
+
+    if (pending_->program_token) {
+        auto completed = program_.complete(*pending_->program_token, std::move(result));
+        if (!completed) {
+            return std::unexpected(completed.error());
+        }
+        pending_.reset();
+        if (auto* event = std::get_if<terminal_event>(&*completed)) {
+            deferred_terminal_ = *event;
+            state_ = event->state;
+            fault_ = event->fault;
+            phase_ = descriptor_.completion_addr != 0 ? phase::completion : phase::terminal;
+            return phase_ == phase::completion ? advance() : terminal();
+        }
+        if (debug_step_active_ && std::holds_alternative<retired_event>(*completed)) {
+            debug_step_active_ = false;
+            halted_ = true;
+            state_ = lifecycle_state::halted;
+        }
+        return *completed;
+    }
+
+    if (const auto* failure = std::get_if<operation_failure>(&result)) {
+        pending_.reset();
+        enter_fault(
+            failure->fault == architectural_fault::none
+                ? architectural_fault::dma_request
+                : failure->fault
+        );
+        return phase_ == phase::completion ? advance() : terminal();
+    }
+    const auto* payload = std::get_if<read_payload>(&result);
+    if (phase_ == phase::descriptor) {
+        if (payload == nullptr || payload->bytes.size() != HOLON_NPU_PROGRAM_DESC_SIZE) {
+            return std::unexpected(api_error::invalid_completion);
+        }
+        pending_.reset();
+        std::memcpy(&descriptor_, payload->bytes.data(), sizeof(descriptor_));
+        if (!validate_descriptor_shape(descriptor_)) {
+            return phase_ == phase::completion ? advance() : terminal();
+        }
+        phase_ = phase::code;
+        return advance();
+    }
+    if (phase_ == phase::code) {
+        if (payload == nullptr || payload->bytes.size() != descriptor_.code_size_bytes) {
+            return std::unexpected(api_error::invalid_completion);
+        }
+        pending_.reset();
+        fetched_program_.resize(payload->bytes.size() / sizeof(std::uint32_t));
+        std::memcpy(fetched_program_.data(), payload->bytes.data(), payload->bytes.size());
+        if (descriptor_.arg_size_bytes == 0) {
+            const auto result = validate_and_start(descriptor_, fetched_program_, {});
+            if (result.state == lifecycle_state::fault) {
+                return phase_ == phase::completion ? advance() : terminal();
+            }
+            return advance();
+        }
+        phase_ = phase::arguments;
+        return advance();
+    }
+    if (phase_ == phase::arguments) {
+        if (payload == nullptr || payload->bytes.size() != descriptor_.arg_size_bytes) {
+            return std::unexpected(api_error::invalid_completion);
+        }
+        pending_.reset();
+        fetched_arguments_ = payload->bytes;
+        const auto start = validate_and_start(descriptor_, fetched_program_, fetched_arguments_);
+        if (start.state == lifecycle_state::fault) {
+            return phase_ == phase::completion ? advance() : terminal();
+        }
+        return advance();
+    }
+    if (phase_ == phase::completion) {
+        if (!std::holds_alternative<operation_success>(result)) {
+            return std::unexpected(api_error::invalid_completion);
+        }
+        pending_.reset();
+        return terminal();
+    }
+    return std::unexpected(api_error::invalid_state);
+}
+
+direct_runner::direct_runner(
+    std::size_t scratchpad_bytes,
+    std::size_t max_vl,
+    std::size_t system_memory_bytes
+) : device_(scratchpad_bytes, max_vl), system_memory_(system_memory_bytes) {}
+
+void direct_runner::reset() {
+    device_.reset();
+    std::ranges::fill(system_memory_, std::byte{0});
+}
+
+void direct_runner::resize_system_memory(std::size_t byte_count) {
+    system_memory_.assign(byte_count, std::byte{0});
+}
+
+std::expected<void, api_error> direct_runner::submit(system_address descriptor_address) {
+    return device_.submit(descriptor_address);
+}
+
+void direct_runner::load_program(std::span<const std::uint32_t> words) {
+    device_.program().initialize(words, device_.program().scratchpad_.size());
+    device_.phase_ = device::phase::execute;
+    device_.state_ = lifecycle_state::running;
+    device_.fault_ = architectural_fault::none;
+    device_.descriptor_ = {};
+    device_.pending_.reset();
+    device_.deferred_terminal_.reset();
+    device_.reset_requested_ = false;
+    device_.halted_ = false;
+    device_.debug_step_active_ = false;
+}
+
+run_result direct_runner::load_program_descriptor(
+    const holon_npu_program_desc_t& descriptor,
+    std::span<const std::uint32_t> program_words,
+    std::span<const std::byte> arguments,
+    const loader_config& config
+) {
+    device_.config_ = config;
+    return device_.load_program_descriptor(descriptor, program_words, arguments);
+}
+
+bool direct_runner::load_arguments(std::span<const std::byte> bytes, local_address destination) {
+    return device_.program().load_arguments(bytes, destination);
+}
+
+bool direct_runner::write_i8(local_address destination, std::span<const std::int8_t> values) {
+    return device_.program().write_i8(destination, values);
+}
+
+std::vector<std::int8_t> direct_runner::read_i8(local_address source, std::size_t count) const {
+    return device_.program().read_i8(source, count);
+}
+
+bool direct_runner::write_i16(local_address destination, std::span<const std::int16_t> values) {
+    return device_.program().write_i16(destination, values);
+}
+
+std::vector<std::int16_t> direct_runner::read_i16(local_address source, std::size_t count) const {
+    return device_.program().read_i16(source, count);
+}
+
+bool direct_runner::write_i32(local_address destination, std::span<const std::int32_t> values) {
+    return device_.program().write_i32(destination, values);
+}
+
+std::vector<std::int32_t> direct_runner::read_i32(local_address source, std::size_t count) const {
+    return device_.program().read_i32(source, count);
+}
+
+bool direct_runner::system_range_ok(system_address address, std::size_t byte_count) const {
+    const auto offset = address.value();
+    return offset <= system_memory_.size() && byte_count <= system_memory_.size() - offset;
+}
+
+bool direct_runner::write_system_i32(
+    system_address destination,
+    std::span<const std::int32_t> values
+) {
+    if (!system_range_ok(destination, values.size_bytes())) {
+        return false;
+    }
+    std::memcpy(system_memory_.data() + destination.value(), values.data(), values.size_bytes());
+    return true;
+}
+
+std::vector<std::int32_t> direct_runner::read_system_i32(
+    system_address source,
+    std::size_t count
+) const {
+    std::vector<std::int32_t> values(count);
+    if (!system_range_ok(source, values.size() * sizeof(std::int32_t))) {
+        std::ranges::fill(values, 0);
+        return values;
+    }
+    std::memcpy(values.data(), system_memory_.data() + source.value(), values.size() * sizeof(std::int32_t));
+    return values;
+}
+
+bool direct_runner::write_system_bytes(
+    system_address destination,
+    std::span<const std::byte> bytes
+) {
+    if (!system_range_ok(destination, bytes.size())) {
+        return false;
+    }
+    std::ranges::copy(bytes, system_memory_.begin() + destination.value());
+    return true;
+}
+
+std::vector<std::byte> direct_runner::read_system_bytes(
+    system_address source,
+    std::size_t byte_count
+) const {
+    if (!system_range_ok(source, byte_count)) {
+        return {};
+    }
+    const auto first = system_memory_.begin() + source.value();
+    return {first, first + byte_count};
+}
+
+bool direct_runner::issue_dma_load(
+    system_address source,
+    local_address destination,
+    std::uint32_t byte_count
+) {
+    if (!system_range_ok(source, byte_count) ||
+        !device_.program().local_range_ok(destination, byte_count)) {
+        device_.program().raise_fault(
+            system_range_ok(source, byte_count)
+                ? architectural_fault::local_memory_bounds
+                : architectural_fault::dma_request
+        );
+        return false;
+    }
+    const auto first = system_memory_.begin() + source.value();
+    const std::vector<std::byte> bytes(first, first + byte_count);
+    device_.program().write_local_bytes(destination, bytes);
+    device_.program().dma_events_.push_back(dma_event{
+        .sequence = device_.program().next_dma_sequence_++,
+        .direction = dma_direction::system_to_local,
+        .system_byte_offset = source,
+        .local_byte_offset = destination,
+        .byte_count = byte_count,
+    });
+    return true;
+}
+
+bool direct_runner::issue_dma_store(
+    local_address source,
+    system_address destination,
+    std::uint32_t byte_count
+) {
+    if (!device_.program().local_range_ok(source, byte_count) ||
+        !system_range_ok(destination, byte_count)) {
+        device_.program().raise_fault(
+            device_.program().local_range_ok(source, byte_count)
+                ? architectural_fault::dma_request
+                : architectural_fault::local_memory_bounds
+        );
+        return false;
+    }
+    const auto bytes = device_.program().read_local_bytes(source, byte_count);
+    std::ranges::copy(bytes, system_memory_.begin() + destination.value());
+    device_.program().dma_events_.push_back(dma_event{
+        .sequence = device_.program().next_dma_sequence_++,
+        .direction = dma_direction::local_to_system,
+        .system_byte_offset = destination,
+        .local_byte_offset = source,
+        .byte_count = byte_count,
+    });
+    return true;
+}
+
+bool direct_runner::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
+    return device_.program().issue_matrix_gemm_i8_i32(op);
+}
+
+operation_result direct_runner::service(const pending_operation& request) {
+    const auto read_system = [this](system_address address, std::size_t byte_count)
+        -> operation_result {
+        if (!system_range_ok(address, byte_count)) {
+            return operation_failure{architectural_fault::axi_read};
+        }
+        const auto first = system_memory_.begin() + address.value();
+        return read_payload{std::vector<std::byte>(first, first + byte_count)};
+    };
+
+    if (const auto* fetch = std::get_if<descriptor_fetch>(&request.value)) {
+        return read_system(fetch->address, HOLON_NPU_PROGRAM_DESC_SIZE);
+    }
+    if (const auto* fetch = std::get_if<code_fetch>(&request.value)) {
+        return read_system(fetch->address, fetch->byte_count);
+    }
+    if (const auto* fetch = std::get_if<argument_fetch>(&request.value)) {
+        return read_system(fetch->address, fetch->byte_count);
+    }
+    if (const auto* write = std::get_if<completion_record_write>(&request.value)) {
+        if (!write_system_bytes(write->address, write->payload)) {
+            return operation_failure{architectural_fault::axi_write};
+        }
+        return operation_success{};
+    }
+    if (const auto* dma = std::get_if<program_dma_operation>(&request.value)) {
+        if (!system_range_ok(dma->system, dma->byte_count)) {
+            return operation_failure{
+                dma->direction == dma_direction::system_to_local
+                    ? architectural_fault::axi_read
+                    : architectural_fault::axi_write,
+            };
+        }
+        if (dma->direction == dma_direction::system_to_local) {
+            const auto first = system_memory_.begin() + dma->system.value();
+            return read_payload{std::vector<std::byte>(first, first + dma->byte_count)};
+        }
+        if (dma->store_payload.size() != dma->byte_count) {
+            return operation_failure{architectural_fault::dma_request};
+        }
+        std::ranges::copy(dma->store_payload, system_memory_.begin() + dma->system.value());
+    }
+    return operation_success{};
+}
+
+run_result direct_runner::snapshot() const {
+    return {
+        device_.state(),
+        device_.fault(),
+        device_.program().pc(),
+        device_.program().retired(),
+    };
+}
+
+run_result direct_runner::step() {
+    auto event = device_.advance();
+    while (event) {
+        const auto* request = std::get_if<pending_operation>(&*event);
+        if (request == nullptr) {
+            return snapshot();
+        }
+        event = device_.complete(request->token, service(*request));
+    }
+    device_.enter_fault(architectural_fault::explicit_program_fault);
+    return snapshot();
+}
+
+run_result direct_runner::run(std::uint64_t max_instructions) {
+    auto result = snapshot();
+    for (std::uint64_t count = 0; count < max_instructions; ++count) {
+        result = step();
+        if (result.state == lifecycle_state::done || result.state == lifecycle_state::fault) {
+            return result;
+        }
+    }
+    device_.enter_fault(architectural_fault::explicit_program_fault);
+    return snapshot();
+}
+
+}  // namespace holon_npu::semantic

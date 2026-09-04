@@ -1,0 +1,36 @@
+# HolonNPU is compiled as a gem5 EXTRAS component. The semantic implementation
+# remains in the repository and is not copied into the gem5 source tree.
+
+Import('*')
+
+holon_gem5_dir = Dir('.').srcnode()
+holon_root = holon_gem5_dir.Dir('../..')
+holon_build_dir = Dir(env['BUILDDIR']).Dir('extras/holonnpu')
+semantic_build_dir = holon_build_dir.Dir('semantic')
+runtime_build_dir = holon_build_dir.Dir('runtime')
+
+# Map shared project sources into gem5's variant tree without copying them.
+# This keeps every object file under gem5's disposable build directory.
+VariantDir(
+    semantic_build_dir,
+    holon_gem5_dir.Dir('../semantic'),
+    duplicate=False,
+)
+VariantDir(
+    runtime_build_dir,
+    holon_root.Dir('sw'),
+    duplicate=False,
+)
+
+env.Append(CPPPATH=[
+    holon_gem5_dir.Dir('../semantic').abspath,
+    holon_root.Dir('include').abspath,
+    holon_root.Dir('sw').abspath,
+    holon_gem5_dir.abspath,
+])
+
+SimObject('HolonNpuDevice.py', sim_objects=['HolonNpuDevice'])
+Source('holon_npu_device.cc')
+Source('holon_npu_timing.cpp')
+Source(semantic_build_dir.File('holon_npu_semantic.cpp'))
+Source(runtime_build_dir.File('holon_npu_runtime.cpp'))

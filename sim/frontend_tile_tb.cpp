@@ -4,7 +4,7 @@
 
 #include "holon_npu_isa.h"
 #include "holon_npu_program.h"
-#include "holon_npu_model.hpp"
+#include "holon_npu_semantic.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,6 +21,8 @@
 #include <verilated.h>
 
 namespace {
+
+using holon_npu::semantic::local_address;
 
 constexpr std::uint32_t kOkay = 0;
 constexpr std::uint32_t kRespOkay = 0;
@@ -352,7 +354,7 @@ std::uint32_t axil_read(Vnpu_frontend_tile& dut, std::uint32_t addr) {
 constexpr std::uint64_t kObservationAddr = 0x6000;
 
 void append_u32_constant(
-    holon_npu::model::program_builder& program,
+    holon_npu::semantic::program_builder& program,
     std::uint8_t reg,
     std::uint32_t value
 ) {
@@ -372,7 +374,7 @@ std::vector<std::uint32_t> make_observable_program(
     std::uint16_t word_count,
     std::uint32_t system_addr = static_cast<std::uint32_t>(kObservationAddr)
 ) {
-    holon_npu::model::program_builder program;
+    holon_npu::semantic::program_builder program;
     const auto body = words.empty() ? words : words.first(words.size() - 1U);
     for (const auto word : body) {
         program.raw(word);
@@ -609,9 +611,9 @@ bool test_completion_record(Vnpu_frontend_tile& dut) {
 }
 
 bool test_scalar_control_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -628,10 +630,10 @@ bool test_scalar_control_program(Vnpu_frontend_tile& dut) {
         .fault()
         .exit();
 
-    machine reference(64, 16);
+    direct_runner reference(64, 16);
     reference.load_program(program.span());
     bool ok = expect_eq("reference scalar done", reference.run(32).state == lifecycle_state::done, true);
-    const auto expected = reference.read_i32(0, 1).at(0);
+    const auto expected = reference.read_i32(local_address{0}, 1).at(0);
     const auto observable = make_observable_program(program.span(), 0, 1);
     ok &= launch_program(
         dut,
@@ -656,8 +658,8 @@ bool test_scalar_control_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_csr_read_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::csr;
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::csr;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -702,7 +704,7 @@ bool test_csr_read_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_scalar_bounds_fault(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -726,7 +728,7 @@ bool test_scalar_bounds_fault(Vnpu_frontend_tile& dut) {
 }
 
 bool test_debug_step(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -812,7 +814,7 @@ bool test_illegal_instruction(Vnpu_frontend_tile& dut) {
 }
 
 bool test_dma_load_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -864,7 +866,7 @@ bool test_dma_load_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_dma_store_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -911,7 +913,7 @@ bool test_dma_store_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_sync_order_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -966,9 +968,9 @@ bool test_sync_order_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_vector_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
@@ -987,7 +989,7 @@ bool test_vector_program(Vnpu_frontend_tile& dut) {
     argument_words[12] = 0x5;
 
     program_builder program;
-    program.configure(4, holon_npu::model::vector_element_width::bits_32, true)
+    program.configure(4, holon_npu::semantic::vector_element_width::bits_32, true)
         .load(1, 0)
         .load(2, 16)
         .load(3, 32)
@@ -996,13 +998,13 @@ bool test_vector_program(Vnpu_frontend_tile& dut) {
         .store(3, 32, 0)
         .exit();
 
-    machine reference(64, 16);
+    direct_runner reference(64, 16);
     reference.load_program(program.span());
     const auto argument_bytes = std::as_bytes(std::span{argument_words});
-    bool ok = reference.load_arguments(argument_bytes, 0);
+    bool ok = reference.load_arguments(argument_bytes, local_address{0});
     const auto reference_result = reference.run(32);
     ok &= expect_eq("reference vector done", reference_result.state == lifecycle_state::done, true);
-    const auto expected = reference.read_i32(32, 4);
+    const auto expected = reference.read_i32(local_address{32}, 4);
     const auto observable = make_observable_program(program.span(), 32, 4);
 
     ok &= launch_program(
@@ -1035,10 +1037,10 @@ bool test_vector_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_vector_helper_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
-    using holon_npu::model::program_builder;
-    using holon_npu::model::vector_element_width;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
+    using holon_npu::semantic::program_builder;
+    using holon_npu::semantic::vector_element_width;
 
     constexpr auto command_offset = std::uint16_t{64};
     reset(dut);
@@ -1082,14 +1084,14 @@ bool test_vector_helper_program(Vnpu_frontend_tile& dut) {
         .exit();
 
     const auto argument_bytes = std::as_bytes(std::span{argument_words});
-    machine reference(256, 16);
+    direct_runner reference(256, 16);
     reference.load_program(program.span());
-    bool ok = reference.load_arguments(argument_bytes, 0);
+    bool ok = reference.load_arguments(argument_bytes, local_address{0});
     ok &= expect_eq("reference helper done", reference.run(64).state == lifecycle_state::done, true);
-    const auto expected_select = reference.read_i32(96, 4);
-    const auto expected_gather = reference.read_i32(112, 4);
-    const auto expected_reductions = reference.read_i32(128, 3);
-    const auto expected_requant = reference.read_i32(144, 4);
+    const auto expected_select = reference.read_i32(local_address{96}, 4);
+    const auto expected_gather = reference.read_i32(local_address{112}, 4);
+    const auto expected_reductions = reference.read_i32(local_address{128}, 3);
+    const auto expected_requant = reference.read_i32(local_address{144}, 4);
     const auto observable = make_observable_program(program.span(), 96, 16);
 
     ok &= launch_program(
@@ -1141,12 +1143,12 @@ bool test_vector_helper_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_vector_fault_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::program_builder;
+    using holon_npu::semantic::program_builder;
 
     reset(dut);
     AxiMemory memory(0x8000);
     program_builder program;
-    program.configure(0, holon_npu::model::vector_element_width::bits_32, true).exit();
+    program.configure(0, holon_npu::semantic::vector_element_width::bits_32, true).exit();
 
     bool ok = launch_program(
         dut,
@@ -1167,11 +1169,11 @@ bool test_vector_fault_program(Vnpu_frontend_tile& dut) {
 }
 
 bool test_vector_extended_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
-    using holon_npu::model::program_builder;
-    using holon_npu::model::vector_element_width;
-    using holon_npu::model::vector_rounding;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
+    using holon_npu::semantic::program_builder;
+    using holon_npu::semantic::vector_element_width;
+    using holon_npu::semantic::vector_rounding;
 
     constexpr auto saturate_lhs_offset = std::uint16_t{448};
     constexpr auto saturate_rhs_offset = std::uint16_t{452};
@@ -1211,9 +1213,9 @@ bool test_vector_extended_program(Vnpu_frontend_tile& dut) {
         .exit();
 
     const auto argument_bytes = std::as_bytes(std::span{argument_words});
-    machine reference(512, 16);
+    direct_runner reference(512, 16);
     reference.load_program(program.span());
-    bool ok = reference.load_arguments(argument_bytes, 0);
+    bool ok = reference.load_arguments(argument_bytes, local_address{0});
     ok &= expect_eq("reference extended vector done",
                     reference.run(64).state == lifecycle_state::done, true);
     const auto observable = make_observable_program(program.span(), 128, 84);
@@ -1238,12 +1240,12 @@ bool test_vector_extended_program(Vnpu_frontend_tile& dut) {
     ok &= expect_eq("extended vector frontend fault", dut.frontend_fault_o, 0);
     const auto observed = memory.read_words(kObservationAddr, 84);
     for (std::uint32_t address = 128; address < 448; address += 4) {
-        const auto expected = reference.read_i32(address, 1).at(0);
+        const auto expected = reference.read_i32(local_address{address}, 1).at(0);
         ok &= expect_eq("extended vector result", observed[(address - 128U) / 4U],
                         std::bit_cast<std::uint32_t>(expected));
     }
     for (const auto address : {456U, 460U}) {
-        const auto expected = reference.read_i32(address, 1).at(0);
+        const auto expected = reference.read_i32(local_address{address}, 1).at(0);
         ok &= expect_eq("extended saturation result", observed[(address - 128U) / 4U],
                         std::bit_cast<std::uint32_t>(expected));
     }
@@ -1280,8 +1282,8 @@ void append_random_vector_op(
 }
 
 bool test_random_vector_programs(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
     using holon_npu::runtime::program_builder;
     using holon_npu::runtime::vector_element_width;
 
@@ -1314,15 +1316,17 @@ bool test_random_vector_programs(Vnpu_frontend_tile& dut) {
         append_random_vector_op(program, operation);
         program.store(3, 128).exit();
 
-        machine reference(256, 16);
+        direct_runner reference(256, 16);
         reference.load_program(program.span());
-        ok &= reference.load_arguments(std::as_bytes(std::span{argument_words}), 0);
+        ok &= reference.load_arguments(
+            std::as_bytes(std::span{argument_words}), local_address{0}
+        );
         ok &= expect_eq(
             "random vector reference done",
             reference.run(32).state == lifecycle_state::done,
             true
         );
-        const auto expected = reference.read_i32(128, vl);
+        const auto expected = reference.read_i32(local_address{128}, vl);
         const auto observable = make_observable_program(program.span(), 128, vl);
 
         reset(dut);
@@ -1364,15 +1368,17 @@ bool run_runtime_example(
     const holon_npu::runtime::program_image& image,
     std::vector<std::uint32_t> argument_words
 ) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
 
     const auto local_mem_bytes = static_cast<std::uint32_t>(
         argument_words.size() * sizeof(std::uint32_t)
     );
-    machine reference(local_mem_bytes, 16);
+    direct_runner reference(local_mem_bytes, 16);
     reference.load_program(image.span());
-    bool ok = reference.load_arguments(std::as_bytes(std::span{argument_words}), 0);
+    bool ok = reference.load_arguments(
+        std::as_bytes(std::span{argument_words}), local_address{0}
+    );
     ok &= expect_eq(
         std::string{name} + " reference done",
         reference.run(image.words.size() + 8U).state == lifecycle_state::done,
@@ -1400,7 +1406,7 @@ bool run_runtime_example(
     );
     const auto observed = memory.read_words(kObservationAddr, argument_words.size());
     for (std::uint32_t word = 0; word < argument_words.size(); ++word) {
-        const auto expected = reference.read_i32(word * 4U, 1).at(0);
+        const auto expected = reference.read_i32(local_address{word * 4U}, 1).at(0);
         ok &= expect_eq(
             std::string{name} + " result",
             observed[word],
@@ -1445,8 +1451,8 @@ bool test_runtime_examples(Vnpu_frontend_tile& dut) {
 }
 
 bool test_matrix_program(Vnpu_frontend_tile& dut) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
     namespace runtime = holon_npu::runtime;
 
     constexpr auto command_offset = std::uint16_t{160};
@@ -1465,11 +1471,11 @@ bool test_matrix_program(Vnpu_frontend_tile& dut) {
 
     const auto program = runtime::examples::int8_gemm(0, command_offset);
     const auto argument_bytes = std::as_bytes(std::span{argument_words});
-    machine reference(256, 16);
+    direct_runner reference(256, 16);
     reference.load_program(program.span());
-    bool ok = reference.load_arguments(argument_bytes, 0);
+    bool ok = reference.load_arguments(argument_bytes, local_address{0});
     ok &= expect_eq("reference matrix done", reference.run(8).state == lifecycle_state::done, true);
-    const auto expected = reference.read_i32(64, 4);
+    const auto expected = reference.read_i32(local_address{64}, 4);
     const auto observable = make_observable_program(program.span(), 64, 4);
 
     ok &= launch_program(
@@ -1499,8 +1505,8 @@ bool test_tiled_matrix_program_shape(
     std::uint32_t n,
     std::uint32_t k
 ) {
-    using holon_npu::model::lifecycle_state;
-    using holon_npu::model::machine;
+    using holon_npu::semantic::lifecycle_state;
+    using holon_npu::semantic::direct_runner;
     namespace runtime = holon_npu::runtime;
 
     constexpr std::uint32_t local_mem_bytes = 32768;
@@ -1557,9 +1563,11 @@ bool test_tiled_matrix_program_shape(
     }
     bool ok = planned->write_commands(local_bytes);
 
-    machine reference(local_mem_bytes, 16);
+    direct_runner reference(local_mem_bytes, 16);
     reference.load_program(planned->image.span());
-    ok &= reference.load_arguments(std::as_bytes(std::span{local_words}), 0);
+    ok &= reference.load_arguments(
+        std::as_bytes(std::span{local_words}), local_address{0}
+    );
     ok &= expect_eq(
         "tiled matrix reference done",
         reference.run(planned->image.words.size() + 8U).state == lifecycle_state::done,
@@ -1568,7 +1576,10 @@ bool test_tiled_matrix_program_shape(
     for (std::uint32_t row = 0; row < m; ++row) {
         for (std::uint32_t col = 0; col < n; ++col) {
             const auto expected = reference.read_i32(
-                c_offset + (row * n + col) * static_cast<std::uint32_t>(sizeof(std::int32_t)),
+                local_address{
+                    c_offset +
+                    (row * n + col) * static_cast<std::uint32_t>(sizeof(std::int32_t))
+                },
                 1
             ).at(0);
             ok &= expect_eq(

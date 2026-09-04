@@ -1,5 +1,5 @@
 #include "holon_npu_runtime.hpp"
-#include "holon_npu_model.hpp"
+#include "holon_npu_semantic.hpp"
 
 #include <algorithm>
 #include <array>
@@ -15,8 +15,13 @@
 namespace {
 
 namespace runtime = holon_npu::runtime;
-using holon_npu::model::lifecycle_state;
-using holon_npu::model::machine;
+using holon_npu::semantic::lifecycle_state;
+using holon_npu::semantic::direct_runner;
+using holon_npu::semantic::local_address;
+
+constexpr local_address local_at(std::uint32_t address) {
+    return local_address{address};
+}
 
 bool expect(bool condition, std::string_view name) {
     if (!condition) {
@@ -37,72 +42,72 @@ bool expect_values(
 }
 
 bool run_vector_add() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 4> lhs{1, 2, 3, 4};
     const std::array<std::int32_t, 4> rhs{5, 6, 7, 8};
     const std::array<std::int32_t, 4> expected{6, 8, 10, 12};
     const auto image = runtime::examples::vector_add(4, 0, 16, 32);
 
     bool ok = true;
-    ok &= expect(model.write_i32(0, lhs), "vector add lhs write");
-    ok &= expect(model.write_i32(16, rhs), "vector add rhs write");
+    ok &= expect(model.write_i32(local_at(0), lhs), "vector add lhs write");
+    ok &= expect(model.write_i32(local_at(16), rhs), "vector add rhs write");
     model.load_program(image.span());
     ok &= expect(model.run(16).state == lifecycle_state::done, "vector add completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(32, 4), expected, "vector add result");
+    ok &= expect_values<std::int32_t>(model.read_i32(local_at(32), 4), expected, "vector add result");
     ok &= expect((image.required_caps & HOLON_NPU_CAP_INTEGER_VECTOR_BASE) != 0,
                  "vector add capability metadata");
     return ok;
 }
 
 bool run_relu() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 4> source{-7, 0, 4, -1};
     const std::array<std::int32_t, 4> zeros{};
     const std::array<std::int32_t, 4> expected{0, 0, 4, 0};
     const auto image = runtime::examples::relu(4, 0, 16, 32);
 
     bool ok = true;
-    ok &= expect(model.write_i32(0, source), "relu source write");
-    ok &= expect(model.write_i32(16, zeros), "relu zero write");
+    ok &= expect(model.write_i32(local_at(0), source), "relu source write");
+    ok &= expect(model.write_i32(local_at(16), zeros), "relu zero write");
     model.load_program(image.span());
     ok &= expect(model.run(16).state == lifecycle_state::done, "relu completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(32, 4), expected, "relu result");
+    ok &= expect_values<std::int32_t>(model.read_i32(local_at(32), 4), expected, "relu result");
     return ok;
 }
 
 bool run_reduce_sum() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 4> source{10, -3, 7, 2};
     const auto image = runtime::examples::reduce_sum(4, 0, 32);
 
     bool ok = true;
-    ok &= expect(model.write_i32(0, source), "reduce source write");
+    ok &= expect(model.write_i32(local_at(0), source), "reduce source write");
     model.load_program(image.span());
     ok &= expect(model.run(16).state == lifecycle_state::done, "reduce completion");
-    ok &= expect(model.read_i32(32, 1).at(0) == 16, "reduce sum result");
+    ok &= expect(model.read_i32(local_at(32), 1).at(0) == 16, "reduce sum result");
     return ok;
 }
 
 bool run_requant() {
-    machine model(160, 16);
+    direct_runner model(160, 16);
     const std::array<std::int32_t, 4> source{3, 5, -3, 100};
     const std::array<std::int32_t, 6> command{1, 1, 0, -2, 3, 0};
     const std::array<std::int32_t, 4> expected{2, 2, -2, 3};
     const auto image = runtime::examples::requant(4, 0, 32, 64);
 
     bool ok = true;
-    ok &= expect(model.write_i32(0, source), "requant source write");
-    ok &= expect(model.write_i32(64, command), "requant command write");
+    ok &= expect(model.write_i32(local_at(0), source), "requant source write");
+    ok &= expect(model.write_i32(local_at(64), command), "requant command write");
     model.load_program(image.span());
     ok &= expect(model.run(16).state == lifecycle_state::done, "requant completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(32, 4), expected, "requant result");
+    ok &= expect_values<std::int32_t>(model.read_i32(local_at(32), 4), expected, "requant result");
     ok &= expect((image.required_caps & HOLON_NPU_CAP_QUANT_VECTOR) != 0,
                  "requant capability metadata");
     return ok;
 }
 
 bool run_transpose4() {
-    machine model(256, 16);
+    direct_runner model(256, 16);
     const std::array<std::int32_t, 16> source{
         0, 1, 2, 3,
         4, 5, 6, 7,
@@ -118,15 +123,15 @@ bool run_transpose4() {
     const auto image = runtime::examples::transpose4(0, 128);
 
     bool ok = true;
-    ok &= expect(model.write_i32(0, source), "transpose source write");
+    ok &= expect(model.write_i32(local_at(0), source), "transpose source write");
     model.load_program(image.span());
     ok &= expect(model.run(16).state == lifecycle_state::done, "transpose completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(128, 16), expected, "transpose result");
+    ok &= expect_values<std::int32_t>(model.read_i32(local_at(128), 16), expected, "transpose result");
     return ok;
 }
 
 bool run_int8_gemm() {
-    machine model(256, 16);
+    direct_runner model(256, 16);
     const std::array<std::int8_t, 4> a{1, 2, 3, 4};
     const std::array<std::int8_t, 4> b{5, 6, 7, 8};
     const std::array<std::int32_t, 4> expected{19, 22, 43, 50};
@@ -141,12 +146,12 @@ bool run_int8_gemm() {
     const auto image = runtime::examples::int8_gemm(0, 160);
 
     bool ok = true;
-    ok &= expect(model.write_i8(0, a), "gemm A write");
-    ok &= expect(model.write_i8(32, b), "gemm B write");
-    ok &= expect(model.write_i32(160, command), "gemm command write");
+    ok &= expect(model.write_i8(local_at(0), a), "gemm A write");
+    ok &= expect(model.write_i8(local_at(32), b), "gemm B write");
+    ok &= expect(model.write_i32(local_at(160), command), "gemm command write");
     model.load_program(image.span());
     ok &= expect(model.run(8).state == lifecycle_state::done, "gemm completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(64, 4), expected, "gemm result");
+    ok &= expect_values<std::int32_t>(model.read_i32(local_at(64), 4), expected, "gemm result");
     ok &= expect((image.required_caps & HOLON_NPU_CAP_MATRIX_MICRO_OP) != 0,
                  "gemm capability metadata");
     return ok;
@@ -202,14 +207,16 @@ bool run_tiled_int8_gemm_shape(std::uint32_t m, std::uint32_t n, std::uint32_t k
         }
     }
 
-    machine model(local_mem_bytes, 16);
+    direct_runner model(local_mem_bytes, 16);
     model.load_program(planned->image.span());
-    ok &= expect(model.load_arguments(local, 0), "tiled GEMM local image load");
+    ok &= expect(
+        model.load_arguments(local, local_at(0)), "tiled GEMM local image load"
+    );
     ok &= expect(
         model.run(planned->image.words.size() + 1U).state == lifecycle_state::done,
         "tiled GEMM completion"
     );
-    const auto actual = model.read_i32(c_offset, expected.size());
+    const auto actual = model.read_i32(local_at(c_offset), expected.size());
     ok &= expect(
         actual.size() == expected.size() && std::equal(actual.begin(), actual.end(), expected.begin()),
         "tiled GEMM result"
@@ -267,7 +274,7 @@ bool test_tiled_int8_gemm_validation() {
 }
 
 bool test_dma_encoding_contract() {
-    const auto maximum = holon_npu::model::decode(
+    const auto maximum = holon_npu::semantic::decode(
         runtime::encode_dma_load(1, 2, 3, HOLON_NPU_ISA_DMA_MAX_WORDS)
     );
     bool ok = expect(

@@ -1,0 +1,59 @@
+diff --git a/SConstruct b/SConstruct
+index 87a1e1d634..2eb406b1dd 100755
+--- a/SConstruct
++++ b/SConstruct
+@@ -591,8 +591,8 @@ for variant_path in variant_paths:
+         env.Append(CCFLAGS=['-Wall', '-Wundef', '-Wextra',
+                             '-Wno-sign-compare', '-Wno-unused-parameter'])
+ 
+-        # We always compile using C++17
+-        env.Append(CXXFLAGS=['-std=c++17'])
++        # HolonNPU builds the complete simulator and EXTRAS using C++26.
++        env.Append(CXXFLAGS=['-std=c++26'])
+ 
+         if sys.platform.startswith('freebsd'):
+             env.Append(CCFLAGS=['-I/usr/local/include'])
+diff --git a/src/SConscript b/src/SConscript
+index 6ee08cc28c..568fb91422 100644
+--- a/src/SConscript
++++ b/src/SConscript
+@@ -407,7 +407,7 @@ class Executable(TopLevelBase):
+     '''Base class for creating an executable from sources.'''
+ 
+     def path(self, env):
+-        return self.dir.File(self.target + '.${ENV_LABEL}')
++        return self.dir.File(env.subst(self.target + '.${ENV_LABEL}'))
+ 
+     def declare(self, env, objs=None):
+         if objs is None:
+diff --git a/ext/drampower/src/Parametrisable.h b/ext/drampower/src/Parametrisable.h
+index 31a69190fa..2b65d3c060 100644
+--- a/ext/drampower/src/Parametrisable.h
++++ b/ext/drampower/src/Parametrisable.h
+@@ -114,7 +114,7 @@ class Parametrisable {
+       *m = static_cast<T>(getParameter(paramName));
+       return true;
+     } else {
+-      *m = static_cast<T>(0);
++      *m = T{};
+       return false;
+     }
+   }
+diff --git a/src/systemc/core/SConscript b/src/systemc/core/SConscript
+index c7c9dbb40b..90f1cb6ee4 100644
+--- a/src/systemc/core/SConscript
++++ b/src/systemc/core/SConscript
+@@ -74,6 +74,10 @@ if env['CONF']['USE_SYSTEMC']:
+         Source('sc_time_python.cc', append=append)
+ 
+     # Disable the false positive warning for the event members of the scheduler.
+-    with gem5_scons.Configure(env) as conf:
+-        flag = '-Wno-free-nonheap-object'
+-        conf.CheckLinkFlag(flag)
++    flag = '-Wno-free-nonheap-object'
++    link_check_env = env.Clone()
++    link_check_env.Replace(LIBS=[], LIBPATH=[])
++    with gem5_scons.Configure(link_check_env) as conf:
++        link_flag_supported = conf.CheckLinkFlag(flag)
++    if link_flag_supported:
++        env.Append(LINKFLAGS=[flag], SHLINKFLAGS=[flag])

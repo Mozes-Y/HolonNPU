@@ -46,29 +46,54 @@ The current product is a programmable integer/quant NPU tile with:
 
 The descriptor-driven GEMM generation is archived at tag `v1.5`.
 
-## v2.x: Simulation Foundation
+## v2.x: Simulation Foundation (Active)
 
 Goal: establish the mandatory architecture-exploration platform before adding
 new product behavior.
 
-Planned work:
+Implemented foundation:
 
-- refactor `sim/model` into one deterministic C++26 Holon semantic core;
+- one deterministic C++26 Holon semantic core under `sim/semantic/`;
 - expose typed issue/effect/completion contracts without gem5 or RTL coupling;
 - retain a fast direct runner for semantic and constrained-random tests;
 - integrate the same core into a gem5 external SimObject with MMIO, DMA, IRQ,
   engine timing, local-memory resources, and statistics;
-- provide a RISC-V device/bare-metal configuration for normal development and a
-  RISC-V Linux full-system configuration for nightly/release evaluation;
+- provide a RISC-V device/bare-metal configuration for normal development;
+- execute a locked Ubuntu 24.04/Linux 6.8.12 full-system configuration with a
+  matching C23 driver workload and retained evidence;
 - build the complete gem5 simulator and Holon extension in verified C++26 mode;
-- calibrate implemented behavior against the v2.0 RTL and record the exact gem5
-  `stable` commit, C++26 toolchain, model parameters, and workloads.
+- calibrate zero-stall vector/matrix engine timing against RTL module tests and
+  record the exact gem5 `stable` commit, C++26 toolchain, model parameters, and
+  workloads.
+
+Remaining foundation follow-up:
+
+- broaden RTL calibration beyond current vector/matrix issue-to-event latency;
+- add idle-state checkpoint and sensitivity workloads.
+
+Implementation sequence:
+
+1. completed: replace `holon_npu::model` with the C++26
+   `holon_npu::semantic` core and direct runner;
+2. completed: add the reproducible upstream `stable` gem5 build and C++26 audit;
+3. completed: integrate functional MMIO/DMA/IRQ behavior and cycle accounting;
+4. completed: add RISC-V bare-metal tests to the fast gem5 gate;
+5. completed: run locked-resource Linux full-system tests and retain their
+   resource, kernel, guest, terminal, and simulator evidence;
+6. active: extend current vector/matrix zero-stall calibration coverage.
+
+The semantic protocol is two-phase. `advance()` may retire internal work, emit
+one typed pending operation, or report a terminal event. External work changes
+architectural state only through the matching `complete(token, result)` call.
+PC and `instret` remain at the precise instruction until successful completion.
+System memory belongs to the runner or gem5, never to the semantic core.
 
 Acceptance:
 
 - the direct runner and gem5 device execute one semantic implementation;
 - gem5 contains the only performance and full-system model;
-- semantic, device, timing, bare-metal, and Linux tests are reproducible;
+- semantic, device, timing, and bare-metal tests are reproducible;
+- Linux full-system is reproducible before this phase is marked complete;
 - result, fault, and ordering behavior matches current RTL;
 - timing statistics identify frontend, DMA, scratchpad, vector, matrix, and
   synchronization costs separately;
@@ -177,3 +202,11 @@ Once the simulation foundation exists, its semantic, gem5 device, timing, and
 required RISC-V system gates become part of this release policy. Release status
 and known limits belong in `docs/PROGRESS.md`; history belongs in
 `CHANGELOG.md` and Git tags.
+
+The current fast simulation gate is:
+
+```bash
+cmake --preset gem5
+cmake --build --preset gem5 --parallel 16
+ctest --preset gem5 --output-on-failure
+```

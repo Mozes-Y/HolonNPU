@@ -6,8 +6,18 @@ All notable project-level release changes are recorded here.
 
 ### Added
 
-- Added the simulator-first architecture roadmap and simulation contract for a
-  shared C++26 Holon semantic core and upstream `stable` gem5 SimObject.
+- Added the C++26 `holon_npu::semantic` core, typed two-phase operation protocol,
+  direct runner, and transactional token/error tests.
+- Added the upstream `stable` gem5 `DmaDevice`, cycle-accounted timing model,
+  RISC-V bare-metal board/guest, Linux full-system board/driver/workload, locked
+  offline resources, immutable build metadata, and full-translation-unit C++26
+  audit.
+- Added zero-stall vector/matrix timing comparisons between Verilator module
+  tests and the gem5 timing calculator.
+- Added a passing locked Ubuntu 24.04/Linux 6.8.12 full-system baseline with a
+  matching simulation driver, DMA/IRQ workload, and retained provenance.
+- Added a typed 13-event semantic evidence registry whose events are observed
+  only at successful invariant and scoreboard checks.
 
 ### Changed
 
@@ -15,6 +25,14 @@ All notable project-level release changes are recorded here.
   review evidence mandatory before future architecture behavior enters RTL.
 - Restored the v2.x through v5 research roadmap without presenting candidate
   BF16, FP8, scaling, context, IOMMU, or multi-tile work as current capability.
+- Decoupled the gem5 preset from the Verilator toolchain and configured the
+  upstream SCons build for 16-way parallelism without source-tree artifacts.
+- Hardened gem5 build/test subprocesses against Python bytecode artifacts and
+  fixed versioned GCC 15 toolchain derivation for Linux guest module builds.
+- Made scheduled, tag, and explicit CI jobs build the matching Linux kernel
+  with 16 workers and run the locked Ubuntu full-system gate.
+- Removed raw-integer semantic address overloads and made DMA setup latency part
+  of the actual gem5 event timeline rather than statistics-only accounting.
 
 ## v2.0 - 2026-07-18
 

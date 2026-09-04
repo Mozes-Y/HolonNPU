@@ -33,6 +33,17 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "HOLON_NPU_ENABLE_COVERAGE": "ON"
       }
+    },
+    {
+      "name": "gem5",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/gem5",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "HOLON_NPU_BUILD_GEM5": "ON",
+        "HOLON_NPU_BUILD_RTL": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -47,6 +58,11 @@
     {
       "name": "coverage",
       "configurePreset": "coverage"
+    },
+    {
+      "name": "gem5",
+      "configurePreset": "gem5",
+      "targets": ["gem5"]
     }
   ],
   "testPresets": [
@@ -86,6 +102,18 @@
       "configurePreset": "coverage",
       "execution": {
         "jobs": 2
+      }
+    },
+    {
+      "name": "gem5",
+      "configurePreset": "gem5",
+      "execution": {
+        "jobs": 2
+      },
+      "filter": {
+        "include": {
+          "label": "^gem5-fast$"
+        }
       }
     }
   ]

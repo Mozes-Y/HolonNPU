@@ -184,8 +184,10 @@ project-defined behavior macros. CMake sources belong directly to targets,
 public headers use file sets, and build creation is separate from CTest
 registration.
 
-Presets remain intentionally small: debug, regression, and coverage build trees;
-debug, lint, regression, and coverage test entry points.
+Presets remain intentionally small: debug, regression, and coverage product
+build trees plus one isolated gem5 build tree; debug, lint, regression,
+coverage, and gem5 test entry points. The gem5 exception is justified by its
+independent upstream source, toolchain, and build artifacts.
 
 **Rationale:** Modern language and target-scoped contracts make requirements
 transitive and reduce hidden directory state. Presets should pin workflows, not
@@ -234,3 +236,49 @@ software-visible performance mechanisms cannot begin in RTL. Behavior-preserving
 RTL fixes remain allowed against existing semantics. Upstream gem5
 incompatibilities must be fixed explicitly without changing branch or lowering
 the C++26 requirement.
+
+## ADR-0057: Precise Semantic Protocol And Reproducible gem5 Foundation
+
+**Status:** Accepted
+
+**Decision:** Replace the synchronous `holon_npu::model::machine` directly with
+`holon_npu::semantic::program_machine`, `device`, and `direct_runner`; no
+compatibility facade is retained. The semantic core emits typed operations and
+commits external effects only through matching strong completion tokens. System
+memory belongs to the runner or gem5. System, local, instruction, and token
+domains use distinct strong types without raw-integer compatibility overloads.
+PC and retirement remain precise across pending work and faults.
+
+gem5 is acquired from the official rolling `stable` branch into an isolated
+build tree. One `gem5` preset builds the complete simulator and Holon EXTRAS in
+C++26, audits compile commands, and records immutable build metadata. Normal
+gem5 tests cover the functional device and RISC-V bare-metal path; locked Linux
+full-system resources are a separate nightly/release gate.
+
+Linux execution is catalog-independent. A reviewed lock owns resource URLs,
+final uncompressed sizes, checksums, root partition, the exact Ubuntu source
+package, and kernel release. Preparation tools download and verify these
+artifacts before simulation; the gem5 configuration consumes only local
+resource objects. The Linux gate uses an Atomic RISC-V Host CPU for functional
+OS/driver validation while Holon timing remains in the cycle-accounted SimObject
+and executable RTL calibration contracts.
+
+Shared semantic/runtime sources are mapped into gem5's SCons variant directory
+with `duplicate=False`; source-tree object files and copied semantic
+implementations are forbidden. Build/run subprocesses disable Python bytecode
+output for the same source-tree ownership reason. The upstream build defaults
+to 16 jobs. Current
+vector and matrix timing parameters are executable calibration contracts: RTL
+module tests compare observed zero-stall issue-to-event cycles against the same
+calculator used by the SimObject. DMA setup latency is applied to the actual
+gem5 completion event and reported separately from memory-response wait cycles.
+
+**Rationale:** Explicit issue/completion ownership is the smallest contract that
+supports both fast synchronous tests and event-driven simulation without
+duplicating semantics. Isolated acquisition and effective-standard auditing
+make a rolling upstream dependency reviewable and reproducible.
+
+**Consequences:** The old model target, namespace, files, and symbols are
+removed. gem5 timing parameters and the simulation-only Linux driver are not
+product ABI. New architecture features remain blocked until semantic, device,
+timing, workload, and cost evidence is approved by a later ADR.

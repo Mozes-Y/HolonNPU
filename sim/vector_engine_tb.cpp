@@ -1,6 +1,8 @@
 #include "Vnpu_vector_engine.h"
 
 #include "holon_npu_isa.h"
+#include "holon_npu_semantic.hpp"
+#include "holon_npu_timing.hpp"
 #include "holon_npu_program.h"
 #include "tb_coverage.hpp"
 
@@ -250,6 +252,7 @@ struct EventResult {
     bool valid = false;
     bool fault = false;
     std::uint32_t fault_code = 0;
+    std::uint32_t latency_cycles = 0;
 };
 
 EventResult issue(Vnpu_vector_engine& dut, std::uint32_t instruction) {
@@ -278,6 +281,7 @@ EventResult issue(Vnpu_vector_engine& dut, std::uint32_t instruction) {
             result.valid = accepted;
             result.fault = (dut.event_data_o & 1U) != 0;
             result.fault_code = static_cast<std::uint32_t>(dut.event_data_o >> 32U);
+            result.latency_cycles = static_cast<std::uint32_t>(cycle + 1);
             tick(dut);
             break;
         }
@@ -331,14 +335,58 @@ bool test_vector_load_store_and_add(Vnpu_vector_engine& dut) {
     reset(dut);
 
     bool ok = load_operands(dut, 0, 16);
-    ok &= expect_ok_event("config i32", issue(dut, vector_config_i32(4)));
-    ok &= expect_ok_event("load lhs", issue(dut, vector_load(1, 0)));
-    ok &= expect_ok_event("load rhs", issue(dut, vector_load(2, 16)));
-    ok &= expect_ok_event(
-        "add",
-        issue(dut, vector_alu(HOLON_NPU_ISA_OPCODE_VECTOR_ALU_ADD, 3, 1, 2))
+    const auto config_instruction = vector_config_i32(4);
+    const auto load_instruction = vector_load(1, 0);
+    const auto add_instruction = vector_alu(
+        HOLON_NPU_ISA_OPCODE_VECTOR_ALU_ADD,
+        3,
+        1,
+        2
     );
-    ok &= expect_ok_event("store add", issue(dut, vector_store(3, 32)));
+    const auto store_instruction = vector_store(3, 32);
+    const holon_npu::gem5_model::timing_model timing;
+    const auto expected_cycles = [&timing](
+        std::uint32_t instruction,
+        std::uint32_t vl,
+        std::uint32_t active_lanes
+    ) {
+        return timing.estimate(holon_npu::semantic::vector_operation{
+            .instruction = holon_npu::semantic::decode(instruction),
+            .vl = vl,
+            .active_lanes = active_lanes,
+            .element_bytes = 4,
+        }).cycles;
+    };
+
+    const auto config_event = issue(dut, config_instruction);
+    ok &= expect_ok_event("config i32", config_event);
+    ok &= expect_eq(
+        "config issue-to-event cycles",
+        config_event.latency_cycles,
+        expected_cycles(config_instruction, 0, 0)
+    );
+    const auto load_event = issue(dut, load_instruction);
+    ok &= expect_ok_event("load lhs", load_event);
+    ok &= expect_eq(
+        "load issue-to-event cycles",
+        load_event.latency_cycles,
+        expected_cycles(load_instruction, 4, 4)
+    );
+    ok &= expect_ok_event("load rhs", issue(dut, vector_load(2, 16)));
+    const auto add_event = issue(dut, add_instruction);
+    ok &= expect_ok_event("add", add_event);
+    ok &= expect_eq(
+        "ALU issue-to-event cycles",
+        add_event.latency_cycles,
+        expected_cycles(add_instruction, 4, 4)
+    );
+    const auto store_event = issue(dut, store_instruction);
+    ok &= expect_ok_event("store add", store_event);
+    ok &= expect_eq(
+        "store issue-to-event cycles",
+        store_event.latency_cycles,
+        expected_cycles(store_instruction, 4, 4)
+    );
 
     ok &= expect_memory_word(dut, "add lane 0", 32, u32(3));
     ok &= expect_memory_word(dut, "add lane 1", 36, u32(2));

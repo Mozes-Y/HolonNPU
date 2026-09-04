@@ -12,7 +12,7 @@ structural coverage must agree before release.
 | Structure checks | Enforce interface-native RTL, product reachability, canonical naming, and macro policy. |
 | Module tests | Exercise control, loader, completion, local memory, DMA, vector, matrix, PE, and array behavior. |
 | Product tests | Execute programs through AXI-Lite/AXI4 and compare system-memory effects. |
-| Architectural model | Define decode, retirement, fault, scalar/vector/predicate, memory, DMA, and matrix semantics. |
+| Semantic core | Define decode, retirement, fault, scalar/vector/predicate, memory, DMA, and matrix semantics. |
 | Native SVA | Check protocol and internal invariants at the cycle boundary. |
 | Coverage gate | Require observed functional events, RTL cover properties, exact artifacts, and structural baselines. |
 
@@ -47,6 +47,14 @@ cmake --preset coverage
 cmake --build --preset coverage --parallel 2
 ctest --preset coverage --output-on-failure
 python3 tools/check_coverage.py --build-dir build/coverage
+```
+
+Simulation foundation:
+
+```bash
+cmake --preset gem5
+cmake --build --preset gem5 --parallel 16
+ctest --preset gem5 --output-on-failure
 ```
 
 Presets default to two CTest jobs. Command-line `-j N` may override that based on
@@ -128,20 +136,36 @@ execution must match it.
 
 ## Simulator-First Architecture Verification
 
-The current architectural model is the starting point for the v2.x simulation
-foundation. It will become one C++26 semantic core used by both the fast direct
-runner and the Holon gem5 SimObject. No independent gem5 expected-result logic
-or separate performance model is permitted.
+The v2.x simulation foundation has one C++26 semantic core used by both the fast
+direct runner and the Holon gem5 SimObject. No independent gem5 expected-result
+logic or separate performance model is permitted.
 
 Future architecture behavior must pass these tiers before RTL:
 
 | Tier | Gate |
 | ---- | ---- |
-| Semantic core | Directed, property-based, and deterministic random behavior. |
+| Semantic core | Directed, property-based, and deterministic random behavior with all typed required events observed at verified invariants. |
 | gem5 device | MMIO, DMA, IRQ, lifecycle, fault, and completion integration. |
 | gem5 timing | Cycle-accounted queues, pipelines, banks, contention, and sensitivity. |
 | RISC-V bare-metal | Daily driver and end-to-end program execution. |
 | RISC-V Linux full-system | Nightly/release OS, memory-system, interrupt, and workload execution. |
+
+The normal gem5 preset gates the first four implemented layers through the
+timing unit test and RISC-V bare-metal workload. Linux full-system remains a
+separate resource-heavy nightly/release gate; its locked kernel, disk image,
+matching module, workload, and unique guest PASS sentinel have a passing local
+baseline recorded in `docs/PROGRESS.md`.
+
+The semantic test registry currently requires 13 typed events covering decode,
+descriptor compatibility, precise completion, DMA visibility and payload
+stability, vector/predicate/quant behavior, matrix accumulation, fault PC,
+loader/completion ordering, and reset drain. Events are observed only after the
+associated invariant succeeds. gem5 tests independently gate typed SimObject
+statistics, minimum event counts, and unique bare-metal/Linux guest sentinels.
+
+Zero-stall vector and matrix issue-to-event cycles are measured in their
+Verilator module tests and compared directly with the gem5 timing calculator.
+gem5 memory-response latency is reported separately as DMA wait cycles.
 
 An accepted ADR must review correctness, measured workload benefit, alternatives,
 software cost, RTL cost, and verification scope before implementation begins.

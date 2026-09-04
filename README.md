@@ -43,10 +43,12 @@ SimObject, and approved by an architecture ADR before RTL work begins. The fast
 runner and gem5 use the same semantics; gem5 is the only performance and
 full-system model.
 
-The planned gem5 integration uses the upstream `stable` branch, builds the
-complete simulator in C++26 mode, uses a RISC-V Host, and applies a
-cycle-accounted event model. See the [Simulation Contract](docs/SIMULATION.md)
-for the ownership boundary and RTL admission gate.
+The simulation foundation uses the upstream `stable` branch, builds the
+complete simulator and Holon EXTRAS in audited C++26 mode, and runs a RISC-V
+bare-metal system through the same semantic core used by fast tests. gem5 owns
+cycle accounting, memory latency, DMA integration, IRQ delivery, and structured
+statistics. See the [Simulation Contract](docs/SIMULATION.md) for the ownership
+boundary and RTL admission gate.
 
 ## Architecture Roadmap
 
@@ -69,6 +71,9 @@ The authoritative requirements, gates, and non-goals are in the
 - A C23 compiler
 - A C++26 compiler
 - Python 3
+
+The gem5 gate additionally requires SCons, gem5's host dependencies, and a GCC
+15 RISC-V cross compiler.
 
 ## Build And Test
 
@@ -103,6 +108,27 @@ ctest --preset coverage --output-on-failure
 python3 tools/check_coverage.py --build-dir build/coverage
 ```
 
+Build and run the simulation foundation. The outer build and the upstream SCons
+build both use up to 16 workers:
+
+```bash
+cmake --preset gem5
+cmake --build --preset gem5 --parallel 16
+ctest --preset gem5 --output-on-failure
+```
+
+The fast gem5 gate audits every effective C++ translation unit, records the
+exact upstream `stable` SHA and overlay hash, and runs timing plus RISC-V
+bare-metal vector, matrix, DMA, completion, IRQ, fault, and reset scenarios.
+Linux full-system support is a separate nightly/release gate and requires the
+locked resource set and a matching guest kernel/module bundle. The preparation
+tools verify every downloaded artifact and build the matching Linux 6.8.12
+kernel with up to 16 workers; the simulation itself never queries the online
+gem5 resource catalog. A passing Ubuntu 24.04/Linux 6.8.12 baseline is recorded
+in [Progress](docs/PROGRESS.md). See the
+[Simulation Contract](docs/SIMULATION.md#linux-full-system-gate) for the
+complete commands.
+
 Build or run one test without adding presets:
 
 ```bash
@@ -110,8 +136,8 @@ cmake --build --preset debug --target npu_top_tb
 ctest --preset debug -R '^npu_top$' --verbose
 ```
 
-`CMakePresets.json` intentionally contains only debug, regression, and coverage
-build trees plus debug, lint, regression, and coverage test entry points.
+`CMakePresets.json` intentionally contains only debug, regression, coverage,
+and gem5 build trees plus their corresponding test entry points.
 
 ## Schema-Generated Contracts
 
@@ -141,7 +167,7 @@ The release gate combines:
 - native SystemVerilog assertions for AXI, valid-ready, lifecycle, bounds, and
   engine invariants;
 - deterministic C++26 module and program tests;
-- a C++ architectural model for ISA behavior;
+- one C++26 semantic core shared by the direct runner and gem5;
 - directed AXI 4 KiB boundary and soft-reset drain tests;
 - event-driven typed functional coverage;
 - nonzero named RTL `cover property` checks;
@@ -162,7 +188,8 @@ properties, and structural regressions below
 | `spec/` | Canonical ABI, ISA, and coverage baseline metadata. |
 | `rtl/` | Current synthesizable product RTL and interfaces. |
 | `sim/rtl/` | Simulation-only flattened wrappers and test tops. |
-| `sim/model/` | C++26 architectural model. |
+| `sim/semantic/` | C++26 architecture semantics and direct runner. |
+| `sim/gem5/` | External gem5 SimObject, timing, RISC-V systems, and simulation-only guests. |
 | `sim/` | Verilator testbenches and typed coverage runtime. |
 | `include/` | Generated public contracts and public C++ runtime API. |
 | `sw/` | C23 driver and C++26 program runtime implementation. |

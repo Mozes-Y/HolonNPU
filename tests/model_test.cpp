@@ -1,10 +1,11 @@
-#include "holon_npu_model.hpp"
+#include "holon_npu_semantic.hpp"
 
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <random>
@@ -15,48 +16,126 @@
 
 namespace {
 
-using holon_npu::model::class_name;
-using holon_npu::model::csr;
-using holon_npu::model::decode;
-using holon_npu::model::dma_direction;
-using holon_npu::model::disassemble;
-using holon_npu::model::encode_scalar_add;
-using holon_npu::model::encode_scalar_beq;
-using holon_npu::model::encode_scalar_load;
-using holon_npu::model::encode_scalar_movi;
-using holon_npu::model::encode_csr_read;
-using holon_npu::model::encode_dma_load;
-using holon_npu::model::encode_dma_store;
-using holon_npu::model::encode_matrix_gemm;
-using holon_npu::model::encode_sync_fence_dma;
-using holon_npu::model::encode_sync_fence_local;
-using holon_npu::model::encode_sync_wait_dma;
-using holon_npu::model::encode_system_exit;
-using holon_npu::model::encode_system_fault;
-using holon_npu::model::encode_predicate_load;
-using holon_npu::model::encode_predicate_ptrue;
-using holon_npu::model::encode_vector_add;
-using holon_npu::model::encode_vector_eq;
-using holon_npu::model::encode_vector_load;
-using holon_npu::model::encode_vector_lt;
-using holon_npu::model::encode_vector_max;
-using holon_npu::model::encode_vector_min;
-using holon_npu::model::encode_vector_gather;
-using holon_npu::model::encode_vector_reduce_sum;
-using holon_npu::model::encode_vector_select;
-using holon_npu::model::encode_quant_requantize;
-using holon_npu::model::encode_vector_shl;
-using holon_npu::model::encode_vector_store;
-using holon_npu::model::encode_vector_sra;
-using holon_npu::model::encode_vector_srl;
-using holon_npu::model::encode_vector_sub;
-using holon_npu::model::lifecycle_state;
-using holon_npu::model::machine;
-using holon_npu::model::matrix_gemm_i8_i32_op;
-using holon_npu::model::model_error;
-using holon_npu::model::program_builder;
-using holon_npu::model::vector_element_width;
-using holon_npu::model::vector_rounding;
+using holon_npu::semantic::class_name;
+using holon_npu::semantic::csr;
+using holon_npu::semantic::decode;
+using holon_npu::semantic::dma_direction;
+using holon_npu::semantic::disassemble;
+using holon_npu::semantic::encode_scalar_add;
+using holon_npu::semantic::encode_scalar_beq;
+using holon_npu::semantic::encode_scalar_load;
+using holon_npu::semantic::encode_scalar_movi;
+using holon_npu::semantic::encode_csr_read;
+using holon_npu::semantic::encode_dma_load;
+using holon_npu::semantic::encode_dma_store;
+using holon_npu::semantic::encode_matrix_gemm;
+using holon_npu::semantic::encode_sync_fence_dma;
+using holon_npu::semantic::encode_sync_fence_local;
+using holon_npu::semantic::encode_sync_wait_dma;
+using holon_npu::semantic::encode_system_exit;
+using holon_npu::semantic::encode_system_fault;
+using holon_npu::semantic::encode_predicate_load;
+using holon_npu::semantic::encode_predicate_ptrue;
+using holon_npu::semantic::encode_vector_add;
+using holon_npu::semantic::encode_vector_eq;
+using holon_npu::semantic::encode_vector_load;
+using holon_npu::semantic::encode_vector_lt;
+using holon_npu::semantic::encode_vector_max;
+using holon_npu::semantic::encode_vector_min;
+using holon_npu::semantic::encode_vector_gather;
+using holon_npu::semantic::encode_vector_reduce_sum;
+using holon_npu::semantic::encode_vector_select;
+using holon_npu::semantic::encode_quant_requantize;
+using holon_npu::semantic::encode_vector_shl;
+using holon_npu::semantic::encode_vector_store;
+using holon_npu::semantic::encode_vector_sra;
+using holon_npu::semantic::encode_vector_srl;
+using holon_npu::semantic::encode_vector_sub;
+using holon_npu::semantic::lifecycle_state;
+using holon_npu::semantic::local_address;
+using holon_npu::semantic::direct_runner;
+using holon_npu::semantic::device;
+using holon_npu::semantic::operation_success;
+using holon_npu::semantic::operation_token;
+using holon_npu::semantic::pending_operation;
+using holon_npu::semantic::program_dma_operation;
+using holon_npu::semantic::program_machine;
+using holon_npu::semantic::read_payload;
+using holon_npu::semantic::system_address;
+using holon_npu::semantic::terminal_event;
+using holon_npu::semantic::matrix_gemm_i8_i32_op;
+using holon_npu::semantic::architectural_fault;
+using holon_npu::semantic::program_builder;
+using holon_npu::semantic::vector_element_width;
+using holon_npu::semantic::vector_rounding;
+
+constexpr local_address local_at(std::uint32_t address) {
+    return local_address{address};
+}
+
+constexpr system_address system_at(std::uint64_t address) {
+    return system_address{address};
+}
+
+enum class semantic_event : std::uint8_t {
+    decode,
+    descriptor_compatibility,
+    precise_completion,
+    dma_visibility,
+    stable_store_payload,
+    vector_random,
+    predicate_tail,
+    quant_rounding,
+    matrix_accumulation,
+    fault_precision,
+    loader_sequence,
+    completion_ordering,
+    reset_drain,
+    count,
+};
+
+constexpr std::array semantic_event_names{
+    std::string_view{"decode"},
+    std::string_view{"descriptor_compatibility"},
+    std::string_view{"precise_completion"},
+    std::string_view{"dma_visibility"},
+    std::string_view{"stable_store_payload"},
+    std::string_view{"vector_random"},
+    std::string_view{"predicate_tail"},
+    std::string_view{"quant_rounding"},
+    std::string_view{"matrix_accumulation"},
+    std::string_view{"fault_precision"},
+    std::string_view{"loader_sequence"},
+    std::string_view{"completion_ordering"},
+    std::string_view{"reset_drain"},
+};
+static_assert(semantic_event_names.size() == static_cast<std::size_t>(semantic_event::count));
+
+class semantic_evidence {
+public:
+    bool observe(semantic_event event, bool verified) {
+        if (verified) {
+            observed_.at(static_cast<std::size_t>(event)) = true;
+        }
+        return verified;
+    }
+
+    bool complete() const {
+        bool complete = true;
+        for (std::size_t index = 0; index < observed_.size(); ++index) {
+            if (!observed_[index]) {
+                std::cerr << "missing semantic evidence: " << semantic_event_names[index] << '\n';
+                complete = false;
+            }
+        }
+        return complete;
+    }
+
+private:
+    std::array<bool, static_cast<std::size_t>(semantic_event::count)> observed_{};
+};
+
+semantic_evidence evidence;
 
 bool expect_true(std::string_view name, bool condition) {
     if (condition) {
@@ -298,12 +377,12 @@ bool test_decode_and_disassemble() {
     );
     ok &= expect_true(
         "disassemble zip lo",
-        disassemble(decode(holon_npu::model::encode_vector_zip_lo(4, 1, 2, 0))) ==
+        disassemble(decode(holon_npu::semantic::encode_vector_zip_lo(4, 1, 2, 0))) ==
             "vector_permute.zip.lo v4, v1, v2, p0"
     );
     ok &= expect_true(
         "disassemble transpose4",
-        disassemble(decode(holon_npu::model::encode_vector_transpose4(4, 1, 0))) ==
+        disassemble(decode(holon_npu::semantic::encode_vector_transpose4(4, 1, 0))) ==
             "vector_permute.transpose4 v4, v1, v0, p0"
     );
     ok &= expect_true(
@@ -349,11 +428,11 @@ bool test_decode_and_disassemble() {
     );
     ok &= expect_eq("reserved decode", decode(HOLON_NPU_ISA_CLASS_RESERVED_D).isa_class,
                     HOLON_NPU_ISA_ENUM_RESERVED_D);
-    return ok;
+    return evidence.observe(semantic_event::decode, ok);
 }
 
 bool test_minimal_vector_program() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 8> args{1, 2, 3, 4, 10, 20, 30, 40};
     const std::array<std::int32_t, 4> expected{11, 22, 33, 44};
     program_builder program;
@@ -369,19 +448,19 @@ bool test_minimal_vector_program() {
     bool ok = true;
     const auto load_result = model.load_program_descriptor(desc, program.span(), arg_bytes);
     ok &= expect_eq("descriptor load state", load_result.state, lifecycle_state::idle);
-    ok &= expect_eq("descriptor load fault", load_result.fault, model_error::none);
+    ok &= expect_eq("descriptor load fault", load_result.fault, architectural_fault::none);
     const auto result = model.run(16);
     ok &= expect_eq("minimal state", result.state, lifecycle_state::done);
-    ok &= expect_eq("minimal fault", result.fault, model_error::none);
+    ok &= expect_eq("minimal fault", result.fault, architectural_fault::none);
     ok &= expect_eq("minimal retired", result.retired, std::uint64_t{6});
     ok &= expect_eq("minimal pc", result.pc, std::uint32_t{24});
-    const auto actual = model.read_i32(32, expected.size());
+    const auto actual = model.read_i32(local_at(32), expected.size());
     ok &= expect_vector_eq("minimal vector result", actual, expected);
     return ok;
 }
 
 bool test_scalar_control_program() {
-    machine model(64, 16);
+    direct_runner model(64, 16);
     program_builder program;
     program.movi(1, 3)
         .movi(2, 0)
@@ -399,9 +478,9 @@ bool test_scalar_control_program() {
 
     bool ok = true;
     ok &= expect_eq("scalar state", result.state, lifecycle_state::done);
-    ok &= expect_eq("scalar fault", result.fault, model_error::none);
+    ok &= expect_eq("scalar fault", result.fault, architectural_fault::none);
     ok &= expect_eq("scalar retired", result.retired, std::uint64_t{16});
-    ok &= expect_eq("scalar result memory", model.read_i32(0, 1).at(0), std::int32_t{6});
+    ok &= expect_eq("scalar result memory", model.read_i32(local_at(0), 1).at(0), std::int32_t{6});
     ok &= expect_eq("scalar counter", model.scalar_register(1), std::int32_t{0});
     ok &= expect_eq("scalar accumulator", model.scalar_register(2), std::int32_t{6});
     ok &= expect_eq("scalar loaded value", model.scalar_register(4), std::int32_t{6});
@@ -412,30 +491,30 @@ bool test_scalar_control_program() {
 bool test_scalar_control_faults() {
     bool ok = true;
     {
-        machine model(64, 16);
+        direct_runner model(64, 16);
         program_builder program;
         program.beq(0, 0, -1).exit();
         model.load_program(program.span());
         const auto result = model.run(4);
         ok &= expect_eq("branch target fault state", result.state, lifecycle_state::fault);
-        ok &= expect_eq("branch target fault code", result.fault, model_error::illegal_instruction);
+        ok &= expect_eq("branch target fault code", result.fault, architectural_fault::illegal_instruction);
         ok &= expect_eq("branch target fault pc", result.pc, std::uint32_t{0});
     }
     {
-        machine model(64, 16);
+        direct_runner model(64, 16);
         program_builder program;
         program.movi(1, 63).scalar_load(2, 1, 0).exit();
         model.load_program(program.span());
         const auto result = model.run(4);
         ok &= expect_eq("scalar bounds fault state", result.state, lifecycle_state::fault);
-        ok &= expect_eq("scalar bounds fault code", result.fault, model_error::local_memory_bounds);
+        ok &= expect_eq("scalar bounds fault code", result.fault, architectural_fault::local_memory_bounds);
         ok &= expect_eq("scalar bounds fault pc", result.pc, std::uint32_t{4});
     }
     return ok;
 }
 
 bool test_csr_read_program() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     program_builder program;
     program.csr_read(1, csr::pc)
         .scalar_store(1, 0, 0)
@@ -456,20 +535,20 @@ bool test_csr_read_program() {
         static_cast<std::int32_t>(program.size() * HOLON_NPU_ISA_INSTRUCTION_BYTES),
         128,
     };
-    ok &= expect_vector_eq("csr values", model.read_i32(0, expected.size()), expected);
+    ok &= expect_vector_eq("csr values", model.read_i32(local_at(0), expected.size()), expected);
 
     program_builder invalid;
     invalid.raw(encode_csr_read(1, static_cast<csr>(0xFFF))).exit();
     model.load_program(invalid.span());
     const auto fault = model.run(4);
     ok &= expect_eq("unknown csr state", fault.state, lifecycle_state::fault);
-    ok &= expect_eq("unknown csr fault", fault.fault, model_error::illegal_instruction);
+    ok &= expect_eq("unknown csr fault", fault.fault, architectural_fault::illegal_instruction);
     ok &= expect_eq("unknown csr pc", fault.pc, std::uint32_t{0});
     return ok;
 }
 
 bool test_descriptor_validation_faults() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 4> args{1, 2, 3, 4};
     program_builder program;
     program.configure(4, vector_element_width::bits_32, true).exit();
@@ -477,7 +556,7 @@ bool test_descriptor_validation_faults() {
     const auto base = valid_program_desc(program.span(), arg_bytes);
 
     bool ok = true;
-    auto expect_fault = [&](std::string_view name, holon_npu_program_desc_t desc, model_error expected) {
+    auto expect_fault = [&](std::string_view name, holon_npu_program_desc_t desc, architectural_fault expected) {
         const auto result = model.load_program_descriptor(desc, program.span(), arg_bytes);
         ok &= expect_eq(name, result.fault, expected);
         ok &= expect_eq("state after descriptor fault", result.state, lifecycle_state::fault);
@@ -485,80 +564,88 @@ bool test_descriptor_validation_faults() {
 
     auto bad = base;
     bad.version = 2;
-    expect_fault("bad descriptor version", bad, model_error::unsupported_abi_or_isa);
+    expect_fault("bad descriptor version", bad, architectural_fault::unsupported_abi_or_isa);
 
     bad = base;
     bad.program_format = 0;
-    expect_fault("bad program format", bad, model_error::unsupported_program_format);
+    expect_fault("bad program format", bad, architectural_fault::unsupported_program_format);
 
     bad = base;
     bad.required_caps = std::uint64_t{1} << 63U;
-    expect_fault("bad required cap", bad, model_error::unsupported_capability);
+    expect_fault("bad required cap", bad, architectural_fault::unsupported_capability);
 
     bad = base;
     bad.required_op_classes = std::uint64_t{1} << 63U;
-    expect_fault("bad required op class", bad, model_error::unsupported_operation_class);
+    expect_fault("bad required op class", bad, architectural_fault::unsupported_operation_class);
 
     bad = base;
     bad.flags = HOLON_NPU_PROGRAM_FLAG_VALID_MASK << 1U;
-    expect_fault("bad flags", bad, model_error::invalid_program_descriptor);
+    expect_fault("bad flags", bad, architectural_fault::invalid_program_descriptor);
 
     bad = base;
     bad.reserved_50 = 1;
-    expect_fault("bad reserved", bad, model_error::invalid_program_descriptor);
+    expect_fault("bad reserved", bad, architectural_fault::invalid_program_descriptor);
 
     bad = base;
     bad.code_addr = 0x1002;
-    expect_fault("bad code alignment", bad, model_error::alignment);
+    expect_fault("bad code alignment", bad, architectural_fault::alignment);
 
     bad = base;
     bad.entry_pc = base.code_size_bytes;
-    expect_fault("bad entry pc", bad, model_error::local_memory_bounds);
+    expect_fault("bad entry pc", bad, architectural_fault::local_memory_bounds);
 
     bad = base;
     bad.program_mem_bytes = base.code_size_bytes - 4U;
-    expect_fault("program memory too small", bad, model_error::local_memory_bounds);
+    expect_fault("program memory too small", bad, architectural_fault::local_memory_bounds);
 
     bad = base;
     bad.local_mem_bytes = base.arg_size_bytes - 4U;
-    expect_fault("argument memory too small", bad, model_error::local_memory_bounds);
+    expect_fault("argument memory too small", bad, architectural_fault::local_memory_bounds);
 
     bad = base;
     bad.stack_bytes = bad.local_mem_bytes - bad.arg_size_bytes + 1U;
-    expect_fault("argument and stack overlap", bad, model_error::local_memory_bounds);
+    expect_fault("argument and stack overlap", bad, architectural_fault::local_memory_bounds);
 
     bad = base;
     bad.code_addr = std::numeric_limits<std::uint64_t>::max() -
         (HOLON_NPU_PROGRAM_IMAGE_ALIGN - 1U);
-    expect_fault("code address overflow", bad, model_error::invalid_program_descriptor);
+    expect_fault("code address overflow", bad, architectural_fault::invalid_program_descriptor);
 
     bad = base;
     bad.arg_addr = std::numeric_limits<std::uint64_t>::max() - 15U;
-    expect_fault("argument address overflow", bad, model_error::invalid_program_descriptor);
+    expect_fault("argument address overflow", bad, architectural_fault::invalid_program_descriptor);
 
     bad = base;
     bad.completion_addr = std::numeric_limits<std::uint64_t>::max() - 15U;
-    expect_fault("completion address overflow", bad, model_error::invalid_program_descriptor);
+    expect_fault("completion address overflow", bad, architectural_fault::invalid_program_descriptor);
 
-    return ok;
+    return evidence.observe(semantic_event::descriptor_compatibility, ok);
 }
 
 bool test_dma_ordering_and_visibility() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     model.resize_system_memory(128);
 
     const std::array<std::int32_t, 4> source{5, 6, 7, 8};
     const std::array<std::int32_t, 4> expected_store{15, 16, 17, 18};
 
     bool ok = true;
-    ok &= expect_true("system write", model.write_system_i32(0, source));
-    ok &= expect_true("dma load", model.issue_dma_load(0, 0, source.size() * sizeof(std::int32_t)));
-    const auto loaded = model.read_i32(0, source.size());
+    ok &= expect_true("system write", model.write_system_i32(system_at(0), source));
+    ok &= expect_true(
+        "dma load",
+        model.issue_dma_load(system_at(0), local_at(0), source.size() * sizeof(std::int32_t))
+    );
+    const auto loaded = model.read_i32(local_at(0), source.size());
     ok &= expect_vector_eq("dma load visible", loaded, source);
 
-    ok &= expect_true("local write", model.write_i32(32, expected_store));
-    ok &= expect_true("dma store", model.issue_dma_store(32, 64, expected_store.size() * sizeof(std::int32_t)));
-    const auto stored = model.read_system_i32(64, expected_store.size());
+    ok &= expect_true("local write", model.write_i32(local_at(32), expected_store));
+    ok &= expect_true(
+        "dma store",
+        model.issue_dma_store(
+            local_at(32), system_at(64), expected_store.size() * sizeof(std::int32_t)
+        )
+    );
+    const auto stored = model.read_system_i32(system_at(64), expected_store.size());
     ok &= expect_vector_eq("dma store visible", stored, expected_store);
 
     const auto& events = model.dma_events();
@@ -569,30 +656,36 @@ bool test_dma_ordering_and_visibility() {
     ok &= expect_eq("dma event 1 direction", events.at(1).direction, dma_direction::local_to_system);
     model.clear_dma_events();
     ok &= expect_eq("dma event clear", model.dma_events().size(), std::size_t{0});
-    return ok;
+    return evidence.observe(semantic_event::dma_visibility, ok);
 }
 
 bool test_dma_faults() {
-    machine model(32, 16);
+    direct_runner model(32, 16);
     model.resize_system_memory(32);
 
     bool ok = true;
     const std::array<std::int32_t, 1> source{1};
-    ok &= expect_true("dma system write", model.write_system_i32(0, source));
-    ok &= expect_true("dma load local bounds false", !model.issue_dma_load(0, 24, 16));
+    ok &= expect_true("dma system write", model.write_system_i32(system_at(0), source));
+    ok &= expect_true(
+        "dma load local bounds false",
+        !model.issue_dma_load(system_at(0), local_at(24), 16)
+    );
     ok &= expect_eq("dma load local bounds state", model.state(), lifecycle_state::fault);
-    ok &= expect_eq("dma load local bounds fault", model.fault(), model_error::local_memory_bounds);
+    ok &= expect_eq("dma load local bounds fault", model.fault(), architectural_fault::local_memory_bounds);
 
     model.reset();
     model.resize_system_memory(32);
-    ok &= expect_true("dma load system bounds false", !model.issue_dma_load(28, 0, 16));
+    ok &= expect_true(
+        "dma load system bounds false",
+        !model.issue_dma_load(system_at(28), local_at(0), 16)
+    );
     ok &= expect_eq("dma load system bounds state", model.state(), lifecycle_state::fault);
-    ok &= expect_eq("dma load system bounds fault", model.fault(), model_error::dma_request);
+    ok &= expect_eq("dma load system bounds fault", model.fault(), architectural_fault::dma_request);
     return ok;
 }
 
 bool test_dma_load_instruction_program() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     model.resize_system_memory(0x1100);
     const std::array<std::int32_t, 3> source{31, -7, 2048};
     constexpr std::uint32_t source_addr = 0x1020;
@@ -609,21 +702,23 @@ bool test_dma_load_instruction_program() {
         .exit();
 
     bool ok = true;
-    ok &= expect_true("dma instruction args write", model.write_i32(0, dma_args));
-    ok &= expect_true("dma instruction system write", model.write_system_i32(source_addr, source));
+    ok &= expect_true("dma instruction args write", model.write_i32(local_at(0), dma_args));
+    ok &= expect_true(
+        "dma instruction system write", model.write_system_i32(system_at(source_addr), source)
+    );
     model.load_program(program.span());
     const auto result = model.run(8);
     ok &= expect_eq("dma instruction state", result.state, lifecycle_state::done);
-    ok &= expect_eq("dma instruction fault", result.fault, model_error::none);
+    ok &= expect_eq("dma instruction fault", result.fault, architectural_fault::none);
     ok &= expect_eq("dma instruction retired", result.retired, std::uint64_t{5});
     ok &= expect_eq("dma instruction pc", result.pc, std::uint32_t{20});
-    const auto loaded = model.read_i32(16, source.size());
+    const auto loaded = model.read_i32(local_at(16), source.size());
     ok &= expect_vector_eq("dma instruction result", loaded, source);
     return ok;
 }
 
 bool test_dma_store_instruction_program() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     model.resize_system_memory(0x1100);
     const std::array<std::int32_t, 3> source{17, -21, 4096};
     constexpr std::uint32_t store_addr = 0x1030;
@@ -640,21 +735,21 @@ bool test_dma_store_instruction_program() {
         .exit();
 
     bool ok = true;
-    ok &= expect_true("dma store args write", model.write_i32(0, dma_args));
-    ok &= expect_true("dma store local write", model.write_i32(24, source));
+    ok &= expect_true("dma store args write", model.write_i32(local_at(0), dma_args));
+    ok &= expect_true("dma store local write", model.write_i32(local_at(24), source));
     model.load_program(program.span());
     const auto result = model.run(8);
     ok &= expect_eq("dma store instruction state", result.state, lifecycle_state::done);
-    ok &= expect_eq("dma store instruction fault", result.fault, model_error::none);
+    ok &= expect_eq("dma store instruction fault", result.fault, architectural_fault::none);
     ok &= expect_eq("dma store instruction retired", result.retired, std::uint64_t{5});
     ok &= expect_eq("dma store instruction pc", result.pc, std::uint32_t{20});
-    const auto stored = model.read_system_i32(store_addr, source.size());
+    const auto stored = model.read_system_i32(system_at(store_addr), source.size());
     ok &= expect_vector_eq("dma store instruction result", stored, source);
     return ok;
 }
 
 bool test_sync_order_instruction_program() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     model.resize_system_memory(0x1100);
     const std::array<std::int32_t, 2> source{0x1111, -0x2222};
     constexpr auto source_addr = std::uint32_t{0x1020};
@@ -680,15 +775,17 @@ bool test_sync_order_instruction_program() {
         .exit();
 
     bool ok = true;
-    ok &= expect_true("sync program args write", model.write_i32(0, dma_args));
-    ok &= expect_true("sync program system write", model.write_system_i32(source_addr, source));
+    ok &= expect_true("sync program args write", model.write_i32(local_at(0), dma_args));
+    ok &= expect_true(
+        "sync program system write", model.write_system_i32(system_at(source_addr), source)
+    );
     model.load_program(program.span());
     const auto result = model.run(16);
     ok &= expect_eq("sync program state", result.state, lifecycle_state::done);
-    ok &= expect_eq("sync program fault", result.fault, model_error::none);
+    ok &= expect_eq("sync program fault", result.fault, architectural_fault::none);
     ok &= expect_eq("sync program retired", result.retired, std::uint64_t{11});
     ok &= expect_eq("sync program pc", result.pc, std::uint32_t{44});
-    const auto stored = model.read_system_i32(store_addr, source.size());
+    const auto stored = model.read_system_i32(system_at(store_addr), source.size());
     ok &= expect_vector_eq("sync program store result", stored, source);
     ok &= expect_eq("sync program dma events", model.dma_events().size(), std::size_t{2});
     ok &= expect_eq("sync program dma event 0 sequence", model.dma_events().at(0).sequence, std::uint64_t{0});
@@ -714,7 +811,7 @@ bool test_vector_i32_alu_ops() {
     const auto arg_bytes = std::as_bytes(std::span(args));
 
     auto run_op = [&](std::uint32_t op, std::span<const std::int32_t> expected) {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         program_builder program;
         program.configure(4, vector_element_width::bits_32, true)
             .load(1, 0)
@@ -726,10 +823,10 @@ bool test_vector_i32_alu_ops() {
         const auto load_result = model.load_program_descriptor(desc, program.span(), arg_bytes);
         bool ok = true;
         ok &= expect_eq("alu load state", load_result.state, lifecycle_state::idle);
-        ok &= expect_eq("alu load fault", load_result.fault, model_error::none);
+        ok &= expect_eq("alu load fault", load_result.fault, architectural_fault::none);
         const auto result = model.run(16);
         ok &= expect_eq("alu run state", result.state, lifecycle_state::done);
-        const auto actual = model.read_i32(48, expected.size());
+        const auto actual = model.read_i32(local_at(48), expected.size());
         ok &= expect_vector_eq("alu result", actual, expected);
         return ok;
     };
@@ -771,7 +868,7 @@ bool test_vector_i32_compare_shift_ops() {
     const auto arg_bytes = std::as_bytes(std::span(args));
 
     auto run_op = [&](std::uint32_t op, std::span<const std::int32_t> expected) {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         program_builder program;
         program.configure(4, vector_element_width::bits_32, true)
             .load(1, 0)
@@ -782,9 +879,9 @@ bool test_vector_i32_compare_shift_ops() {
         const auto desc = valid_program_desc(program.span(), arg_bytes);
         bool ok = true;
         ok &= expect_eq("compare shift load fault", model.load_program_descriptor(desc, program.span(), arg_bytes).fault,
-                        model_error::none);
+                        architectural_fault::none);
         ok &= expect_eq("compare shift run", model.run(16).state, lifecycle_state::done);
-        const auto actual = model.read_i32(32, expected.size());
+        const auto actual = model.read_i32(local_at(32), expected.size());
         ok &= expect_vector_eq("compare shift result", actual, expected);
         return ok;
     };
@@ -808,7 +905,7 @@ bool test_vector_narrow_element_semantics() {
     bool ok = true;
 
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int8_t, 4> lhs{127, -128, -1, 16};
         const std::array<std::int8_t, 4> rhs{1, -1, 2, -16};
         const std::array<std::int8_t, 4> add_expected{-128, 127, 1, 0};
@@ -819,15 +916,15 @@ bool test_vector_narrow_element_semantics() {
             .add(3, 1, 2)
             .store(3, 8)
             .exit();
-        ok &= expect_true("narrow i8 lhs", model.write_i8(0, lhs));
-        ok &= expect_true("narrow i8 rhs", model.write_i8(4, rhs));
+        ok &= expect_true("narrow i8 lhs", model.write_i8(local_at(0), lhs));
+        ok &= expect_true("narrow i8 rhs", model.write_i8(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("narrow i8 state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("narrow i8 add", model.read_i8(8, 4), add_expected);
+        ok &= expect_vector_eq("narrow i8 add", model.read_i8(local_at(8), 4), add_expected);
     }
 
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int8_t, 4> lhs{127, -128, -1, 16};
         const std::array<std::int8_t, 4> rhs{1, -1, 2, -16};
         const std::array<std::int8_t, 4> srl_expected{63, 1, 63, 16};
@@ -838,15 +935,15 @@ bool test_vector_narrow_element_semantics() {
             .srl(3, 1, 2)
             .store(3, 8)
             .exit();
-        ok &= expect_true("narrow srl lhs", model.write_i8(0, lhs));
-        ok &= expect_true("narrow srl rhs", model.write_i8(4, rhs));
+        ok &= expect_true("narrow srl lhs", model.write_i8(local_at(0), lhs));
+        ok &= expect_true("narrow srl rhs", model.write_i8(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("narrow srl state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("narrow logical shift", model.read_i8(8, 4), srl_expected);
+        ok &= expect_vector_eq("narrow logical shift", model.read_i8(local_at(8), 4), srl_expected);
     }
 
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int8_t, 4> lhs{127, -128, -1, 16};
         const std::array<std::int8_t, 4> rhs{1, -1, 2, -16};
         const std::array<std::int8_t, 4> lt_expected{0, 1, 0, 1};
@@ -857,15 +954,15 @@ bool test_vector_narrow_element_semantics() {
             .lt(3, 1, 2)
             .store(3, 8)
             .exit();
-        ok &= expect_true("narrow u8 lhs", model.write_i8(0, lhs));
-        ok &= expect_true("narrow u8 rhs", model.write_i8(4, rhs));
+        ok &= expect_true("narrow u8 lhs", model.write_i8(local_at(0), lhs));
+        ok &= expect_true("narrow u8 rhs", model.write_i8(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("narrow u8 state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("narrow unsigned compare", model.read_i8(8, 4), lt_expected);
+        ok &= expect_vector_eq("narrow unsigned compare", model.read_i8(local_at(8), 4), lt_expected);
     }
 
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int16_t, 2> lhs{32767, -32768};
         const std::array<std::int16_t, 2> rhs{1, -1};
         const std::array<std::int16_t, 2> expected{-32768, 32767};
@@ -876,15 +973,15 @@ bool test_vector_narrow_element_semantics() {
             .add(3, 1, 2)
             .store(3, 8)
             .exit();
-        ok &= expect_true("narrow i16 lhs", model.write_i16(0, lhs));
-        ok &= expect_true("narrow i16 rhs", model.write_i16(4, rhs));
+        ok &= expect_true("narrow i16 lhs", model.write_i16(local_at(0), lhs));
+        ok &= expect_true("narrow i16 rhs", model.write_i16(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("narrow i16 state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("narrow i16 add", model.read_i16(8, 2), expected);
+        ok &= expect_vector_eq("narrow i16 add", model.read_i16(local_at(8), 2), expected);
     }
 
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int16_t, 2> lhs{-32768, -1};
         const std::array<std::int16_t, 2> rhs{1, 1};
         const std::array<std::int16_t, 2> expected{0, 0};
@@ -895,15 +992,15 @@ bool test_vector_narrow_element_semantics() {
             .lt(3, 1, 2)
             .store(3, 8)
             .exit();
-        ok &= expect_true("narrow u16 lhs", model.write_i16(0, lhs));
-        ok &= expect_true("narrow u16 rhs", model.write_i16(4, rhs));
+        ok &= expect_true("narrow u16 lhs", model.write_i16(local_at(0), lhs));
+        ok &= expect_true("narrow u16 rhs", model.write_i16(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("narrow u16 state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("narrow unsigned i16 compare", model.read_i16(8, 2), expected);
+        ok &= expect_vector_eq("narrow unsigned i16 compare", model.read_i16(local_at(8), 2), expected);
     }
 
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int32_t, 1> lhs{-1};
         const std::array<std::int32_t, 1> rhs{1};
         const std::array<std::int32_t, 1> expected{0};
@@ -914,11 +1011,11 @@ bool test_vector_narrow_element_semantics() {
             .lt(3, 1, 2)
             .store(3, 8)
             .exit();
-        ok &= expect_true("unsigned i32 lhs", model.write_i32(0, lhs));
-        ok &= expect_true("unsigned i32 rhs", model.write_i32(4, rhs));
+        ok &= expect_true("unsigned i32 lhs", model.write_i32(local_at(0), lhs));
+        ok &= expect_true("unsigned i32 rhs", model.write_i32(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("unsigned i32 state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("unsigned i32 compare", model.read_i32(8, 1), expected);
+        ok &= expect_vector_eq("unsigned i32 compare", model.read_i32(local_at(8), 1), expected);
     }
 
     return ok;
@@ -989,19 +1086,19 @@ bool test_random_vector_i32_programs() {
         auto desc = valid_program_desc(program.span(), arg_bytes, local_mem_bytes);
         desc.required_op_classes |= HOLON_NPU_PROGRAM_OP_CLASS_PREDICATE;
 
-        machine model(local_mem_bytes, lanes_max);
+        direct_runner model(local_mem_bytes, lanes_max);
         const auto load = model.load_program_descriptor(desc, program.span(), arg_bytes);
         const auto case_name = std::string{"random vector case "} + std::to_string(case_index);
-        ok &= expect_eq(case_name + " load fault", load.fault, model_error::none);
+        ok &= expect_eq(case_name + " load fault", load.fault, architectural_fault::none);
         ok &= expect_eq(case_name + " run", model.run(32).state, lifecycle_state::done);
-        const auto actual = model.read_i32(dst_offset, expected.size());
+        const auto actual = model.read_i32(local_at(dst_offset), expected.size());
         ok &= expect_vector_eq(case_name, actual, expected);
     }
-    return ok;
+    return evidence.observe(semantic_event::vector_random, ok);
 }
 
 bool test_predicate_inactive_lanes_preserve_destination() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 16> args{
         1, 2, 3, 4,
         10, 20, 30, 40,
@@ -1027,17 +1124,17 @@ bool test_predicate_inactive_lanes_preserve_destination() {
 
     bool ok = true;
     ok &= expect_eq("predicate load", model.load_program_descriptor(desc, program.span(), arg_bytes).fault,
-                    model_error::none);
+                    architectural_fault::none);
     ok &= expect_eq("predicate run", model.run(16).state, lifecycle_state::done);
-    const auto actual = model.read_i32(32, expected.size());
+    const auto actual = model.read_i32(local_at(32), expected.size());
     ok &= expect_vector_eq("predicate inactive lanes", actual, expected);
     const std::array<std::int32_t, 4> ptrue_expected{11, 22, 33, 44};
-    ok &= expect_vector_eq("predicate ptrue lanes", model.read_i32(80, 4), ptrue_expected);
-    return ok;
+    ok &= expect_vector_eq("predicate ptrue lanes", model.read_i32(local_at(80), 4), ptrue_expected);
+    return evidence.observe(semantic_event::predicate_tail, ok);
 }
 
 bool test_vector_select_permute_and_reduction() {
-    machine model(256, 16);
+    direct_runner model(256, 16);
     const std::array<std::int32_t, 4> lhs{10, 20, 30, 40};
     const std::array<std::int32_t, 4> rhs{-1, -2, -3, -4};
     const std::array<std::int32_t, 1> predicate{0x5};
@@ -1065,24 +1162,24 @@ bool test_vector_select_permute_and_reduction() {
         .exit();
 
     bool ok = true;
-    ok &= expect_true("select lhs write", model.write_i32(0, lhs));
-    ok &= expect_true("select rhs write", model.write_i32(16, rhs));
-    ok &= expect_true("select predicate write", model.write_i32(32, predicate));
-    ok &= expect_true("gather indices write", model.write_i32(48, indices));
+    ok &= expect_true("select lhs write", model.write_i32(local_at(0), lhs));
+    ok &= expect_true("select rhs write", model.write_i32(local_at(16), rhs));
+    ok &= expect_true("select predicate write", model.write_i32(local_at(32), predicate));
+    ok &= expect_true("gather indices write", model.write_i32(local_at(48), indices));
     model.load_program(program.span());
     ok &= expect_eq("helper program state", model.run(32).state, lifecycle_state::done);
-    ok &= expect_vector_eq("select result", model.read_i32(64, 4), selected);
-    ok &= expect_vector_eq("gather result", model.read_i32(80, 4), gathered);
-    ok &= expect_eq("reduction sum", model.read_i32(96, 1).at(0), std::int32_t{100});
-    ok &= expect_eq("reduction min", model.read_i32(100, 1).at(0), std::int32_t{10});
-    ok &= expect_eq("reduction max", model.read_i32(104, 1).at(0), std::int32_t{40});
+    ok &= expect_vector_eq("select result", model.read_i32(local_at(64), 4), selected);
+    ok &= expect_vector_eq("gather result", model.read_i32(local_at(80), 4), gathered);
+    ok &= expect_eq("reduction sum", model.read_i32(local_at(96), 1).at(0), std::int32_t{100});
+    ok &= expect_eq("reduction min", model.read_i32(local_at(100), 1).at(0), std::int32_t{10});
+    ok &= expect_eq("reduction max", model.read_i32(local_at(104), 1).at(0), std::int32_t{40});
     return ok;
 }
 
 bool test_vector_saturating_arithmetic() {
     bool ok = true;
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int8_t, 4> lhs{120, 127, -120, -128};
         const std::array<std::int8_t, 4> rhs{20, 1, -20, 1};
         const std::array<std::int8_t, 4> add_expected{127, 127, -128, -127};
@@ -1098,15 +1195,15 @@ bool test_vector_saturating_arithmetic() {
             .store(3, 8)
             .store(4, 12)
             .exit();
-        ok &= expect_true("signed saturation lhs", model.write_i8(0, lhs));
-        ok &= expect_true("signed saturation rhs", model.write_i8(4, rhs));
+        ok &= expect_true("signed saturation lhs", model.write_i8(local_at(0), lhs));
+        ok &= expect_true("signed saturation rhs", model.write_i8(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("signed saturation state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("signed saturation add", model.read_i8(8, 4), add_expected);
-        ok &= expect_vector_eq("signed saturation sub", model.read_i8(12, 4), sub_expected);
+        ok &= expect_vector_eq("signed saturation add", model.read_i8(local_at(8), 4), add_expected);
+        ok &= expect_vector_eq("signed saturation sub", model.read_i8(local_at(12), 4), sub_expected);
     }
     {
-        machine model(128, 16);
+        direct_runner model(128, 16);
         const std::array<std::int8_t, 4> lhs{-6, -1, 5, 0};
         const std::array<std::int8_t, 4> rhs{10, 1, 10, 1};
         const std::array<std::int8_t, 4> add_expected{-1, -1, 15, 1};
@@ -1122,18 +1219,18 @@ bool test_vector_saturating_arithmetic() {
             .store(3, 8)
             .store(4, 12)
             .exit();
-        ok &= expect_true("unsigned saturation lhs", model.write_i8(0, lhs));
-        ok &= expect_true("unsigned saturation rhs", model.write_i8(4, rhs));
+        ok &= expect_true("unsigned saturation lhs", model.write_i8(local_at(0), lhs));
+        ok &= expect_true("unsigned saturation rhs", model.write_i8(local_at(4), rhs));
         model.load_program(program.span());
         ok &= expect_eq("unsigned saturation state", model.run(16).state, lifecycle_state::done);
-        ok &= expect_vector_eq("unsigned saturation add", model.read_i8(8, 4), add_expected);
-        ok &= expect_vector_eq("unsigned saturation sub", model.read_i8(12, 4), sub_expected);
+        ok &= expect_vector_eq("unsigned saturation add", model.read_i8(local_at(8), 4), add_expected);
+        ok &= expect_vector_eq("unsigned saturation sub", model.read_i8(local_at(12), 4), sub_expected);
     }
     return ok;
 }
 
 bool test_vector_pack_unpack_and_transpose() {
-    machine model(512, 16);
+    direct_runner model(512, 16);
     std::array<std::int32_t, 16> first{};
     std::array<std::int32_t, 16> second{};
     std::array<std::int32_t, 16> zip_lo_expected{};
@@ -1168,17 +1265,17 @@ bool test_vector_pack_unpack_and_transpose() {
         .store(7, 384)
         .exit();
     bool ok = true;
-    ok &= expect_true("pack first write", model.write_i32(0, first));
-    ok &= expect_true("pack second write", model.write_i32(64, second));
+    ok &= expect_true("pack first write", model.write_i32(local_at(0), first));
+    ok &= expect_true("pack second write", model.write_i32(local_at(64), second));
     model.load_program(program.span());
     ok &= expect_eq("pack program state", model.run(32).state, lifecycle_state::done);
-    ok &= expect_vector_eq("zip lo result", model.read_i32(128, 16), zip_lo_expected);
-    ok &= expect_vector_eq("zip hi result", model.read_i32(192, 16), zip_hi_expected);
-    ok &= expect_vector_eq("unzip even result", model.read_i32(256, 16), first);
-    ok &= expect_vector_eq("unzip odd result", model.read_i32(320, 16), second);
-    ok &= expect_vector_eq("transpose4 result", model.read_i32(384, 16), transpose_expected);
+    ok &= expect_vector_eq("zip lo result", model.read_i32(local_at(128), 16), zip_lo_expected);
+    ok &= expect_vector_eq("zip hi result", model.read_i32(local_at(192), 16), zip_hi_expected);
+    ok &= expect_vector_eq("unzip even result", model.read_i32(local_at(256), 16), first);
+    ok &= expect_vector_eq("unzip odd result", model.read_i32(local_at(320), 16), second);
+    ok &= expect_vector_eq("transpose4 result", model.read_i32(local_at(384), 16), transpose_expected);
 
-    machine invalid(128, 16);
+    direct_runner invalid(128, 16);
     program_builder invalid_program;
     invalid_program.configure(3, vector_element_width::bits_32, true)
         .predicate_ptrue(0)
@@ -1187,12 +1284,12 @@ bool test_vector_pack_unpack_and_transpose() {
     invalid.load_program(invalid_program.span());
     const auto invalid_result = invalid.run(8);
     ok &= expect_eq("odd zip state", invalid_result.state, lifecycle_state::fault);
-    ok &= expect_eq("odd zip fault", invalid_result.fault, model_error::vector_config);
+    ok &= expect_eq("odd zip fault", invalid_result.fault, architectural_fault::vector_config);
     return ok;
 }
 
 bool test_vector_reduction_empty_identities() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 4> source{10, -2, 30, -4};
     const std::array<std::int32_t, 1> empty_predicate{0};
     program_builder program;
@@ -1211,19 +1308,19 @@ bool test_vector_reduction_empty_identities() {
         .exit();
 
     bool ok = true;
-    ok &= expect_true("identity source write", model.write_i32(0, source));
-    ok &= expect_true("empty predicate write", model.write_i32(16, empty_predicate));
+    ok &= expect_true("identity source write", model.write_i32(local_at(0), source));
+    ok &= expect_true("empty predicate write", model.write_i32(local_at(16), empty_predicate));
     model.load_program(program.span());
     ok &= expect_eq("identity program state", model.run(24).state, lifecycle_state::done);
-    ok &= expect_eq("sum identity", model.read_i32(32, 1).at(0), std::int32_t{0});
-    ok &= expect_eq("min identity", model.read_i32(36, 1).at(0), std::numeric_limits<std::int32_t>::max());
-    ok &= expect_eq("max identity", model.read_i32(40, 1).at(0), std::numeric_limits<std::int32_t>::min());
+    ok &= expect_eq("sum identity", model.read_i32(local_at(32), 1).at(0), std::int32_t{0});
+    ok &= expect_eq("min identity", model.read_i32(local_at(36), 1).at(0), std::numeric_limits<std::int32_t>::max());
+    ok &= expect_eq("max identity", model.read_i32(local_at(40), 1).at(0), std::numeric_limits<std::int32_t>::min());
     return ok;
 }
 
 bool test_vector_requantization() {
     constexpr auto command_offset = std::uint16_t{64};
-    machine model(160, 16);
+    direct_runner model(160, 16);
     const std::array<std::int32_t, 4> source{3, 5, -3, 100};
     const std::array<std::int32_t, 6> command{1, 1, 0, -2, 3, 0};
     const std::array<std::int32_t, 4> expected{2, 2, -2, 3};
@@ -1236,27 +1333,27 @@ bool test_vector_requantization() {
         .exit();
 
     bool ok = true;
-    ok &= expect_true("requant source write", model.write_i32(0, source));
-    ok &= expect_true("requant command write", model.write_i32(command_offset, command));
+    ok &= expect_true("requant source write", model.write_i32(local_at(0), source));
+    ok &= expect_true("requant command write", model.write_i32(local_at(command_offset), command));
     model.load_program(program.span());
     ok &= expect_eq("requant state", model.run(16).state, lifecycle_state::done);
-    ok &= expect_vector_eq("requant result", model.read_i32(32, 4), expected);
+    ok &= expect_vector_eq("requant result", model.read_i32(local_at(32), 4), expected);
 
-    machine malformed(160, 16);
+    direct_runner malformed(160, 16);
     auto bad_command = command;
     bad_command[1] = 32;
-    ok &= expect_true("malformed requant source write", malformed.write_i32(0, source));
-    ok &= expect_true("malformed requant command write", malformed.write_i32(command_offset, bad_command));
+    ok &= expect_true("malformed requant source write", malformed.write_i32(local_at(0), source));
+    ok &= expect_true("malformed requant command write", malformed.write_i32(local_at(command_offset), bad_command));
     malformed.load_program(program.span());
     const auto bad_result = malformed.run(16);
     ok &= expect_eq("malformed requant state", bad_result.state, lifecycle_state::fault);
-    ok &= expect_eq("malformed requant fault", bad_result.fault, model_error::vector_config);
+    ok &= expect_eq("malformed requant fault", bad_result.fault, architectural_fault::vector_config);
     ok &= expect_eq("malformed requant pc", bad_result.pc, std::uint32_t{12});
-    return ok;
+    return evidence.observe(semantic_event::quant_rounding, ok);
 }
 
 bool test_vector_gather_fault() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const std::array<std::int32_t, 4> source{10, 20, 30, 40};
     const std::array<std::int32_t, 4> invalid_indices{3, 4, 2, 1};
     program_builder program;
@@ -1268,18 +1365,18 @@ bool test_vector_gather_fault() {
         .exit();
 
     bool ok = true;
-    ok &= expect_true("gather fault source write", model.write_i32(0, source));
-    ok &= expect_true("gather fault indices write", model.write_i32(16, invalid_indices));
+    ok &= expect_true("gather fault source write", model.write_i32(local_at(0), source));
+    ok &= expect_true("gather fault indices write", model.write_i32(local_at(16), invalid_indices));
     model.load_program(program.span());
     const auto result = model.run(16);
     ok &= expect_eq("gather fault state", result.state, lifecycle_state::fault);
-    ok &= expect_eq("gather fault code", result.fault, model_error::vector_config);
+    ok &= expect_eq("gather fault code", result.fault, architectural_fault::vector_config);
     ok &= expect_eq("gather fault pc", result.pc, std::uint32_t{16});
-    return ok;
+    return evidence.observe(semantic_event::fault_precision, ok);
 }
 
 bool test_matrix_gemm_i8_i32_micro_op() {
-    machine model(256, 16);
+    direct_runner model(256, 16);
     const std::array<std::int8_t, 6> a{
         1, -2, 3,
         4, 5, -6,
@@ -1298,9 +1395,9 @@ bool test_matrix_gemm_i8_i32_micro_op() {
         -14, -116, 126, 216,
     };
     const auto op = matrix_gemm_i8_i32_op{
-        .a_offset = 0,
-        .b_offset = 32,
-        .c_offset = 96,
+        .a_offset = local_address{0},
+        .b_offset = local_address{32},
+        .c_offset = local_address{96},
         .a_row_stride_bytes = 3,
         .b_row_stride_bytes = 4,
         .c_row_stride_bytes = 16,
@@ -1346,12 +1443,12 @@ bool test_matrix_gemm_i8_i32_micro_op() {
     ok &= expect_eq("matrix event 1 stored", events.at(1).stored, true);
     model.clear_matrix_events();
     ok &= expect_eq("matrix event clear", model.matrix_events().size(), std::size_t{0});
-    return ok;
+    return evidence.observe(semantic_event::matrix_accumulation, ok);
 }
 
 bool test_matrix_gemm_program_instruction() {
     constexpr auto command_offset = std::uint16_t{160};
-    machine model(256, 16);
+    direct_runner model(256, 16);
     const std::array<std::int8_t, 4> a{1, 2, 3, 4};
     const std::array<std::int8_t, 4> b{5, 6, 7, 8};
     const std::array<std::int32_t, 4> expected{19, 22, 43, 50};
@@ -1374,22 +1471,22 @@ bool test_matrix_gemm_program_instruction() {
     program.matrix_gemm(0, command_offset).exit();
 
     bool ok = true;
-    ok &= expect_true("matrix program write A", model.write_i8(0, a));
-    ok &= expect_true("matrix program write B", model.write_i8(32, b));
-    ok &= expect_true("matrix program write command", model.write_i32(command_offset, command));
+    ok &= expect_true("matrix program write A", model.write_i8(local_at(0), a));
+    ok &= expect_true("matrix program write B", model.write_i8(local_at(32), b));
+    ok &= expect_true("matrix program write command", model.write_i32(local_at(command_offset), command));
     model.load_program(program.span());
     ok &= expect_eq("matrix program state", model.run(8).state, lifecycle_state::done);
-    ok &= expect_vector_eq("matrix program result", model.read_i32(64, expected.size()), expected);
+    ok &= expect_vector_eq("matrix program result", model.read_i32(local_at(64), expected.size()), expected);
     ok &= expect_eq("matrix program retired", model.retired(), std::uint64_t{2});
     return ok;
 }
 
 bool test_matrix_issue_faults() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     const auto base = matrix_gemm_i8_i32_op{
-        .a_offset = 0,
-        .b_offset = 32,
-        .c_offset = 64,
+        .a_offset = local_address{0},
+        .b_offset = local_address{32},
+        .c_offset = local_address{64},
         .a_row_stride_bytes = 2,
         .b_row_stride_bytes = 2,
         .c_row_stride_bytes = 8,
@@ -1403,7 +1500,7 @@ bool test_matrix_issue_faults() {
     auto expect_matrix_fault = [&](std::string_view name, matrix_gemm_i8_i32_op op) {
         ok &= expect_true(name, !model.issue_matrix_gemm_i8_i32(op));
         ok &= expect_eq("matrix fault state", model.state(), lifecycle_state::fault);
-        ok &= expect_eq("matrix fault code", model.fault(), model_error::matrix_issue);
+        ok &= expect_eq("matrix fault code", model.fault(), architectural_fault::matrix_issue);
         model.reset();
     };
 
@@ -1416,18 +1513,18 @@ bool test_matrix_issue_faults() {
     expect_matrix_fault("matrix short a stride", bad);
 
     bad = base;
-    bad.c_offset = 66;
+    bad.c_offset = local_address{66};
     expect_matrix_fault("matrix unaligned c", bad);
 
     bad = base;
-    bad.c_offset = 124;
+    bad.c_offset = local_address{124};
     expect_matrix_fault("matrix c out of range", bad);
 
     return ok;
 }
 
 bool test_vector_config_fault() {
-    machine model(128, 16);
+    direct_runner model(128, 16);
     program_builder program;
     program.configure(17, vector_element_width::bits_32, true).exit();
     model.load_program(program.span());
@@ -1435,13 +1532,13 @@ bool test_vector_config_fault() {
 
     bool ok = true;
     ok &= expect_eq("config fault state", result.state, lifecycle_state::fault);
-    ok &= expect_eq("config fault code", result.fault, model_error::vector_config);
+    ok &= expect_eq("config fault code", result.fault, architectural_fault::vector_config);
     ok &= expect_eq("config fault pc", result.pc, std::uint32_t{0});
     return ok;
 }
 
 bool test_local_memory_bounds_fault() {
-    machine model(32, 16);
+    direct_runner model(32, 16);
     program_builder program;
     program.configure(4, vector_element_width::bits_32, true).load(1, 24).exit();
     model.load_program(program.span());
@@ -1449,13 +1546,13 @@ bool test_local_memory_bounds_fault() {
 
     bool ok = true;
     ok &= expect_eq("bounds fault state", result.state, lifecycle_state::fault);
-    ok &= expect_eq("bounds fault code", result.fault, model_error::local_memory_bounds);
+    ok &= expect_eq("bounds fault code", result.fault, architectural_fault::local_memory_bounds);
     ok &= expect_eq("bounds fault pc", result.pc, std::uint32_t{4});
     return ok;
 }
 
 bool test_explicit_program_fault() {
-    machine model(32, 16);
+    direct_runner model(32, 16);
     program_builder program;
     program.fault();
     model.load_program(program.span());
@@ -1463,22 +1560,258 @@ bool test_explicit_program_fault() {
 
     bool ok = true;
     ok &= expect_eq("explicit fault state", result.state, lifecycle_state::fault);
-    ok &= expect_eq("explicit fault code", result.fault, model_error::explicit_program_fault);
+    ok &= expect_eq("explicit fault code", result.fault, architectural_fault::explicit_program_fault);
     ok &= expect_eq("explicit fault pc", result.pc, std::uint32_t{0});
     return ok;
 }
 
 bool test_reserved_system_fault_encoding() {
-    machine model(32, 16);
+    direct_runner model(32, 16);
     const std::array program{encode_system_fault() | 1U};
     model.load_program(program);
     const auto result = model.run(2);
 
     bool ok = true;
     ok &= expect_eq("reserved system fault state", result.state, lifecycle_state::fault);
-    ok &= expect_eq("reserved system fault code", result.fault, model_error::illegal_instruction);
+    ok &= expect_eq("reserved system fault code", result.fault, architectural_fault::illegal_instruction);
     ok &= expect_eq("reserved system fault pc", result.pc, std::uint32_t{0});
     return ok;
+}
+
+bool test_precise_two_phase_protocol() {
+    program_builder program;
+    program.configure(4, vector_element_width::bits_32, true).exit();
+    program_machine core(128, 16);
+    core.initialize(program.span(), 128);
+
+    auto issued = core.advance();
+    bool ok = expect_true("typed operation issued", issued.has_value());
+    const auto* pending = issued ? std::get_if<pending_operation>(&*issued) : nullptr;
+    ok &= expect_true("vector config is pending", pending != nullptr);
+    if (pending == nullptr) {
+        return false;
+    }
+    ok &= expect_eq("pending pc", core.pc(), std::uint32_t{0});
+    ok &= expect_eq("pending instret", core.retired(), std::uint64_t{0});
+
+    const auto wrong = core.complete(
+        operation_token{pending->token.value() + 1U},
+        operation_success{}
+    );
+    ok &= expect_true(
+        "wrong token rejected",
+        !wrong && wrong.error() == holon_npu::semantic::api_error::token_mismatch
+    );
+    ok &= expect_eq("wrong token pc stable", core.pc(), std::uint32_t{0});
+    ok &= expect_eq("wrong token instret stable", core.retired(), std::uint64_t{0});
+
+    const auto invalid = core.complete(pending->token, read_payload{});
+    ok &= expect_true(
+        "wrong completion type rejected",
+        !invalid && invalid.error() == holon_npu::semantic::api_error::invalid_completion
+    );
+    ok &= expect_eq("invalid completion pc stable", core.pc(), std::uint32_t{0});
+    ok &= expect_eq("invalid completion instret stable", core.retired(), std::uint64_t{0});
+
+    const auto completed = core.complete(pending->token, operation_success{});
+    ok &= expect_true("matching token completes", completed.has_value());
+    ok &= expect_eq("completion advances pc", core.pc(), std::uint32_t{4});
+    ok &= expect_eq("completion retires", core.retired(), std::uint64_t{1});
+
+    const auto duplicate = core.complete(pending->token, operation_success{});
+    ok &= expect_true(
+        "duplicate token rejected",
+        !duplicate && duplicate.error() == holon_npu::semantic::api_error::no_pending_operation
+    );
+    return evidence.observe(semantic_event::precise_completion, ok);
+}
+
+bool test_dma_store_payload_is_stable() {
+    program_builder program;
+    program.movi(1, 64).movi(2, 0).movi(3, 0).dma_store(1, 2, 3, 1).exit();
+    program_machine core(128, 16);
+    core.initialize(program.span(), 128);
+    const std::array<std::int32_t, 1> original{0x12345678};
+    const std::array<std::int32_t, 1> replacement{0x76543210};
+    bool ok = core.write_i32(local_address{0}, original);
+
+    for (int index = 0; index < 3; ++index) {
+        const auto retired = core.advance();
+        ok &= expect_true("scalar setup retires", retired.has_value());
+    }
+    auto issued = core.advance();
+    const auto* pending = issued ? std::get_if<pending_operation>(&*issued) : nullptr;
+    ok &= expect_true("DMA store pending", pending != nullptr);
+    if (pending == nullptr) {
+        return false;
+    }
+    const auto* dma = std::get_if<program_dma_operation>(&pending->value);
+    ok &= expect_true("DMA operation typed", dma != nullptr);
+    if (dma == nullptr) {
+        return false;
+    }
+    ok &= core.write_i32(local_address{0}, replacement);
+    std::int32_t captured = 0;
+    std::memcpy(&captured, dma->store_payload.data(), sizeof(captured));
+    ok &= expect_eq("store payload captured at issue", captured, original.front());
+    ok &= expect_eq("store precise pc", core.pc(), std::uint32_t{12});
+    ok &= expect_eq("store precise instret", core.retired(), std::uint64_t{3});
+    ok &= expect_true(
+        "DMA completion retires",
+        core.complete(pending->token, operation_success{}).has_value()
+    );
+    ok &= expect_eq("DMA completion pc", core.pc(), std::uint32_t{16});
+    return evidence.observe(semantic_event::stable_store_payload, ok);
+}
+
+bool test_device_loader_uses_typed_fetches() {
+    const std::array program{encode_system_exit()};
+    const std::array<std::byte, 0> arguments{};
+    const auto descriptor = valid_program_desc(program, arguments, 16);
+    device semantic_device(128, 16);
+    bool ok = semantic_device.submit(system_address{0x1000}).has_value();
+
+    auto descriptor_event = semantic_device.advance();
+    const auto* descriptor_request = descriptor_event
+        ? std::get_if<pending_operation>(&*descriptor_event)
+        : nullptr;
+    ok &= expect_true("descriptor fetch issued", descriptor_request != nullptr);
+    if (descriptor_request == nullptr) {
+        return false;
+    }
+    const auto invalid_descriptor_completion = semantic_device.complete(
+        descriptor_request->token,
+        operation_success{}
+    );
+    ok &= expect_true(
+        "descriptor completion type rejected",
+        !invalid_descriptor_completion &&
+            invalid_descriptor_completion.error() ==
+                holon_npu::semantic::api_error::invalid_completion
+    );
+    std::vector<std::byte> descriptor_bytes(sizeof(descriptor));
+    std::memcpy(descriptor_bytes.data(), &descriptor, sizeof(descriptor));
+    auto code_event = semantic_device.complete(
+        descriptor_request->token,
+        read_payload{std::move(descriptor_bytes)}
+    );
+    const auto* code_request = code_event ? std::get_if<pending_operation>(&*code_event) : nullptr;
+    ok &= expect_true("code fetch issued", code_request != nullptr);
+    if (code_request == nullptr) {
+        return false;
+    }
+    std::vector<std::byte> code_bytes(sizeof(program));
+    std::memcpy(code_bytes.data(), program.data(), sizeof(program));
+    const auto terminal = semantic_device.complete(
+        code_request->token,
+        read_payload{std::move(code_bytes)}
+    );
+    ok &= expect_true("device reaches terminal", terminal.has_value());
+    ok &= expect_eq("device done", semantic_device.state(), lifecycle_state::done);
+    ok &= expect_eq("device instret", semantic_device.program().retired(), std::uint64_t{1});
+    return evidence.observe(semantic_event::loader_sequence, ok);
+}
+
+bool test_device_soft_reset_drains_pending_operation() {
+    device semantic_device(128, 16);
+    bool ok = semantic_device.submit(system_address{0x1000}).has_value();
+
+    auto issued = semantic_device.advance();
+    const auto* pending = issued ? std::get_if<pending_operation>(&*issued) : nullptr;
+    ok &= expect_true("reset descriptor fetch pending", pending != nullptr);
+    if (pending == nullptr) {
+        return false;
+    }
+
+    ok &= expect_true("soft reset accepted", semantic_device.soft_reset().has_value());
+    ok &= expect_eq(
+        "reset state observable",
+        semantic_device.state(),
+        lifecycle_state::resetting
+    );
+    const auto repeated_reset = semantic_device.soft_reset();
+    ok &= expect_true(
+        "repeated reset rejected",
+        !repeated_reset &&
+            repeated_reset.error() == holon_npu::semantic::api_error::invalid_state
+    );
+
+    std::vector<std::byte> drained_descriptor(HOLON_NPU_PROGRAM_DESC_SIZE);
+    const auto drained = semantic_device.complete(
+        pending->token,
+        read_payload{std::move(drained_descriptor)}
+    );
+    const auto* terminal = drained ? std::get_if<terminal_event>(&*drained) : nullptr;
+    ok &= expect_true("reset drain reaches terminal event", terminal != nullptr);
+    ok &= expect_eq("reset drain state", semantic_device.state(), lifecycle_state::idle);
+    ok &= expect_eq("reset drain fault", semantic_device.fault(), architectural_fault::none);
+    ok &= expect_eq(
+        "reset drain instret",
+        semantic_device.program().retired(),
+        std::uint64_t{0}
+    );
+    return evidence.observe(semantic_event::reset_drain, ok);
+}
+
+bool test_direct_runner_drives_complete_device_path() {
+    constexpr system_address descriptor_address{0x0FF0};
+    constexpr system_address code_address{0x1800};
+    constexpr system_address argument_address{0x2000};
+    constexpr system_address completion_address{0x2FF0};
+
+    const std::array program{encode_system_exit()};
+    const std::array<std::int32_t, 4> arguments{1, 2, 3, 4};
+    auto descriptor = valid_program_desc(program, std::as_bytes(std::span(arguments)), 64);
+    descriptor.code_addr = code_address.value();
+    descriptor.arg_addr = argument_address.value();
+    descriptor.completion_addr = completion_address.value();
+
+    direct_runner runner(128, 16, 0x4000);
+    bool ok = true;
+    ok &= expect_true(
+        "direct device descriptor write",
+        runner.write_system_bytes(
+            descriptor_address,
+            std::as_bytes(std::span{&descriptor, std::size_t{1}})
+        )
+    );
+    ok &= expect_true(
+        "direct device code write",
+        runner.write_system_bytes(code_address, std::as_bytes(std::span(program)))
+    );
+    ok &= expect_true(
+        "direct device argument write",
+        runner.write_system_bytes(argument_address, std::as_bytes(std::span(arguments)))
+    );
+    ok &= expect_true("direct device submit", runner.submit(descriptor_address).has_value());
+
+    const auto result = runner.run(8);
+    ok &= expect_eq("direct device terminal state", result.state, lifecycle_state::done);
+    ok &= expect_eq("direct device terminal fault", result.fault, architectural_fault::none);
+    ok &= expect_eq("direct device instret", result.retired, std::uint64_t{1});
+    ok &= expect_true("direct device IRQ", runner.semantic_device().irq_pending());
+
+    const auto completion_bytes = runner.read_system_bytes(
+        completion_address,
+        HOLON_NPU_COMPLETION_RECORD_SIZE
+    );
+    holon_npu_completion_record_t completion{};
+    if (completion_bytes.size() == sizeof(completion)) {
+        std::memcpy(&completion, completion_bytes.data(), sizeof(completion));
+    } else {
+        ok &= expect_true("direct device completion size", false);
+    }
+    ok &= expect_eq(
+        "direct device completion status",
+        completion.status,
+        HOLON_NPU_COMPLETION_STATUS_DONE
+    );
+    ok &= expect_eq(
+        "direct device completion ABI",
+        completion.abi_version,
+        HOLON_NPU_ABI_VERSION_RESET
+    );
+    return evidence.observe(semantic_event::completion_ordering, ok);
 }
 
 }  // namespace
@@ -1514,5 +1847,11 @@ int main() {
     ok &= test_local_memory_bounds_fault();
     ok &= test_explicit_program_fault();
     ok &= test_reserved_system_fault_encoding();
+    ok &= test_precise_two_phase_protocol();
+    ok &= test_dma_store_payload_is_stable();
+    ok &= test_device_loader_uses_typed_fetches();
+    ok &= test_device_soft_reset_drains_pending_operation();
+    ok &= test_direct_runner_drives_complete_device_path();
+    ok &= evidence.complete();
     return ok ? 0 : 1;
 }

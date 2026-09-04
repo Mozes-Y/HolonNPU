@@ -1,0 +1,182 @@
+name: HolonNPU gem5
+
+on:
+  push:
+    branches: ["master"]
+    tags: ["v*"]
+    paths:
+      - ".github/workflows/gem5.yml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "include/**"
+      - "sim/gem5/**"
+      - "sim/semantic/**"
+      - "spec/**"
+      - "sw/holon_npu_runtime.*"
+      - "tools/*gem5*"
+  pull_request:
+    branches: ["master"]
+    paths:
+      - ".github/workflows/gem5.yml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "include/**"
+      - "sim/gem5/**"
+      - "sim/semantic/**"
+      - "spec/**"
+      - "sw/holon_npu_runtime.*"
+      - "tools/*gem5*"
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      linux:
+        description: Run the locked Linux full-system gate
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: holonnpu-gem5-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CC: gcc-15
+  CXX: g++-15
+  HOLON_NPU_RUN_LINUX: ${{ github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/v') || inputs.linux }}
+
+jobs:
+  stable-fast-gate:
+    name: stable C++26 device and bare-metal
+    runs-on: ubuntu-26.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out HolonNPU
+        uses: actions/checkout@v7
+
+      - name: Install gem5 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            bc \
+            bison \
+            cmake \
+            device-tree-compiler \
+            dpkg-dev \
+            flex \
+            gcc-15 \
+            g++-15 \
+            gcc-15-riscv64-linux-gnu \
+            libboost-all-dev \
+            libcapstone-dev \
+            libelf-dev \
+            libgoogle-perftools-dev \
+            libhdf5-dev \
+            libpng-dev \
+            libprotobuf-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            ninja-build \
+            pkg-config \
+            protobuf-compiler \
+            python3-dev \
+            scons \
+            zlib1g-dev
+
+      - name: Configure gem5
+        run: cmake --preset gem5
+
+      - name: Resolve upstream stable revision
+        id: gem5-revision
+        run: echo "sha=$(git ls-remote https://github.com/gem5/gem5.git refs/heads/stable | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore gem5 object cache
+        uses: actions/cache@v4
+        with:
+          path: build/gem5/deps/gem5-src/build
+          key: gem5-${{ steps.gem5-revision.outputs.sha }}-${{ runner.os }}-${{ hashFiles('sim/gem5/patches/cxx26.patch', 'sim/gem5/SConscript', 'sim/gem5/*.cc', 'sim/gem5/*.hh', 'sim/semantic/**', 'sw/holon_npu_runtime.cpp') }}
+          restore-keys: |
+            gem5-${{ steps.gem5-revision.outputs.sha }}-${{ runner.os }}-
+
+      - name: Build gem5 and HolonNPU
+        run: cmake --build --preset gem5 --parallel 16
+
+      - name: Run gem5 fast gate
+        run: ctest --preset gem5 --output-on-failure
+
+      - name: Restore locked Linux resources
+        if: env.HOLON_NPU_RUN_LINUX == 'true'
+        uses: actions/cache@v4
+        with:
+          path: build/gem5/gem5-resources
+          key: gem5-linux-resources-${{ hashFiles('sim/gem5/resources.lock.json') }}
+
+      - name: Prepare locked Linux resources
+        if: env.HOLON_NPU_RUN_LINUX == 'true'
+        run: |
+          python3 tools/prepare_gem5_linux_resources.py \
+            --resource-lock sim/gem5/resources.lock.json \
+            --resource-directory build/gem5/gem5-resources
+
+      - name: Restore matching Linux build
+        if: env.HOLON_NPU_RUN_LINUX == 'true'
+        uses: actions/cache@v4
+        with:
+          path: build/gem5/linux-kernel
+          key: gem5-linux-kernel-${{ runner.os }}-${{ hashFiles('sim/gem5/resources.lock.json') }}
+
+      - name: Build matching Linux kernel
+        if: env.HOLON_NPU_RUN_LINUX == 'true'
+        run: |
+          python3 tools/prepare_gem5_linux_kernel.py \
+            --compiler riscv64-linux-gnu-gcc-15 \
+            --resource-lock sim/gem5/resources.lock.json \
+            --output-dir build/gem5/linux-kernel \
+            --jobs 16
+
+      - name: Build Linux guest
+        if: env.HOLON_NPU_RUN_LINUX == 'true'
+        run: |
+          python3 tools/build_gem5_linux_guest.py \
+            --compiler riscv64-linux-gnu-gcc-15 \
+            --kernel-build-dir build/gem5/linux-kernel/build \
+            --kernel-metadata build/gem5/linux-kernel/kernel-metadata.json \
+            --source-root . \
+            --resource-lock sim/gem5/resources.lock.json \
+            --output-dir build/gem5/linux-guest
+
+      - name: Configure Linux full-system gate
+        if: env.HOLON_NPU_RUN_LINUX == 'true'
+        run: |
+          cmake --preset gem5 \
+            -DHOLON_NPU_ENABLE_GEM5_LINUX=ON \
+            -DHOLON_NPU_GEM5_LINUX_BUNDLE=${{ github.workspace }}/build/gem5/linux-guest/guest-bundle.sh \
+            -DHOLON_NPU_GEM5_RESOURCE_DIRECTORY=${{ github.workspace }}/build/gem5/gem5-resources
+
+      - name: Run Linux full-system gate
+        if: env.HOLON_NPU_RUN_LINUX == 'true'
+        run: ctest --test-dir build/gem5 -R '^gem5_riscv_linux$' --output-on-failure
+
+      - name: Upload simulation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gem5-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: |
+            build/gem5/simulation-metadata.json
+            build/gem5/gem5-source-state.json
+            build/gem5/gem5-tests/**/config.ini
+            build/gem5/gem5-tests/**/config.json
+            build/gem5/gem5-tests/**/stats.txt
+            build/gem5/gem5-tests/**/simout
+            build/gem5/gem5-tests/**/simerr
+            build/gem5/gem5-tests/linux/board.platform.terminal
+            build/gem5/gem5-tests/linux/resources-metadata.json
+            build/gem5/linux-kernel/kernel-metadata.json
+            build/gem5/linux-guest/guest-metadata.json
