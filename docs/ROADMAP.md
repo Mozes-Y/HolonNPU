@@ -31,7 +31,7 @@ New architecture behavior is simulator-first. It must progress through:
 1. requirements, workload, and measured bottleneck;
 2. ISA/ABI proposal and at least two alternatives;
 3. C++26 Holon semantic core implementation and tests;
-4. gem5 device, timing, and RISC-V system evaluation;
+4. autonomous Holon gem5 execution, timing, and memory-system evaluation;
 5. performance sensitivity, software cost, RTL cost, and verification report;
 6. an accepted ADR authorizing RTL implementation;
 7. RTL differential verification and gem5 calibration.
@@ -56,10 +56,37 @@ The descriptor-driven GEMM generation is archived at tag `v1.5`.
 
 ## v2.x: Simulation Foundation (Active)
 
-Goal: establish the mandatory architecture-exploration platform before adding
-new product behavior.
+Goal: a self-hosted NPU that runs its complete program without a Host CPU,
+doorbell, or gem5 device driver. ADR-0058 supersedes the Host-based destination
+of the earlier foundation; the released accelerator RTL contract is unchanged.
 
-Implemented foundation:
+Implementation order and acceptance:
+
+1. Completed autonomous functional execution: validated cold boot into `program_machine`,
+   external system memory, precise typed completion, resumable execution
+   budgets, and deterministic control/vector/matrix/DMA programs. Reject invalid
+   images without mutation; no descriptor or `semantic::device` on this path.
+2. Complete minimal Transformer: define the numeric contract before extending
+   ISA metadata; execute attention, normalization, residuals, feed-forward,
+   activation, and output computation as Holon program instructions. Compare
+   every stage with an independent mathematical reference, including random and
+   numeric-edge inputs. Host-side orchestration/arithmetic between kernels is
+   not evidence of self-hosted execution. BF16/FP8 are not prerequisites.
+3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
+   execution object and timing memory request port. Reuse the semantic core and
+   run the identical boot image without a RISC-V CPU or MMIO launch sequence.
+4. Performance acceptance: account for frontend, local memory, vector, matrix,
+   memory transfers, and synchronization on the actual event timeline. Report
+   complete-program statistics and sensitivity; calibrate existing operations
+   against RTL. Remove superseded Host-only sources, tests, and CI paths when
+   this replacement is validated. Do not maintain two product mainlines.
+
+Each step is implemented, tested, documented, and committed separately. RTL and
+released ABI 3.0/ISA 1.0 remain unchanged during the initial boot/runner step.
+New numerical behavior requires schema/docs and semantic evidence before gem5;
+no corresponding RTL is authorized by this roadmap alone.
+
+Existing accelerator foundation (migration input, not self-hosted completion):
 
 - one deterministic C++26 Holon semantic core under `sim/semantic/`;
 - expose typed issue/effect/completion contracts without gem5 or RTL coupling;
@@ -76,7 +103,7 @@ Implemented foundation:
   record the exact gem5 `stable` commit, C++26 toolchain, model parameters, and
   workloads.
 
-Remaining foundation follow-up:
+Existing calibration follow-up:
 
 - broaden RTL calibration beyond current vector/matrix issue-to-event latency;
 - add representative sensitivity workloads.
@@ -92,7 +119,8 @@ Implementation sequence:
    resource, kernel, guest, terminal, and simulator evidence;
 6. completed: gate an idle/quiescent gem5 checkpoint capture and restore round
    trip in separate simulator processes;
-7. active: extend current vector/matrix zero-stall calibration coverage.
+7. superseded next step: extend current vector/matrix zero-stall calibration
+   through the autonomous workload sequence above.
 
 The semantic protocol is two-phase. `advance()` may retire internal work, emit
 one typed pending operation, or report a terminal event. External work changes
@@ -102,17 +130,17 @@ System memory belongs to the runner or gem5, never to the semantic core.
 
 Acceptance:
 
-- the direct runner and gem5 device execute one semantic implementation;
+- autonomous direct execution and gem5 execute one semantic implementation;
 - gem5 contains the only performance and full-system model;
-- semantic, device, timing, and bare-metal tests are reproducible;
-- Linux full-system is reproducible before this phase is marked complete;
+- complete Transformer functional execution is independently checked;
+- autonomous gem5 timing and memory-system tests are reproducible;
 - result, fault, and ordering behavior matches current RTL;
 - timing statistics identify frontend, DMA, scratchpad, vector, matrix, and
   synchronization costs separately;
 - no future architecture phase begins before this foundation is accepted.
 
 Non-goals: signal-level AXI simulation inside gem5, a second functional model,
-or new product ABI/ISA behavior.
+new Host device features, or premature RTL numeric extensions.
 
 ## v2.x: Program And Runtime Hardening
 
@@ -183,7 +211,7 @@ Candidate research:
 - coherence only if platform workloads demonstrate a requirement.
 
 Security, ordering, isolation, recovery, software ownership, and operating-system
-integration must be modeled in RISC-V full-system gem5 before public interfaces
+integration must be modeled in the autonomous Holon gem5 system before public interfaces
 or RTL are approved.
 
 ## Release Policy
@@ -210,8 +238,8 @@ python3 tools/check_coverage.py --build-dir build/coverage
 git diff --check
 ```
 
-Once the simulation foundation exists, its semantic, gem5 device, timing, and
-required RISC-V system gates become part of this release policy. Release status
+As the autonomous foundation is implemented, its semantic, whole-workload,
+gem5 execution, and timing gates become part of this release policy. Release status
 and known limits belong in `docs/PROGRESS.md`; history belongs in
 `CHANGELOG.md` and Git tags.
 

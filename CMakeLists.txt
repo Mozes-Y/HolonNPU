@@ -294,11 +294,14 @@ target_sources(
   holon_npu_semantic
   PRIVATE
     sim/semantic/holon_npu_semantic.cpp
+    sim/semantic/holon_npu_execution.cpp
   PUBLIC
     FILE_SET semantic_headers
     TYPE HEADERS
     BASE_DIRS sim/semantic
-    FILES sim/semantic/holon_npu_semantic.hpp
+    FILES
+      sim/semantic/holon_npu_semantic.hpp
+      sim/semantic/holon_npu_execution.hpp
 )
 target_compile_features(holon_npu_semantic PUBLIC cxx_std_26)
 target_link_libraries(holon_npu_semantic PUBLIC holon_npu_runtime)
@@ -976,6 +979,12 @@ target_sources(holon_npu_semantic_test PRIVATE tests/model_test.cpp)
 holon_npu_target_options(holon_npu_semantic_test)
 target_link_libraries(holon_npu_semantic_test PRIVATE holon_npu_semantic)
 holon_npu_add_ctest(TEST holon_npu_semantic TARGET holon_npu_semantic_test LABELS fast)
+
+add_executable(holon_npu_execution_test)
+target_sources(holon_npu_execution_test PRIVATE tests/execution_test.cpp)
+holon_npu_target_options(holon_npu_execution_test)
+target_link_libraries(holon_npu_execution_test PRIVATE holon_npu_semantic)
+holon_npu_add_ctest(TEST holon_npu_execution TARGET holon_npu_execution_test LABELS fast)
 
 add_executable(holon_npu_runtime_test)
 target_sources(holon_npu_runtime_test PRIVATE tests/runtime_test.cpp)

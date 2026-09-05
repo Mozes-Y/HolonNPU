@@ -6,7 +6,49 @@ evaluation platform used before new architecture behavior may enter RTL.
 
 This document is the implementation contract for the active simulation
 foundation. It defines the boundary that the C++26 semantic core, direct runner,
-gem5 device, timing model, and system tests must preserve.
+gem5 execution model, and system tests must preserve.
+
+## Self-Hosted Direction
+
+The target is autonomous Holon program execution, not a Host-controlled NPU
+peripheral. Work proceeds in this order: functional boot/execution, a complete
+minimal Transformer program, then a standalone gem5 timing system. ADR-0058
+supersedes the earlier requirement for a RISC-V Host and `DmaDevice`.
+
+The current accelerator adapter and Host tests remain useful for released RTL
+differential verification during migration. They are not the target execution
+path and must not become a second permanent product. Their replacement and
+removal are gated together after autonomous gem5 validation.
+
+### Autonomous Boot And Execution Contract
+
+- A boot image supplies instruction words, an aligned in-range entry PC, active
+  word-aligned nonzero local-memory size, and optional initial local data with a
+  strong local address.
+  It is a simulation input, not a new binary format or public descriptor ABI.
+- Validate the entire image before changing machine state. Empty/oversized code,
+  invalid entry, invalid memory capacity, and overflowing data ranges return a
+  typed boot error. Boot with pending work is rejected; the environment must
+  finish that operation or explicitly reset first.
+- Successful cold boot clears scalar/vector/predicate/matrix state, scratchpad,
+  faults, events, and retirement before loading the image and entering RUNNING.
+  Predicate reset is all-active, vector length is zero. Tokens are not reused
+  across boot/reset within a machine instance.
+- `run_program` drives `program_machine` directly, using caller-owned system
+  memory and the same `advance`/`complete` protocol. It does not instantiate the
+  ABI device, fetch descriptors, require MMIO, or interpret arithmetic itself.
+- An instruction budget is a simulator limit, not an architectural fault.
+  Exhaustion returns a typed error without inventing a retired instruction or
+  fault; the caller may resume. Memory errors retain precise fault PC/instret.
+- gem5 will use this same boot contract and program protocol, but schedule
+  completion through its event queue and timing memory port. It must not call
+  the synchronous runner as a performance shortcut.
+
+Transformer acceptance requires program-executed QKV projection, attention
+scores/masking/softmax, value aggregation, output projection, residual paths,
+normalization, feed-forward activation, and output projection. A separate
+reference may calculate expected values but may not service missing semantic
+operations. Numeric and ISA contracts are reviewed before those extensions.
 
 ## One Semantics, Two Entry Points
 
@@ -73,7 +115,10 @@ safe reset behavior. `direct_runner` owns a byte-addressed system-memory image
 and completes the same requests synchronously. Neither layer implements a
 second copy of ISA arithmetic or fault semantics.
 
-## Holon gem5 SimObject
+## Current Accelerator gem5 Adapter
+
+This section describes the implemented migration baseline, not the autonomous
+architecture destination. No new Host integration is required by ADR-0058.
 
 The Holon gem5 SimObject consumes the semantic core and adds system context. It
 is integrated as an external gem5 component through `EXTRAS` and provides:
@@ -243,7 +288,7 @@ An RTL implementation may begin only after an ADR accepts evidence containing:
 1. the workload and quantified limitation;
 2. proposed ISA/ABI semantics and alternatives;
 3. passing semantic-core tests;
-4. passing gem5 device and applicable RISC-V system tests;
+4. passing autonomous gem5 execution and memory-system tests;
 5. cycle, bandwidth, utilization, and sensitivity measurements;
 6. software, RTL, verification, and migration costs;
 7. explicit RTL acceptance criteria and coverage requirements.

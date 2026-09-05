@@ -286,3 +286,27 @@ make a rolling upstream dependency reviewable and reproducible.
 removed. gem5 timing parameters and the simulation-only Linux driver are not
 product ABI. New architecture features remain blocked until semantic, device,
 timing, workload, and cost evidence is approved by a later ADR.
+
+## ADR-0058: Self-Hosted Execution Before Performance Expansion
+
+**Status:** Accepted; supersedes the Host/DmaDevice destination in ADR-0056/0057.
+
+**Decision:** Holon runs the complete workload on its own program machine.
+Implement validated cold boot and autonomous functional execution first, a
+complete minimal Transformer second, then a no-Host gem5 execution system with
+timing memory requests. One C++26 semantic core owns all instruction semantics.
+The accelerator ABI device is not part of the autonomous boot/execute path.
+
+**Alternatives:** Continuing the RISC-V Host peripheral model would measure a
+different system. Computing unsupported Transformer stages in the test harness
+would conceal missing architecture semantics. Both are rejected. A clocked
+gem5 execution object can share semantic effects without inheriting DmaDevice
+or introducing another instruction interpreter.
+
+**Consequences:** Initial boot work preserves released ISA/ABI and RTL behavior.
+New numeric semantics need schema, reference tests, and explicit documentation
+before implementation. gem5 performance evidence follows whole-program
+functional correctness; no new RTL follows without a separate approval. The
+existing Host adapter is removed with its verified autonomous replacement,
+not carried forward as a parallel product. Feature-sized tested commits are
+required throughout migration.

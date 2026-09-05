@@ -216,9 +216,22 @@ coverage run 开始前会删除旧 artifacts，并生成本轮
 ## 常见修改检查表
 
 新增架构行为必须先完成 `docs/SIMULATION.md` 定义的流程：在共享 C++26
-semantic core 中实现并测试，通过 gem5 device/timing 和 RISC-V system
+semantic core 中实现并测试，通过自主运行的 gem5 timing/memory system
 workload 评估，经 ADR 批准后才能开始 RTL。直接运行 semantic core 的快速测试
 与 gem5 使用同一份语义实现，不能各自维护 expected behavior。
+
+当前演进目标是 self-hosted NPU：先实现自主启动与执行，再跑通完整 Transformer，
+最后替换现有 Host/DmaDevice 为无 Host 的 gem5 执行系统。现有 RISC-V 测试只验证
+已实现的 accelerator 路径，不能作为 self-hosted 已完成的证明。
+
+自主功能入口是 `program_machine::boot(boot_image)` 和
+`run_program(machine, system_memory_view, instruction_budget)`。它不需要 descriptor；
+system memory 由调用者提供，指令预算耗尽可继续执行，不会制造 architectural fault。
+
+```bash
+cmake --build --preset debug --target holon_npu_execution_test --parallel 2
+ctest --preset debug -R '^holon_npu_execution$' --verbose
+```
 
 修改 AXI/DMA：
 

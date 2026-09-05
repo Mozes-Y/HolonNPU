@@ -47,14 +47,16 @@ The simulation foundation uses the upstream `stable` branch, builds the
 complete simulator and Holon EXTRAS in audited C++26 mode, and runs a RISC-V
 bare-metal system through the same semantic core used by fast tests. gem5 owns
 cycle accounting, memory latency, DMA integration, IRQ delivery, and structured
-statistics. See the [Simulation Contract](docs/SIMULATION.md) for the ownership
-boundary and RTL admission gate.
+statistics. This is the existing accelerator baseline, not the self-hosted
+destination. Active work is autonomous functional boot/execution, a complete
+minimal Transformer, then a no-Host gem5 execution and performance model.
+See the [Simulation Contract](docs/SIMULATION.md) for ownership and acceptance.
 
 ## Architecture Roadmap
 
 | Generation | Evidence-driven direction |
 | ---------- | ------------------------- |
-| v2.x | Build the shared semantic core and gem5 foundation, then harden programs, runtime, workloads, and measurement. |
+| v2.x | Autonomous semantic execution, a complete minimal Transformer, then self-hosted gem5 timing without a Host/DmaDevice. |
 | v3 | Explore Transformer and BF16 requirements after workload characterization. |
 | v4 | Explore FP8 and block/MX scaling only after numerical and system-level evidence. |
 | v5 | Explore contexts, IOMMU, queues, and multi-tile scaling when system workloads justify them. |
@@ -174,8 +176,9 @@ The release gate combines:
 - nonzero named RTL `cover property` checks;
 - line, branch, toggle, and expression coverage baselines.
 
-Future architecture work additionally requires semantic-core, gem5 device and
-timing, RISC-V bare-metal, and applicable Linux full-system evidence before RTL.
+Future architecture work requires autonomous semantic execution, whole-workload
+correctness, and no-Host gem5 timing/memory-system evidence before RTL. Existing
+RISC-V device/system tests verify the accelerator migration baseline only.
 
 Coverage artifacts are recreated for every coverage run. The checker rejects
 missing and stale raw files, missing functional events, unhit RTL cover

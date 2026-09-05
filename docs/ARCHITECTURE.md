@@ -175,6 +175,12 @@ See `docs/INTERFACE.md` and `docs/ISA.md` for software-visible semantics.
 This document describes implemented product behavior. Future candidates remain
 in `docs/ROADMAP.md` until evidence authorizes an architecture change.
 
+The active simulation target is self-hosted Holon execution: no Host CPU,
+descriptor launch, or gem5 DmaDevice on that path. Functional boot and complete
+Transformer execution precede autonomous gem5 timing. This does not describe
+the current RTL as already self-hosted; its ABI 3.0 accelerator boundary remains
+unchanged until model evidence authorizes migration (ADR-0058).
+
 Architecture evolution is simulator-first. `sim/semantic/` is the deterministic
 C++26 Holon semantic core shared by the direct runner and the gem5 SimObject.
 The semantic core owns architectural results, faults, and ordering; gem5 owns

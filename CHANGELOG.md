@@ -6,6 +6,10 @@ All notable project-level release changes are recorded here.
 
 ### Added
 
+- Added validated autonomous cold boot and budgeted `run_program` execution on
+  the semantic machine without a descriptor/device; shared external-memory
+  service, mapped 64-bit address tests, 64 vector programs, and tiled GEMM
+  writeback checks use the existing ISA semantics.
 - Added the C++26 `holon_npu::semantic` core, typed two-phase operation protocol,
   direct runner, and transactional token/error tests.
 - Added the upstream `stable` gem5 `DmaDevice`, cycle-accounted timing model,
@@ -24,6 +28,11 @@ All notable project-level release changes are recorded here.
 
 ### Changed
 
+- Made self-hosted functional execution, complete Transformer correctness, and
+  autonomous gem5 timing the simulation sequence. Existing Host integration is
+  a migration baseline, not the destination (ADR-0058).
+- Prevented program completion-token reuse across cold boot and reset; rejected
+  boot images and execution-budget exhaustion preserve architectural state.
 - Made semantic, gem5 device/timing, RISC-V system, and explicit architecture
   review evidence mandatory before future architecture behavior enters RTL.
 - Restored the v2.x through v5 research roadmap without presenting candidate

@@ -145,18 +145,32 @@ Future architecture behavior must pass these tiers before RTL:
 | Tier | Gate |
 | ---- | ---- |
 | Semantic core | Directed, property-based, and deterministic random behavior with all typed required events observed at verified invariants. |
-| gem5 device | MMIO, DMA, IRQ, lifecycle, fault, and completion integration. |
+| Autonomous execution | Cold boot, token ownership, budget/resume, precise faults, and program-issued memory effects without descriptors. |
+| Transformer | Complete Holon program compared stage-by-stage against an independent numeric reference. |
+| gem5 execution | Same boot image on a no-Host Holon execution object with timing memory requests. |
 | gem5 timing | Cycle-accounted queues, pipelines, banks, contention, and sensitivity. |
-| RISC-V bare-metal | Daily driver and end-to-end program execution. |
-| RISC-V Linux full-system | Nightly/release OS, memory-system, interrupt, and workload execution. |
 
-The normal gem5 preset gates the first four implemented layers through the
+The current accelerator gem5 preset remains a migration baseline, not evidence
+that the autonomous gem5 or Transformer tiers exist. It gates the
 timing unit test, RISC-V bare-metal workload, and an idle/quiescent checkpoint
 captured and restored by separate gem5 processes. The checkpoint test preserves
 descriptor, IRQ, and cycle state and submits a second program after restore.
 Linux full-system remains a separate resource-heavy nightly/release gate; its
 locked kernel, disk image, matching module, workload, and unique guest PASS
 sentinel have a passing local baseline recorded in `docs/PROGRESS.md`.
+
+`holon_npu_execution` directly boots `program_machine` without constructing
+`semantic::device`. It verifies invalid-image atomicity, cold state, stale tokens
+across boot/reset, resumable instruction budgets, mapped-memory bounds and
+precise DMA faults, 64 deterministic vector-loop programs (seed `0x48504e55`),
+and `1x1x1`, `16x16x16`, `17x19x23`, `64x64x64` tiled GEMM. Program results are
+observed in caller-owned memory after program-issued DMA STORE. It uses the
+same memory service as accelerator direct tests, not another arithmetic model.
+
+```bash
+cmake --build --preset debug --target holon_npu_execution_test --parallel 2
+ctest --preset debug -R '^holon_npu_execution$' --verbose
+```
 
 The semantic test registry currently requires 13 typed events covering decode,
 descriptor compatibility, precise completion, DMA visibility and payload

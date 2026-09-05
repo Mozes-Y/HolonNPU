@@ -1,13 +1,16 @@
 # HolonNPU Progress
 
-Last updated: 2026-09-04.
+Last updated: 2026-09-05.
 
 ## Current Status
 
 The programmable NPU single-mainline convergence remains the released `v2.0`
 baseline. The v2.x Simulation Foundation semantic, gem5 fast, bare-metal, and
-Linux full-system paths are implemented and passing. Broader calibration and
-sensitivity workloads remain active.
+Linux full-system paths are implemented. The active destination is now
+self-hosted execution (ADR-0058), not the existing Host/DmaDevice system.
+Autonomous functional boot and budgeted execution are implemented and verified;
+complete Transformer execution and autonomous gem5 performance modeling are
+not yet implemented.
 
 - `master` contains one canonical product rooted at `npu_top`.
 - Public contract is ABI 3.0 and Holon ISA 1.0.
@@ -77,7 +80,7 @@ FSM is not assigned a threshold because Verilator reports no FSM denominator.
 
 ## Simulation Foundation Verification
 
-Fast gates verified locally on 2026-09-04; Linux evidence is from 2026-07-22
+Fast gates verified locally on 2026-09-05; Linux evidence is from 2026-07-22
 and has not been rerun with the updated upstream/compiler:
 
 | Gate | Result |
@@ -85,7 +88,7 @@ and has not been rerun with the updated upstream/compiler:
 | Semantic core | migrated model/runtime/frontend differential tests passed; 13/13 typed required events observed |
 | Typed completion protocol | wrong, duplicate, and invalid completions rejected transactionally |
 | gem5 upstream | official `stable` SHA `cbc94c1a773e94118070294750dbe2c9c75898cb` |
-| C++ standard audit | 27,542/27,542 translation units use effective C++26 |
+| C++ standard audit | 27,551/27,551 translation units use effective C++26 |
 | gem5 build | complete `RISCV/gem5.opt` built with 16 SCons jobs |
 | gem5 fast gate | `6/6` passed |
 | RISC-V bare-metal | vector, matrix, DMA, completion, IRQ, fault, and reset passed |
@@ -99,6 +102,30 @@ generated under `build/gem5/`. The current build uses host GCC 16.2 and RISC-V
 GCC 16.1. gem5 `stable` warns that host GCC 16.2 is newer than its listed support
 range; the reviewed C++26 overlay builds successfully and the full compile
 database is audited.
+
+## Autonomous Execution Verification
+
+Completed on 2026-09-05: transactional cold boot, non-recycled program tokens,
+caller-owned mapped memory, and resumable budgeted execution directly on
+`program_machine`. No descriptor/device is used by this entry point. Shared
+memory service preserves accelerator differential tests without duplicating ISA
+arithmetic. RTL, schemas, generated headers, and the driver are unchanged.
+
+| Command/gate | Result |
+| ------------ | ------ |
+| `cmake --build --preset debug --parallel 2` | passed |
+| `ctest --preset debug --output-on-failure` | 24/24 passed |
+| `ctest --preset lint --output-on-failure` | 11/11 passed |
+| `ctest --preset debug -R '^holon_npu_execution$' --verbose` | boot/errors/tokens/budgets, 64 random vector programs, four tiled GEMM shapes passed |
+| `ctest --test-dir build/semantic-sanitize -R '^holon_npu_(execution\|semantic\|runtime)$' --output-on-failure` | 3/3 passed with ASan/UBSan |
+| New execution sources `-Wall -Wextra -Wpedantic -Werror` | passed |
+| `cmake --build --preset gem5 --parallel 16` | passed; current stable SHA above |
+| `ctest --preset gem5 --output-on-failure` | 6/6 passed |
+| ABI/ISA generation, ISA metadata, ownership, macro policy, `git diff --check` | passed |
+
+Regression/coverage and Linux FS were not rerun for this feature; their older
+results above are not evidence of a new release gate. ASan/UBSan was configured
+in ignored `build/semantic-sanitize` with RTL disabled; no preset was added.
 
 ## Known Limits
 
@@ -116,11 +143,10 @@ database is audited.
 
 ## Next Work
 
-Simulation Foundation follow-up is:
-
-- extend calibration to frontend, loader, DMA setup, and representative whole
-  programs without equating real memory latency to the RTL test memory;
-- add representative sensitivity workloads.
+Simulation Foundation proceeds through autonomous boot and execution, complete
+Transformer functional verification, then a no-Host gem5 execution model and
+whole-program performance calibration. Each completed feature is tested,
+documented, and committed before starting the next one.
 
 New architecture features remain blocked from RTL until their semantic, gem5,
 workload, cost, and ADR evidence passes the simulator-first gate. This page

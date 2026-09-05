@@ -1,4 +1,5 @@
 #include "holon_npu_semantic.hpp"
+#include "holon_npu_execution.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -409,8 +410,44 @@ void program_machine::reset() {
     matrix_accumulator_n_ = 0;
     next_dma_sequence_ = 0;
     next_matrix_sequence_ = 0;
-    next_token_ = 1;
     pending_.reset();
+}
+
+std::expected<void, boot_error> program_machine::boot(const boot_image& image) {
+    if (pending_) {
+        return std::unexpected(boot_error::operation_pending);
+    }
+    if (image.instructions.empty() ||
+        image.instructions.size() > HOLON_NPU_PROGRAM_MEM_MAX_BYTES / k_pc_increment) {
+        return std::unexpected(boot_error::invalid_program_size);
+    }
+    if (image.entry.value() % k_pc_increment != 0 ||
+        image.entry.value() / k_pc_increment >= image.instructions.size()) {
+        return std::unexpected(boot_error::invalid_entry);
+    }
+    if (image.local_memory_bytes == 0 ||
+        image.local_memory_bytes > scratchpad_.size() ||
+        image.local_memory_bytes > HOLON_NPU_LOCAL_MEM_MAX_BYTES ||
+        image.local_memory_bytes % sizeof(std::uint32_t) != 0) {
+        return std::unexpected(boot_error::invalid_local_memory_size);
+    }
+    const auto offset = image.data_address.value();
+    if (offset > image.local_memory_bytes ||
+        image.initial_data.size() > image.local_memory_bytes - offset) {
+        return std::unexpected(boot_error::invalid_data_range);
+    }
+
+    // Allocate before reset so an invalid image or allocation failure cannot
+    // partially replace the running architectural state.
+    std::vector<std::uint32_t> instructions(image.instructions.begin(), image.instructions.end());
+    std::vector<std::byte> data(image.initial_data.begin(), image.initial_data.end());
+    reset();
+    program_ = std::move(instructions);
+    active_local_mem_bytes_ = image.local_memory_bytes;
+    std::ranges::copy(data, scratchpad_.begin() + offset);
+    pc_ = image.entry.value();
+    state_ = lifecycle_state::running;
+    return {};
 }
 
 void program_machine::initialize(
@@ -432,7 +469,6 @@ void program_machine::initialize(
     matrix_accumulator_n_ = 0;
     next_dma_sequence_ = 0;
     next_matrix_sequence_ = 0;
-    next_token_ = 1;
     pending_.reset();
     active_local_mem_bytes_ = std::min(active_local_mem_bytes, scratchpad_.size());
     pc_ = entry.value();
@@ -2173,48 +2209,7 @@ bool direct_runner::issue_matrix_gemm_i8_i32(const matrix_gemm_i8_i32_op& op) {
 }
 
 operation_result direct_runner::service(const pending_operation& request) {
-    const auto read_system = [this](system_address address, std::size_t byte_count)
-        -> operation_result {
-        if (!system_range_ok(address, byte_count)) {
-            return operation_failure{architectural_fault::axi_read};
-        }
-        const auto first = system_memory_.begin() + address.value();
-        return read_payload{std::vector<std::byte>(first, first + byte_count)};
-    };
-
-    if (const auto* fetch = std::get_if<descriptor_fetch>(&request.value)) {
-        return read_system(fetch->address, HOLON_NPU_PROGRAM_DESC_SIZE);
-    }
-    if (const auto* fetch = std::get_if<code_fetch>(&request.value)) {
-        return read_system(fetch->address, fetch->byte_count);
-    }
-    if (const auto* fetch = std::get_if<argument_fetch>(&request.value)) {
-        return read_system(fetch->address, fetch->byte_count);
-    }
-    if (const auto* write = std::get_if<completion_record_write>(&request.value)) {
-        if (!write_system_bytes(write->address, write->payload)) {
-            return operation_failure{architectural_fault::axi_write};
-        }
-        return operation_success{};
-    }
-    if (const auto* dma = std::get_if<program_dma_operation>(&request.value)) {
-        if (!system_range_ok(dma->system, dma->byte_count)) {
-            return operation_failure{
-                dma->direction == dma_direction::system_to_local
-                    ? architectural_fault::axi_read
-                    : architectural_fault::axi_write,
-            };
-        }
-        if (dma->direction == dma_direction::system_to_local) {
-            const auto first = system_memory_.begin() + dma->system.value();
-            return read_payload{std::vector<std::byte>(first, first + dma->byte_count)};
-        }
-        if (dma->store_payload.size() != dma->byte_count) {
-            return operation_failure{architectural_fault::dma_request};
-        }
-        std::ranges::copy(dma->store_payload, system_memory_.begin() + dma->system.value());
-    }
-    return operation_success{};
+    return service_operation(request.value, system_memory_view{{}, system_memory_});
 }
 
 run_result direct_runner::snapshot() const {

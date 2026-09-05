@@ -271,6 +271,22 @@ enum class api_error : std::uint8_t {
     invalid_state,
 };
 
+struct boot_image {
+    std::span<const std::uint32_t> instructions;
+    instruction_address entry{};
+    std::size_t local_memory_bytes = HOLON_NPU_LOCAL_MEM_MAX_BYTES;
+    std::span<const std::byte> initial_data{};
+    local_address data_address{};
+};
+
+enum class boot_error : std::uint8_t {
+    operation_pending,
+    invalid_program_size,
+    invalid_entry,
+    invalid_local_memory_size,
+    invalid_data_range,
+};
+
 decoded_instruction decode(std::uint32_t word);
 std::string class_name(holon_npu_isa_class_t isa_class);
 std::string disassemble(const decoded_instruction& inst);
@@ -286,6 +302,7 @@ public:
     );
 
     void reset();
+    [[nodiscard]] std::expected<void, boot_error> boot(const boot_image& image);
     void initialize(
         std::span<const std::uint32_t> words,
         std::size_t active_local_mem_bytes,
