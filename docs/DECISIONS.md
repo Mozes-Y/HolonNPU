@@ -77,7 +77,9 @@ gates all evidence.
 
 ## ADR-0048: Holon Owns The Complete Program ISA
 
-**Status:** Accepted
+**Status:** Accepted for the implemented ISA 1.0 baseline. ADR-0059 supersedes
+the custom scalar encoding direction for the self-hosted target; independent
+NPU ISA ownership and frontend implementation interchangeability remain.
 
 **Decision:** Holon ISA is the complete software-visible program ISA. Frontend
 implementations are replaceable microarchitectures, not alternate ISA owners.
@@ -310,3 +312,41 @@ functional correctness; no new RTL follows without a separate approval. The
 existing Host adapter is removed with its verified autonomous replacement,
 not carried forward as a parallel product. Feature-sized tested commits are
 required throughout migration.
+
+## ADR-0059: RV32 Scalar Compatibility And NPU ISA Redesign
+
+**Status:** Accepted direction and RV32IM + Zicsr / ILP32 baseline, with the
+C extension disabled; standard scalar instructions are 32-bit and Holon NPU
+instructions are fixed 64-bit. Operand/opcode details require the review in
+`docs/ISA_REDESIGN.md` before metadata or decoder implementation.
+
+**Decision:** Preserve RV32 scalar instruction and calling-convention
+compatibility so freestanding C23/C++26 control programs can use the upstream
+RISC-V toolchain. Vector/matrix access initially uses explicit intrinsics or
+assembly with a defined calling convention, not compiler auto-vectorization.
+Redesign vector and matrix instruction contracts together instead of adding
+FP32 opcodes to the current restricted Holon scalar/vector format. Holon retains
+VLA execution, explicit predicates, independent vector/matrix encodings, and
+intentional use of the space freed by excluding RVC. RVV binary compatibility
+is not a goal. Frontend replacement changes implementation, not ISA semantics.
+Reclaimed non-RVC prefixes identify the 64-bit Holon instructions; standard
+RISC-V instruction-length parsing is not reused for these custom formats.
+
+**Alternatives:** Keeping the custom scalar instruction set would require a
+separate compiler backend for ordinary control code. Extending the current
+single-predicate, immediate-addressed vector and matrix-command-block interface
+would preserve the limitations this redesign is intended to remove. Neither
+is the target. Standard scalar compilation does not imply RVV auto-vectorization
+or stock disassembler support for Holon instructions.
+Fixed 64-bit NPU forms are chosen over a compact base plus extension words for
+operand space and simpler length handling; program footprint and fetch cost
+still require workload measurements before RTL approval.
+
+**Consequences:** ADR-0048 remains valid for independent NPU ISA ownership;
+the new target refines its complete-program contract to include standard RV32
+scalar semantics. Current ISA 1.0/ABI 3.0 and RTL remain the verified migration
+baseline. This approval does not select NPU opcode fields, a privileged
+execution environment, or a CSR address set.
+Numeric extensions, ELF/toolchain integration, predicates, vector/matrix
+operands, and memory/ordering must be specified coherently before the semantic
+core is migrated. This does not authorize RTL implementation.

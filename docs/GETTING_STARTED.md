@@ -224,6 +224,14 @@ workload 评估，经 ADR 批准后才能开始 RTL。直接运行 semantic core
 最后替换现有 Host/DmaDevice 为无 Host 的 gem5 执行系统。现有 RISC-V 测试只验证
 已实现的 accelerator 路径，不能作为 self-hosted 已完成的证明。
 
+目标标量 ISA 已确定为 RV32IM + Zicsr、ILP32、禁用 C 扩展，编译选项为
+`-march=rv32im_zicsr -mabi=ilp32`，使用 freestanding C23/C++26。
+标准标量指令保持 32-bit，Holon vector/matrix/DMA 指令固定 64-bit，使用禁用
+RVC 后释放的前缀，不能套用标准 RISC-V 的指令长度解码规则。
+Holon vector/matrix 先通过显式 intrinsic 或汇编接入，保留 VLA 与独立 predicate
+设计，不承诺自动向量化。当前模型尚未执行这个 RV32 合同；迁移边界见
+[ISA Redesign](ISA_REDESIGN.md)。
+
 自主功能入口是 `program_machine::boot(boot_image)` 和
 `run_program(machine, system_memory_view, instruction_budget)`。它不需要 descriptor；
 system memory 由调用者提供，指令预算耗尽可继续执行，不会制造 architectural fault。

@@ -4,6 +4,12 @@ This document defines the architectural semantics of Holon ISA 1.0. Exact
 encodings, instruction metadata, semantic hooks, and coverage names are
 generated in `docs/ISA_REFERENCE.md` from `spec/holon_npu_isa.json`.
 
+This is the implemented migration baseline. The new self-hosted target requires
+RV32-compatible scalar control and a redesigned vector/matrix ISA while keeping
+Holon VLA/predication principles. Its review contract is in
+`docs/ISA_REDESIGN.md`: 32-bit RV32 scalar plus fixed 64-bit Holon instructions.
+That target is not yet represented by these generated encodings.
+
 ## ISA Ownership
 
 Holon owns the complete program ISA. Replaceable frontend implementations are

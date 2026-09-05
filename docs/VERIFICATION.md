@@ -146,6 +146,7 @@ Future architecture behavior must pass these tiers before RTL:
 | ---- | ---- |
 | Semantic core | Directed, property-based, and deterministic random behavior with all typed required events observed at verified invariants. |
 | Autonomous execution | Cold boot, token ownership, budget/resume, precise faults, and program-issued memory effects without descriptors. |
+| RV32/toolchain migration | RV32IM/Zicsr semantics, ILP32 calls/stack, C23/C++26 ELF execution, no compressed scalar code, mixed 32/64-bit decode/truncation, and custom-byte link integrity. Planned, not satisfied by current custom-ISA tests. |
 | Transformer | Complete Holon program compared stage-by-stage against an independent numeric reference. |
 | gem5 execution | Same boot image on a no-Host Holon execution object with timing memory requests. |
 | gem5 timing | Cycle-accounted queues, pipelines, banks, contention, and sensitivity. |
@@ -166,6 +167,9 @@ precise DMA faults, 64 deterministic vector-loop programs (seed `0x48504e55`),
 and `1x1x1`, `16x16x16`, `17x19x23`, `64x64x64` tiled GEMM. Program results are
 observed in caller-owned memory after program-issued DMA STORE. It uses the
 same memory service as accelerator direct tests, not another arithmetic model.
+These programs still use the implemented ISA 1.0 encoding. A successful
+cross-compile/link probe does not establish RV32 execution or ELF-loader
+correctness; those need new semantic execution tests under ADR-0059.
 
 ```bash
 cmake --build --preset debug --target holon_npu_execution_test --parallel 2

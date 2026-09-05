@@ -181,6 +181,13 @@ Transformer execution precede autonomous gem5 timing. This does not describe
 the current RTL as already self-hosted; its ABI 3.0 accelerator boundary remains
 unchanged until model evidence authorizes migration (ADR-0058).
 
+The target frontend requires RV32IM + Zicsr scalar control, ILP32, and no C
+extension for toolchain reuse. Standard scalar instructions remain 32-bit;
+independently redesigned Holon vector/matrix/DMA instructions use a 64-bit
+envelope in reclaimed non-RVC space. VLA and explicit predication remain
+invariants. See `docs/ISA_REDESIGN.md` and ADR-0059 for the remaining operand,
+encoding, and execution-environment review.
+
 Architecture evolution is simulator-first. `sim/semantic/` is the deterministic
 C++26 Holon semantic core shared by the direct runner and the gem5 SimObject.
 The semantic core owns architectural results, faults, and ordering; gem5 owns

@@ -12,6 +12,14 @@ Autonomous functional boot and budgeted execution are implemented and verified;
 complete Transformer execution and autonomous gem5 performance modeling are
 not yet implemented.
 
+Active prerequisite: confirmed RV32IM + Zicsr, ILP32, no C extension, and a
+coordinated vector/matrix ISA redesign (ADR-0059). The selected envelope is
+32-bit standard scalar plus fixed 64-bit Holon instructions in reclaimed non-RVC
+space. Operand/opcode details are not frozen. No decoder, schema, or hardware
+capability has been changed at this architecture checkpoint.
+The autonomous boot/runner feature is committed as `84551c8` and remains the
+functional migration starting point.
+
 - `master` contains one canonical product rooted at `npu_top`.
 - Public contract is ABI 3.0 and Holon ISA 1.0.
 - The former descriptor-driven product is retained only by tag `v1.5`.
@@ -126,6 +134,26 @@ arithmetic. RTL, schemas, generated headers, and the driver are unchanged.
 Regression/coverage and Linux FS were not rerun for this feature; their older
 results above are not evidence of a new release gate. ASan/UBSan was configured
 in ignored `build/semantic-sanitize` with RTL disabled; no preset was added.
+
+## ISA Direction Checkpoint
+
+Confirmed on 2026-09-05: RV32IM + Zicsr / ILP32 without C, 32-bit standard scalar
+instructions, and fixed 64-bit Holon NPU instructions using reclaimed non-RVC
+prefixes. ADR-0059 and `docs/ISA_REDESIGN.md` define the remaining contract work.
+
+- Local GCC/G++ 16.1 compile/link probe passed with `-march=rv32im_zicsr`
+  and `-mabi=ilp32`, C23/C++26, freestanding code, and relaxation disabled.
+- `readelf -h -A` verified ELF32 little-endian RISC-V, flags `0x0`, the requested
+  extension attributes, and 16-byte stack alignment. `objdump -d -s` showed
+  32-bit scalar calls/branches/MUL/DIVU and unchanged 8-byte raw payload.
+- The probe lives in ignored `build/rv32-contract-probe`; it is manual toolchain
+  feasibility evidence, not a persistent CI gate or an executable Holon opcode.
+- ABI/ISA generation and metadata, ownership, macro policy, and
+  `git diff --check` passed. No implementation/build files changed; full RTL and
+  gem5 suites were not rerun for this documentation checkpoint.
+
+RV32 semantic execution, ELF startup, and Holon 64-bit decoding are still
+unimplemented. Successful compilation is not evidence of those capabilities.
 
 ## Known Limits
 

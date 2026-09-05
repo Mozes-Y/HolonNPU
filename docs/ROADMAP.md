@@ -72,6 +72,13 @@ Implementation order and acceptance:
    every stage with an independent mathematical reference, including random and
    numeric-edge inputs. Host-side orchestration/arithmetic between kernels is
    not evidence of self-hosted execution. BF16/FP8 are not prerequisites.
+   Active prerequisite: redesign vector/matrix instruction contracts and adopt
+   RV32IM + Zicsr scalar control with ILP32 and no C extension (ADR-0059,
+   `docs/ISA_REDESIGN.md`). The envelope is 32-bit standard scalar plus fixed
+   64-bit Holon instructions using reclaimed non-RVC prefixes. Preserve Holon
+   VLA/predication principles; do not freeze the current narrow encoding
+   by adding isolated FP32 opcodes. Then implement the unified semantic contract
+   and compile a complete autonomous Transformer forward pass.
 3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
    execution object and timing memory request port. Reuse the semantic core and
    run the identical boot image without a RISC-V CPU or MMIO launch sequence.

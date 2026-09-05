@@ -50,6 +50,10 @@ cycle accounting, memory latency, DMA integration, IRQ delivery, and structured
 statistics. This is the existing accelerator baseline, not the self-hosted
 destination. Active work is autonomous functional boot/execution, a complete
 minimal Transformer, then a no-Host gem5 execution and performance model.
+The next ISA design adopts RV32IM + Zicsr scalar control, ILP32, and no C extension
+with 32-bit scalar and 64-bit Holon NPU instructions. Vector/matrix operands are
+being redesigned without changing VLA/predication principles; see the
+[ISA Redesign](docs/ISA_REDESIGN.md).
 See the [Simulation Contract](docs/SIMULATION.md) for ownership and acceptance.
 
 ## Architecture Roadmap

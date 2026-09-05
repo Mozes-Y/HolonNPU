@@ -28,6 +28,11 @@ All notable project-level release changes are recorded here.
 
 ### Changed
 
+- Accepted RV32IM + Zicsr scalar compatibility, ILP32, and no C extension for
+  the self-hosted target; documented coordinated vector/matrix ISA redesign
+  with 32-bit scalar and fixed 64-bit Holon instructions in reclaimed non-RVC
+  space, without changing VLA/predication principles. Current schemas/RTL are
+  unchanged; operand fields and the execution environment remain under review.
 - Made self-hosted functional execution, complete Transformer correctness, and
   autonomous gem5 timing the simulation sequence. Existing Host integration is
   a migration baseline, not the destination (ADR-0058).

@@ -15,6 +15,15 @@ peripheral. Work proceeds in this order: functional boot/execution, a complete
 minimal Transformer program, then a standalone gem5 timing system. ADR-0058
 supersedes the earlier requirement for a RISC-V Host and `DmaDevice`.
 
+ADR-0059 selects RV32IM + Zicsr, ILP32, and no C extension for the target
+Holon scalar path. This is execution on Holon itself, not reintroduction of a
+Host CPU. Vector/matrix instructions retain independent Holon encodings and
+VLA/predicate principles; their redesign and the ELF/runtime contract are
+reviewed in `docs/ISA_REDESIGN.md`. Standard scalar words are 32-bit and Holon
+NPU instructions are fixed 64-bit using reclaimed non-RVC prefixes. Current
+ISA 1.0 remains the implemented migration baseline until those semantics are
+replaced and verified.
+
 The current accelerator adapter and Host tests remain useful for released RTL
 differential verification during migration. They are not the target execution
 path and must not become a second permanent product. Their replacement and
