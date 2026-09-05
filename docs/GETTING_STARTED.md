@@ -229,8 +229,18 @@ workload 评估，经 ADR 批准后才能开始 RTL。直接运行 semantic core
 标准标量指令保持 32-bit，Holon vector/matrix/DMA 指令固定 64-bit，使用禁用
 RVC 后释放的前缀，不能套用标准 RISC-V 的指令长度解码规则。
 Holon vector/matrix 先通过显式 intrinsic 或汇编接入，保留 VLA 与独立 predicate
-设计，不承诺自动向量化。当前模型尚未执行这个 RV32 合同；迁移边界见
+设计，不承诺自动向量化。执行环境为单 hart M-mode 裸机，无 U/S mode、MMU 或 OS。
+当前已实现取指分帧与标量解码，还没有执行这个 RV32 合同；迁移边界见
 [ISA Redesign](ISA_REDESIGN.md)。
+
+```bash
+cmake --build --preset debug --target holon_npu_instruction_test --parallel 2
+ctest --preset debug -R '^(holon_npu_instruction|isa_schema_tests)$' --verbose
+```
+
+`scalar_toolchain_check` 在 gem5 preset 中用上游 RISC-V 汇编器独立校验全部
+56 个标量/机器指令编码，并检查 C23/C++26 编译输出。结果位于
+`build/gem5/scalar-toolchain/`；编码检查不等同于程序执行验证。
 
 自主功能入口是 `program_machine::boot(boot_image)` 和
 `run_program(machine, system_memory_view, instruction_budget)`。它不需要 descriptor；

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -69,8 +70,57 @@ def patterns_overlap(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return (a_value & common_mask) == (b_value & common_mask)
 
 
-def check_schema(schema: dict[str, Any]) -> list[str]:
+def check_semantic_frontend(schema: dict[str, Any]) -> list[str]:
     failures: list[str] = []
+    frontend = schema.get("semantic_frontend", {})
+    contract = {
+        "stage": "decode_only", "scalar_profile": "rv32im_zicsr", "abi": "ilp32",
+        "execution_environment": "single_hart_machine", "byte_order": "little",
+        "alignment_bytes": 4, "scalar_bytes": 4, "holon_bytes": 8,
+        "holon_prefixes": [0, 1, 2], "register_count": 32,
+        "register_fields": {"rd": 7, "rs1": 15, "rs2": 20},
+    }
+    for key, value in contract.items():
+        if frontend.get(key) != value:
+            failures.append(f"semantic_frontend.{key} must be {value!r}")
+    for key in ("prefix_mask", "scalar_prefix"):
+        if as_int(frontend.get(key, 0)) != 3:
+            failures.append(f"semantic_frontend.{key} must be 3")
+    if not frontend.get("authority"):
+        failures.append("semantic_frontend requires an encoding authority")
+    entries = frontend.get("instructions", [])
+    counts = Counter(entry.get("extension") for entry in entries)
+    if counts != {"I": 40, "M": 8, "Zicsr": 6, "machine": 2}:
+        failures.append("semantic_frontend requires complete RV32IM/Zicsr and MRET/WFI sets")
+    names: set[str] = set()
+    valid_entries = []
+    formats = {"r", "i", "s", "b", "u", "j", "shift", "fence", "system", "csr", "csr_immediate"}
+    for entry in entries:
+        name = entry.get("name", "")
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", name) or name in names:
+            failures.append(f"semantic_frontend invalid/duplicate name {name!r}")
+        names.add(name)
+        if entry.get("format") not in formats:
+            failures.append(f"{name}: unknown scalar operand format")
+        if not {"mask", "value"} <= entry.keys():
+            failures.append(f"{name}: missing scalar encoding pattern")
+            continue
+        mask, value = as_int(entry["mask"]), as_int(entry["value"])
+        if not (0 <= value <= 0xFFFFFFFF and 0 < mask <= 0xFFFFFFFF):
+            failures.append(f"{name}: scalar encoding must fit 32 bits")
+        elif value & ~mask or mask & 0x7F != 0x7F or value & 3 != 3:
+            failures.append(f"{name}: invalid scalar mask/prefix")
+        else:
+            valid_entries.append(entry)
+    for index, entry in enumerate(valid_entries):
+        for other in valid_entries[index + 1:]:
+            if patterns_overlap(entry, other):
+                failures.append(f"scalar encoding overlap: {entry['name']} / {other['name']}")
+    return failures
+
+
+def check_schema(schema: dict[str, Any]) -> list[str]:
+    failures = check_semantic_frontend(schema)
     isa = schema.get("isa", {})
     if isa.get("instruction_bits") != 32:
         failures.append("isa.instruction_bits must be 32")

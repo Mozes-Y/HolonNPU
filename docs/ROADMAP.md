@@ -79,6 +79,11 @@ Implementation order and acceptance:
    VLA/predication principles; do not freeze the current narrow encoding
    by adding isolated FP32 opcodes. Then implement the unified semantic contract
    and compile a complete autonomous Transformer forward pass.
+   Completed first slice (ADR-0060): machine-checkable mixed-width framing and
+   RV32IM/Zicsr/MRET/WFI metadata, operand extraction, and disassembly, including
+   upstream assembler/compiler cross-checks. Next: standard scalar execution,
+   M-mode CSR/trap semantics and ELF startup; then the redesigned NPU operands.
+   Current RTL capability generation stays unchanged until a reviewed cutover.
 3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
    execution object and timing memory request port. Reuse the semantic core and
    run the identical boot image without a RISC-V CPU or MMIO launch sequence.

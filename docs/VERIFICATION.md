@@ -171,6 +171,17 @@ These programs still use the implemented ISA 1.0 encoding. A successful
 cross-compile/link probe does not establish RV32 execution or ELF-loader
 correctness; those need new semantic execution tests under ADR-0059.
 
+`holon_npu_instruction` gates mixed 32/64-bit framing, all 56 standard scalar
+and machine instruction patterns, 57,344 deterministic operand samples, and
+exhaustive I/S/B/J immediate reconstruction. It rejects unsupported scalar
+encodings independently of frame length. `isa_schema_tests` rejects malformed
+profiles, omissions, overlap, and drift, and checks the RTL generation boundary.
+The gem5 preset adds `scalar_toolchain_check`: upstream RISC-V assembly/linking
+is an independent encoding oracle, and real C23/C++26 compiler output must decode.
+The cross-toolchain dependency stays in that preset, not ordinary Debug builds.
+Artifacts in `build/gem5/scalar-toolchain/` retain input assembly, ELF attributes,
+decoded instructions, and compiler identity. These checks do not execute RV32.
+
 ```bash
 cmake --build --preset debug --target holon_npu_execution_test --parallel 2
 ctest --preset debug -R '^holon_npu_execution$' --verbose

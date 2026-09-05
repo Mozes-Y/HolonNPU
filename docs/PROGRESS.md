@@ -12,11 +12,14 @@ Autonomous functional boot and budgeted execution are implemented and verified;
 complete Transformer execution and autonomous gem5 performance modeling are
 not yet implemented.
 
-Active prerequisite: confirmed RV32IM + Zicsr, ILP32, no C extension, and a
-coordinated vector/matrix ISA redesign (ADR-0059). The selected envelope is
-32-bit standard scalar plus fixed 64-bit Holon instructions in reclaimed non-RVC
-space. Operand/opcode details are not frozen. No decoder, schema, or hardware
-capability has been changed at this architecture checkpoint.
+The target is RV32IM + Zicsr, ILP32, no C extension, single-hart M-mode, and
+coordinated vector/matrix redesign (ADR-0059). Typed 32/64-bit framing and
+standard scalar decoding are implemented under ADR-0060. The canonical ISA
+schema generates internal decode-only metadata without changing RTL capability.
+NPU operands, execution semantics, detailed traps, and ELF startup remain next.
+The next scalar execution contract uses a confirmed unified 32-bit physical
+address space with scalar access to mapped scratchpad/system memory and DMA
+for bulk tensor movement; this memory behavior is not implemented yet.
 The autonomous boot/runner feature is committed as `84551c8` and remains the
 functional migration starting point.
 
@@ -96,9 +99,9 @@ and has not been rerun with the updated upstream/compiler:
 | Semantic core | migrated model/runtime/frontend differential tests passed; 13/13 typed required events observed |
 | Typed completion protocol | wrong, duplicate, and invalid completions rejected transactionally |
 | gem5 upstream | official `stable` SHA `cbc94c1a773e94118070294750dbe2c9c75898cb` |
-| C++ standard audit | 27,551/27,551 translation units use effective C++26 |
+| C++ standard audit | 27,560/27,560 translation units use effective C++26 |
 | gem5 build | complete `RISCV/gem5.opt` built with 16 SCons jobs |
-| gem5 fast gate | `6/6` passed |
+| gem5 fast gate | `7/7` passed, including upstream scalar toolchain oracle |
 | RISC-V bare-metal | vector, matrix, DMA, completion, IRQ, fault, and reset passed |
 | Idle checkpoint | separate capture/restore processes preserve descriptor, IRQ, and cycle state; a second program completes after restore |
 | RISC-V Linux full-system | locked Ubuntu 24.04, Linux 6.8.12, matching module, DMA/IRQ smoke, and PASS sentinel completed in 1516.59 s |
@@ -107,7 +110,7 @@ and has not been rerun with the updated upstream/compiler:
 
 Build metadata, gem5 stats, and Linux resource/kernel/guest evidence are
 generated under `build/gem5/`. The current build uses host GCC 16.2 and RISC-V
-GCC 16.1. gem5 `stable` warns that host GCC 16.2 is newer than its listed support
+GCC 16.2. gem5 `stable` warns that host GCC 16.2 is newer than its listed support
 range; the reviewed C++26 overlay builds successfully and the full compile
 database is audited.
 
@@ -135,25 +138,33 @@ Regression/coverage and Linux FS were not rerun for this feature; their older
 results above are not evidence of a new release gate. ASan/UBSan was configured
 in ignored `build/semantic-sanitize` with RTL disabled; no preset was added.
 
-## ISA Direction Checkpoint
+## Scalar Decode Foundation Verification
 
-Confirmed on 2026-09-05: RV32IM + Zicsr / ILP32 without C, 32-bit standard scalar
-instructions, and fixed 64-bit Holon NPU instructions using reclaimed non-RVC
-prefixes. ADR-0059 and `docs/ISA_REDESIGN.md` define the remaining contract work.
+Completed on 2026-09-05: schema-generated scalar patterns, four-byte-aligned
+little-endian 32/64-bit framing, typed operand extraction, and disassembly.
+Tests observe all 56 RV32IM/Zicsr/MRET/WFI patterns, 57,344 deterministic operand
+cases, and exhaustive I/S/B/J immediate reconstruction. Negative schema tests
+cover overlap, malformed profiles, missing instructions, unchanged RTL/ABI
+outputs, and unchanged-file timestamps during regeneration.
 
-- Local GCC/G++ 16.1 compile/link probe passed with `-march=rv32im_zicsr`
-  and `-mabi=ilp32`, C23/C++26, freestanding code, and relaxation disabled.
-- `readelf -h -A` verified ELF32 little-endian RISC-V, flags `0x0`, the requested
-  extension attributes, and 16-byte stack alignment. `objdump -d -s` showed
-  32-bit scalar calls/branches/MUL/DIVU and unchanged 8-byte raw payload.
-- The probe lives in ignored `build/rv32-contract-probe`; it is manual toolchain
-  feasibility evidence, not a persistent CI gate or an executable Holon opcode.
-- ABI/ISA generation and metadata, ownership, macro policy, and
-  `git diff --check` passed. No implementation/build files changed; full RTL and
-  gem5 suites were not rerun for this documentation checkpoint.
+| Command/gate | Result |
+| ------------ | ------ |
+| `cmake --build --preset debug --parallel 2` | passed |
+| `ctest --preset debug --output-on-failure` | 26/26 passed |
+| `ctest --preset lint --output-on-failure` | 11/11 passed |
+| New instruction sources `-Wall -Wextra -Wpedantic -Werror` | passed |
+| Instruction test with ASan/UBSan | passed |
+| `cmake --build --preset gem5 --parallel 16` | passed; stable SHA and C++26 audit above |
+| `ctest --preset gem5 --output-on-failure` | 7/7 passed |
+| Upstream GCC/G++ 16.2 toolchain oracle | 56/56 assembly encodings and real C23/C++26 output decoded |
+| ABI/ISA generation, schema, ownership, macro policy, `git diff --check` | passed |
 
-RV32 semantic execution, ELF startup, and Holon 64-bit decoding are still
-unimplemented. Successful compilation is not evidence of those capabilities.
+The repeatable toolchain gate replaces the earlier manual compiler probe;
+artifacts live under `build/gem5/scalar-toolchain/`. Current RTL, public ABI
+headers, and program-machine behavior are unchanged. Regression/coverage and
+Linux FS were not rerun for this feature. RV32 execution, CSR/trap effects,
+ELF startup, and NPU 64-bit opcode semantics remain unimplemented; framing and
+compilation are not evidence of those capabilities.
 
 ## Known Limits
 

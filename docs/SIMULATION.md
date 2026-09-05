@@ -24,6 +24,16 @@ NPU instructions are fixed 64-bit using reclaimed non-RVC prefixes. Current
 ISA 1.0 remains the implemented migration baseline until those semantics are
 replaced and verified.
 
+The target executes in single-hart M-mode, without U/S mode, MMU, or OS.
+`holon_npu_instruction.hpp` separates typed frame recognition from standard
+scalar opcode/operand decoding. The internal metadata is generated from the
+canonical ISA schema's decode-only `semantic_frontend` section; it is not an
+independently executable ISA mode or an advertised RTL capability. Program
+execution/trap migration must consume this decoder rather than duplicate it.
+The selected scalar address model maps scratchpad and system memory into one
+32-bit physical space. Scalar system accesses will use the same typed external
+completion boundary; system storage must not move into the semantic core.
+
 The current accelerator adapter and Host tests remain useful for released RTL
 differential verification during migration. They are not the target execution
 path and must not become a second permanent product. Their replacement and

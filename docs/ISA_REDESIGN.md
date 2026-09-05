@@ -3,8 +3,8 @@
 Status: active architecture review under ADR-0059. This records the accepted
 direction and remaining contract work, not features of the current decoder.
 `docs/ISA.md` and generated metadata still describe the verified ISA 1.0
-migration baseline. Scalar scope and instruction widths are confirmed; NPU
-opcode/operand allocation and the execution environment are not yet frozen.
+migration baseline. Scalar scope, M-mode execution, and instruction widths are
+confirmed; NPU opcode/operand allocation and detailed CSR/trap contracts remain.
 
 ## Invariants
 
@@ -66,11 +66,26 @@ permissions, read/write suppression and side effects, traps, and termination
 before accepting ELF programs. See the
 [Zicsr specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/zicsr.html).
 
+The execution environment is confirmed as single-hart M-mode bare metal, with
+standard traps, CSRs, MRET, and WFI; no U/S mode, MMU, or OS is introduced.
+The machine-mode CSR inventory, reset values, interrupt sources, trap priority,
+and termination interface still require an execution contract. WFI is not a
+program-exit instruction. Decode recognition alone does not implement traps.
+
 Upstream GCC/LLVM are the intended scalar toolchains. A freestanding ILP32 runtime
 must define startup, stack/global-pointer initialization, code/rodata/data/BSS
 placement, calls/returns, and program termination. The memory map must make
 compiler-generated scalar accesses valid while preserving explicit tensor
 scratchpad/DMA management. No RISC-V Host CPU launches the Holon program.
+
+The selected address model is a unified 32-bit physical address space. Scalar
+loads/stores may access mapped scratchpad and system memory; they are not
+restricted to scratchpad. Tensor bulk transfers remain explicit DMA operations.
+Core-owned local memory and environment-owned system memory remain separate
+storage owners behind that address map. Region placement, access permissions,
+scalar/DMA ordering and fault rules must be frozen before execution. This is a
+target change, not a claim that the released accelerator permits scalar system
+memory accesses.
 
 Custom vector/matrix instructions initially enter through explicit intrinsics
 or assembly kernels with a documented calling/clobber convention. That is not
@@ -154,11 +169,23 @@ The selection compares two approaches:
 | Not selected: 32-bit scalar/NPU base with explicit extension words | Smaller common instructions and larger optional operands | More decode/length cases, register/immediate restrictions, tooling and fault complexity |
 
 Fixed 64-bit NPU forms are selected for expressive, predictable operand formats,
-not as a claim of measured performance superiority. Opcode/prefix allocations,
-instruction alignment, truncated fetch, branch targets, instruction boundaries,
-and relocation behavior must still be frozen before decoder implementation.
+not as a claim of measured performance superiority. NPU opcode/operand
+allocations and relocation behavior must still be frozen before execution.
 Holon needs length-aware decoding/disassembly; upstream tools remain responsible
 for the standard scalar portion and carrying explicitly emitted custom bytes.
+
+The first executable frontend contract (ADR-0060) fixes little-endian byte order
+and four-byte instruction alignment. A word with low bits `11` occupies four
+bytes and must decode as a selected standard scalar instruction. Other low-bit
+prefixes (`00`, `01`, `10`) occupy eight bytes; their NPU opcode allocations are
+not implied by successful framing. No compressed instruction is executed.
+A 64-bit instruction may start at an address congruent to four modulo eight;
+no alignment padding is required between scalar and NPU instructions.
+Fetch rejects misaligned PCs, incomplete frames, and wrapping image ranges.
+It determines length at the requested PC, without a hidden instruction-start
+bitmap. Program labels must identify intended instruction starts. Unsupported
+standard extensions, including standard long-instruction prefixes, never fall
+through to the Holon decoder.
 
 Keeping the current 12-bit address format solely to avoid changing the decoder
 is not a selection criterion. Measure program size and fetch cost before RTL
@@ -167,9 +194,11 @@ out-of-band arithmetic or repeated configuration just to overcome field limits.
 
 ## Implementation Order And Evidence
 
-1. Scalar extension/ABI scope and 32/64-bit widths are confirmed. Freeze the
-   remaining vector/matrix state, operand/encoding contracts, memory map, and
-   faults/events. Record decisions here and in ADRs before schema changes.
+1. Scalar extension/ABI scope and 32/64-bit framing are confirmed. Implement
+   framing and standard scalar decode independently of the remaining NPU
+   operands, memory map, and detailed trap contract. Freeze each remaining
+   contract before implementing its execution semantics; record decisions here
+   and in ADRs.
 2. Extend the single canonical ISA/ABI metadata and generators. Distinguish
    semantic-stage features from capabilities of existing RTL; reject overlap,
    truncation, unsupported modes, stale generated output, and toolchain drift.

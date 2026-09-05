@@ -265,7 +265,60 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
     )
     for state_group, names in schema["architectural_state"].items():
         lines.append(f"- `{state_group}`: {', '.join(f'`{name}`' for name in names)}.")
+    frontend = schema["semantic_frontend"]
+    lines.extend([
+        "", "## Semantic Frontend Migration", "",
+        "This decode-only contract is not a capability of the current RTL or",
+        "the current program machine. It will replace the custom control encoding",
+        "through simulator-first execution verification, not a compatibility mode.", "",
+        f"- Scalar profile: `{frontend['scalar_profile']}`, `{frontend['abi']}`.",
+        f"- Environment: `{frontend['execution_environment']}`.",
+        f"- Alignment: {frontend['alignment_bytes']} bytes; byte order: {frontend['byte_order']}.",
+        f"- Low bits `11`: {frontend['scalar_bytes']}-byte scalar word.",
+        f"- Low bits `00/01/10`: {frontend['holon_bytes']}-byte Holon frame (opcode legality separate).",
+        f"- Authority: {frontend['authority']}.", "",
+        "| Scalar instruction | Extension | Format | Match | Mask |",
+        "| ------------------ | --------- | ------ | ----- | ---- |",
+    ])
+    for entry in frontend["instructions"]:
+        lines.append(
+            f"| `{entry['name']}` | {entry['extension']} | `{entry['format']}` | "
+            f"`{c_hex(entry['value'])}` | `{c_hex(entry['mask'])}` |"
+        )
     lines.append("")
+    return "\n".join(lines)
+
+
+def generated_scalar_metadata(schema: dict[str, Any]) -> str:
+    frontend = schema["semantic_frontend"]
+    entries = frontend["instructions"]
+    formats = sorted({entry["format"] for entry in entries})
+    lines = [
+        f"// {BANNER}", "#pragma once", "",
+        "#include <array>", "#include <cstdint>", "#include <string_view>", "",
+        "namespace holon_npu::semantic::instruction {", "",
+    ]
+    for key in ("alignment_bytes", "scalar_bytes", "holon_bytes", "prefix_mask", "scalar_prefix", "register_count"):
+        lines.append(f"inline constexpr std::uint32_t {key} = {c_hex(frontend[key])};")
+    for name, shift in frontend["register_fields"].items():
+        lines.append(f"inline constexpr unsigned {name}_shift = {shift};")
+    lines.extend(["", "enum class scalar_opcode : std::uint8_t {"])
+    lines.extend(f"    {entry['name']}," for entry in entries)
+    lines.extend(["};", "", "enum class scalar_format : std::uint8_t {"])
+    lines.extend(f"    {name}," for name in formats)
+    lines.extend([
+        "};", "", "struct scalar_pattern {",
+        "    scalar_opcode opcode;", "    scalar_format format;",
+        "    std::string_view mnemonic;", "    std::uint32_t value;",
+        "    std::uint32_t mask;", "};", "",
+        "inline constexpr std::array scalar_patterns{",
+    ])
+    for entry in entries:
+        lines.append(
+            f"    scalar_pattern{{scalar_opcode::{entry['name']}, scalar_format::{entry['format']}, "
+            f"\"{entry['name'].lower()}\", {c_hex(entry['value'])}, {c_hex(entry['mask'])}}},"
+        )
+    lines.extend(["};", "", "} // namespace holon_npu::semantic::instruction", ""])
     return "\n".join(lines)
 
 
@@ -274,6 +327,7 @@ def render_all(schema: dict[str, Any]) -> dict[str, str]:
         "include/holon_npu_isa.h": generated_header(schema),
         "rtl/common/npu_isa_pkg.sv": generated_sv_pkg(schema),
         "docs/ISA_REFERENCE.md": generated_reference_md(schema),
+        "sim/semantic/holon_npu_scalar_metadata.hpp": generated_scalar_metadata(schema),
     }
 
 
@@ -281,7 +335,8 @@ def write_outputs(outputs: dict[str, str], output_root: Path) -> None:
     for rel_path, text in outputs.items():
         path = output_root / rel_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        if not path.exists() or path.read_text(encoding="utf-8") != text:
+            path.write_text(text, encoding="utf-8")
 
 
 def check_outputs(outputs: dict[str, str], root: Path) -> int:

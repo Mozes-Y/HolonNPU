@@ -186,7 +186,15 @@ extension for toolchain reuse. Standard scalar instructions remain 32-bit;
 independently redesigned Holon vector/matrix/DMA instructions use a 64-bit
 envelope in reclaimed non-RVC space. VLA and explicit predication remain
 invariants. See `docs/ISA_REDESIGN.md` and ADR-0059 for the remaining operand,
-encoding, and execution-environment review.
+encoding, and CSR/trap review.
+
+The execution environment is selected as single-hart M-mode bare metal,
+without U/S mode, MMU, or OS. ADR-0060 implements only model-stage framing and
+standard scalar decoding so far; it does not change this document's current RTL
+capability or make the existing program machine RV32-compatible.
+The target scalar memory contract is a unified 32-bit physical address space
+with direct scalar scratchpad/system access and explicit DMA for tensor bulk
+movement. The current accelerator's scratchpad-only scalar path is unchanged.
 
 Architecture evolution is simulator-first. `sim/semantic/` is the deterministic
 C++26 Holon semantic core shared by the direct runner and the gem5 SimObject.

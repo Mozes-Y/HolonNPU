@@ -6,6 +6,12 @@ All notable project-level release changes are recorded here.
 
 ### Added
 
+- Added schema-generated RV32IM/Zicsr/MRET/WFI decode metadata, typed mixed
+  32/64-bit framing, scalar operand extraction/disassembly, exhaustive immediate
+  tests, and upstream assembler/compiler cross-checking. This is a semantic
+  frontend foundation, not new RTL capability or RV32 program execution.
+- Preserved unchanged generated ISA file timestamps so model-stage metadata
+  updates do not force unrelated RTL recompilation.
 - Added validated autonomous cold boot and budgeted `run_program` execution on
   the semantic machine without a descriptor/device; shared external-memory
   service, mapped 64-bit address tests, 64 vector programs, and tiled GEMM
@@ -28,6 +34,11 @@ All notable project-level release changes are recorded here.
 
 ### Changed
 
+- Selected single-hart M-mode bare-metal execution for the target scalar core,
+  with standard trap/CSR/MRET and no U/S mode, MMU, or OS.
+- Selected a unified 32-bit physical address space with direct scalar access
+  to mapped scratchpad/system memory and explicit DMA for bulk tensor movement;
+  execution and memory-map implementation follow the decode foundation.
 - Accepted RV32IM + Zicsr scalar compatibility, ILP32, and no C extension for
   the self-hosted target; documented coordinated vector/matrix ISA redesign
   with 32-bit scalar and fixed 64-bit Holon instructions in reclaimed non-RVC

@@ -153,3 +153,75 @@ and regenerate outputs instead of editing this file by hand.
 - `vector`: `vl`, `max_vl`, `element_width`, `predicate`, `rounding_mode`, `saturation_mode`.
 - `frontend`: `pc`, `fault_code`, `halted`, `debug_snapshot`.
 - `memory`: `program_memory`, `data_scratchpad`, `vector_register_file`, `matrix_buffers`.
+
+## Semantic Frontend Migration
+
+This decode-only contract is not a capability of the current RTL or
+the current program machine. It will replace the custom control encoding
+through simulator-first execution verification, not a compatibility mode.
+
+- Scalar profile: `rv32im_zicsr`, `ilp32`.
+- Environment: `single_hart_machine`.
+- Alignment: 4 bytes; byte order: little.
+- Low bits `11`: 4-byte scalar word.
+- Low bits `00/01/10`: 8-byte Holon frame (opcode legality separate).
+- Authority: RISC-V specifications 20260120: RV32I 2.1, M 2.0, Zicsr 2.0, machine-mode instructions.
+
+| Scalar instruction | Extension | Format | Match | Mask |
+| ------------------ | --------- | ------ | ----- | ---- |
+| `LUI` | I | `u` | `0x00000037u` | `0x0000007Fu` |
+| `AUIPC` | I | `u` | `0x00000017u` | `0x0000007Fu` |
+| `JAL` | I | `j` | `0x0000006Fu` | `0x0000007Fu` |
+| `JALR` | I | `i` | `0x00000067u` | `0x0000707Fu` |
+| `BEQ` | I | `b` | `0x00000063u` | `0x0000707Fu` |
+| `BNE` | I | `b` | `0x00001063u` | `0x0000707Fu` |
+| `BLT` | I | `b` | `0x00004063u` | `0x0000707Fu` |
+| `BGE` | I | `b` | `0x00005063u` | `0x0000707Fu` |
+| `BLTU` | I | `b` | `0x00006063u` | `0x0000707Fu` |
+| `BGEU` | I | `b` | `0x00007063u` | `0x0000707Fu` |
+| `LB` | I | `i` | `0x00000003u` | `0x0000707Fu` |
+| `LH` | I | `i` | `0x00001003u` | `0x0000707Fu` |
+| `LW` | I | `i` | `0x00002003u` | `0x0000707Fu` |
+| `LBU` | I | `i` | `0x00004003u` | `0x0000707Fu` |
+| `LHU` | I | `i` | `0x00005003u` | `0x0000707Fu` |
+| `SB` | I | `s` | `0x00000023u` | `0x0000707Fu` |
+| `SH` | I | `s` | `0x00001023u` | `0x0000707Fu` |
+| `SW` | I | `s` | `0x00002023u` | `0x0000707Fu` |
+| `ADDI` | I | `i` | `0x00000013u` | `0x0000707Fu` |
+| `SLTI` | I | `i` | `0x00002013u` | `0x0000707Fu` |
+| `SLTIU` | I | `i` | `0x00003013u` | `0x0000707Fu` |
+| `XORI` | I | `i` | `0x00004013u` | `0x0000707Fu` |
+| `ORI` | I | `i` | `0x00006013u` | `0x0000707Fu` |
+| `ANDI` | I | `i` | `0x00007013u` | `0x0000707Fu` |
+| `SLLI` | I | `shift` | `0x00001013u` | `0xFE00707Fu` |
+| `SRLI` | I | `shift` | `0x00005013u` | `0xFE00707Fu` |
+| `SRAI` | I | `shift` | `0x40005013u` | `0xFE00707Fu` |
+| `ADD` | I | `r` | `0x00000033u` | `0xFE00707Fu` |
+| `SUB` | I | `r` | `0x40000033u` | `0xFE00707Fu` |
+| `SLL` | I | `r` | `0x00001033u` | `0xFE00707Fu` |
+| `SLT` | I | `r` | `0x00002033u` | `0xFE00707Fu` |
+| `SLTU` | I | `r` | `0x00003033u` | `0xFE00707Fu` |
+| `XOR` | I | `r` | `0x00004033u` | `0xFE00707Fu` |
+| `SRL` | I | `r` | `0x00005033u` | `0xFE00707Fu` |
+| `SRA` | I | `r` | `0x40005033u` | `0xFE00707Fu` |
+| `OR` | I | `r` | `0x00006033u` | `0xFE00707Fu` |
+| `AND` | I | `r` | `0x00007033u` | `0xFE00707Fu` |
+| `FENCE` | I | `fence` | `0x0000000Fu` | `0x0000707Fu` |
+| `ECALL` | I | `system` | `0x00000073u` | `0xFFFFFFFFu` |
+| `EBREAK` | I | `system` | `0x00100073u` | `0xFFFFFFFFu` |
+| `MUL` | M | `r` | `0x02000033u` | `0xFE00707Fu` |
+| `MULH` | M | `r` | `0x02001033u` | `0xFE00707Fu` |
+| `MULHSU` | M | `r` | `0x02002033u` | `0xFE00707Fu` |
+| `MULHU` | M | `r` | `0x02003033u` | `0xFE00707Fu` |
+| `DIV` | M | `r` | `0x02004033u` | `0xFE00707Fu` |
+| `DIVU` | M | `r` | `0x02005033u` | `0xFE00707Fu` |
+| `REM` | M | `r` | `0x02006033u` | `0xFE00707Fu` |
+| `REMU` | M | `r` | `0x02007033u` | `0xFE00707Fu` |
+| `CSRRW` | Zicsr | `csr` | `0x00001073u` | `0x0000707Fu` |
+| `CSRRS` | Zicsr | `csr` | `0x00002073u` | `0x0000707Fu` |
+| `CSRRC` | Zicsr | `csr` | `0x00003073u` | `0x0000707Fu` |
+| `CSRRWI` | Zicsr | `csr_immediate` | `0x00005073u` | `0x0000707Fu` |
+| `CSRRSI` | Zicsr | `csr_immediate` | `0x00006073u` | `0x0000707Fu` |
+| `CSRRCI` | Zicsr | `csr_immediate` | `0x00007073u` | `0x0000707Fu` |
+| `MRET` | machine | `system` | `0x30200073u` | `0xFFFFFFFFu` |
+| `WFI` | machine | `system` | `0x10500073u` | `0xFFFFFFFFu` |

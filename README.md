@@ -54,6 +54,9 @@ The next ISA design adopts RV32IM + Zicsr scalar control, ILP32, and no C extens
 with 32-bit scalar and 64-bit Holon NPU instructions. Vector/matrix operands are
 being redesigned without changing VLA/predication principles; see the
 [ISA Redesign](docs/ISA_REDESIGN.md).
+The model-stage frontend now has typed framing and RV32IM/Zicsr/MRET/WFI decode
+tests. The selected execution environment is single-hart M-mode bare metal;
+RV32 program execution and trap handling are not yet implemented.
 See the [Simulation Contract](docs/SIMULATION.md) for ownership and acceptance.
 
 ## Architecture Roadmap
