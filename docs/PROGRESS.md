@@ -1,6 +1,6 @@
 # HolonNPU Progress
 
-Last updated: 2026-07-22.
+Last updated: 2026-09-04.
 
 ## Current Status
 
@@ -77,25 +77,28 @@ FSM is not assigned a threshold because Verilator reports no FSM denominator.
 
 ## Simulation Foundation Verification
 
-Verified locally on 2026-07-22:
+Fast gates verified locally on 2026-09-04; Linux evidence is from 2026-07-22
+and has not been rerun with the updated upstream/compiler:
 
 | Gate | Result |
 | ---- | ------ |
 | Semantic core | migrated model/runtime/frontend differential tests passed; 13/13 typed required events observed |
 | Typed completion protocol | wrong, duplicate, and invalid completions rejected transactionally |
-| gem5 upstream | official `stable` SHA `51edbbb9cfd37e92e9901aea2caa4a8f20eda005` |
-| C++ standard audit | 27,552/27,552 translation units use effective C++26 |
+| gem5 upstream | official `stable` SHA `cbc94c1a773e94118070294750dbe2c9c75898cb` |
+| C++ standard audit | 27,542/27,542 translation units use effective C++26 |
 | gem5 build | complete `RISCV/gem5.opt` built with 16 SCons jobs |
-| gem5 fast gate | `5/5` passed |
+| gem5 fast gate | `6/6` passed |
 | RISC-V bare-metal | vector, matrix, DMA, completion, IRQ, fault, and reset passed |
+| Idle checkpoint | separate capture/restore processes preserve descriptor, IRQ, and cycle state; a second program completes after restore |
 | RISC-V Linux full-system | locked Ubuntu 24.04, Linux 6.8.12, matching module, DMA/IRQ smoke, and PASS sentinel completed in 1516.59 s |
 | DMA profile | 256-byte maximum and 4 KiB splitting exercised at page-edge addresses |
 | Timing calibration | vector config/ALU 1 cycle, 4-lane load/store 9 cycles, `2x2x2` matrix 93 cycles |
 
 Build metadata, gem5 stats, and Linux resource/kernel/guest evidence are
-generated under `build/gem5/`. gem5 `stable` warns that GCC 15.3 is newer than
-its listed support range; the reviewed C++26 overlay builds successfully and
-the full compile database is audited.
+generated under `build/gem5/`. The current build uses host GCC 16.2 and RISC-V
+GCC 16.1. gem5 `stable` warns that host GCC 16.2 is newer than its listed support
+range; the reviewed C++26 overlay builds successfully and the full compile
+database is audited.
 
 ## Known Limits
 
@@ -117,7 +120,7 @@ Simulation Foundation follow-up is:
 
 - extend calibration to frontend, loader, DMA setup, and representative whole
   programs without equating real memory latency to the RTL test memory;
-- add sensitivity workloads and idle-state checkpoint tests.
+- add representative sensitivity workloads.
 
 New architecture features remain blocked from RTL until their semantic, gem5,
 workload, cost, and ADR evidence passes the simulator-first gate. This page

@@ -151,10 +151,12 @@ Future architecture behavior must pass these tiers before RTL:
 | RISC-V Linux full-system | Nightly/release OS, memory-system, interrupt, and workload execution. |
 
 The normal gem5 preset gates the first four implemented layers through the
-timing unit test and RISC-V bare-metal workload. Linux full-system remains a
-separate resource-heavy nightly/release gate; its locked kernel, disk image,
-matching module, workload, and unique guest PASS sentinel have a passing local
-baseline recorded in `docs/PROGRESS.md`.
+timing unit test, RISC-V bare-metal workload, and an idle/quiescent checkpoint
+captured and restored by separate gem5 processes. The checkpoint test preserves
+descriptor, IRQ, and cycle state and submits a second program after restore.
+Linux full-system remains a separate resource-heavy nightly/release gate; its
+locked kernel, disk image, matching module, workload, and unique guest PASS
+sentinel have a passing local baseline recorded in `docs/PROGRESS.md`.
 
 The semantic test registry currently requires 13 typed events covering decode,
 descriptor compatibility, precise completion, DMA visibility and payload

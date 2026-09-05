@@ -454,6 +454,7 @@ void HolonNpuDevice::serialize(CheckpointOut& checkpoint) const {
     paramOut(checkpoint, "descriptorAddress", descriptorAddress);
     paramOut(checkpoint, "irqEnable", irqEnable);
     paramOut(checkpoint, "irqStatus", irqStatus);
+    paramOut(checkpoint, "interruptAsserted", interruptAsserted);
     paramOut(checkpoint, "elapsedCycles", elapsedCycles);
 }
 
@@ -462,6 +463,7 @@ void HolonNpuDevice::unserialize(CheckpointIn& checkpoint) {
     paramIn(checkpoint, "descriptorAddress", descriptorAddress);
     paramIn(checkpoint, "irqEnable", irqEnable);
     paramIn(checkpoint, "irqStatus", irqStatus);
+    paramIn(checkpoint, "interruptAsserted", interruptAsserted);
     paramIn(checkpoint, "elapsedCycles", elapsedCycles);
     updateInterrupt();
 }

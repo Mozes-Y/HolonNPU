@@ -119,7 +119,8 @@ ctest --preset gem5 --output-on-failure
 
 The fast gem5 gate audits every effective C++ translation unit, records the
 exact upstream `stable` SHA and overlay hash, and runs timing plus RISC-V
-bare-metal vector, matrix, DMA, completion, IRQ, fault, and reset scenarios.
+bare-metal vector, matrix, DMA, completion, IRQ, fault, reset, and
+separate-process idle-checkpoint scenarios.
 Linux full-system support is a separate nightly/release gate and requires the
 locked resource set and a matching guest kernel/module bundle. The preparation
 tools verify every downloaded artifact and build the matching Linux 6.8.12

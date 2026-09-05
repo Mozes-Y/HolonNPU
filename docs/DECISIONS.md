@@ -272,6 +272,10 @@ vector and matrix timing parameters are executable calibration contracts: RTL
 module tests compare observed zero-stall issue-to-event cycles against the same
 calculator used by the SimObject. DMA setup latency is applied to the actual
 gem5 completion event and reported separately from memory-response wait cycles.
+Idle checkpoints require an `IDLE`, quiescent device. A separate-process
+round-trip gate preserves descriptor, IRQ enable/status, interrupt assertion,
+and elapsed-cycle state, then requires another program to complete after
+restore.
 
 **Rationale:** Explicit issue/completion ownership is the smallest contract that
 supports both fast synchronous tests and event-driven simulation without

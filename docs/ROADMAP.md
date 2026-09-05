@@ -70,6 +70,8 @@ Implemented foundation:
 - execute a locked Ubuntu 24.04/Linux 6.8.12 full-system configuration with a
   matching C23 driver workload and retained evidence;
 - build the complete gem5 simulator and Holon extension in verified C++26 mode;
+- gate idle/quiescent checkpoint capture and separate-process restore, including
+  sticky IRQ and post-restore program submission;
 - calibrate zero-stall vector/matrix engine timing against RTL module tests and
   record the exact gem5 `stable` commit, C++26 toolchain, model parameters, and
   workloads.
@@ -77,7 +79,7 @@ Implemented foundation:
 Remaining foundation follow-up:
 
 - broaden RTL calibration beyond current vector/matrix issue-to-event latency;
-- add idle-state checkpoint and sensitivity workloads.
+- add representative sensitivity workloads.
 
 Implementation sequence:
 
@@ -88,7 +90,9 @@ Implementation sequence:
 4. completed: add RISC-V bare-metal tests to the fast gem5 gate;
 5. completed: run locked-resource Linux full-system tests and retain their
    resource, kernel, guest, terminal, and simulator evidence;
-6. active: extend current vector/matrix zero-stall calibration coverage.
+6. completed: gate an idle/quiescent gem5 checkpoint capture and restore round
+   trip in separate simulator processes;
+7. active: extend current vector/matrix zero-stall calibration coverage.
 
 The semantic protocol is two-phase. `advance()` may retire internal work, emit
 one typed pending operation, or report a terminal event. External work changes

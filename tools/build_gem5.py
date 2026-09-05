@@ -112,8 +112,27 @@ def main() -> int:
             str(repo / "sim/gem5/baremetal"),
             "--include-dir",
             str(repo / "include"),
+            "--workload",
+            str(repo / "sim/gem5/baremetal/holon_smoke.c"),
             "--output",
             str(args.metadata.parent / "guest/holon_smoke.elf"),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo / "tools/build_gem5_baremetal.py"),
+            "--compiler",
+            args.riscv_compiler,
+            "--source-dir",
+            str(repo / "sim/gem5/baremetal"),
+            "--include-dir",
+            str(repo / "include"),
+            "--workload",
+            str(repo / "sim/gem5/baremetal/holon_checkpoint.c"),
+            "--output",
+            str(args.metadata.parent / "guest/holon_checkpoint.elf"),
         ],
         check=True,
     )

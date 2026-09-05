@@ -13,6 +13,7 @@ def main() -> int:
     parser.add_argument("--compiler", required=True)
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--include-dir", type=Path, required=True)
+    parser.add_argument("--workload", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -42,7 +43,7 @@ def main() -> int:
             str(args.source_dir / "link.ld"),
             str(args.source_dir / "start.S"),
             str(args.source_dir / "freestanding.c"),
-            str(args.source_dir / "holon_smoke.c"),
+            str(args.workload),
             "-o",
             str(args.output),
         ],

@@ -333,9 +333,13 @@ if(HOLON_NPU_BUILD_GEM5)
     message(FATAL_ERROR "HOLON_NPU_GEM5_BUILD_JOBS must be a positive integer")
   endif()
 
+  if(DEFINED HOLON_NPU_RISCV_GCC AND NOT EXISTS "${HOLON_NPU_RISCV_GCC}")
+    unset(HOLON_NPU_RISCV_GCC CACHE)
+    unset(HOLON_NPU_RISCV_GCC)
+  endif()
   find_program(
     HOLON_NPU_RISCV_GCC
-    NAMES riscv64-linux-gnu-gcc-15 riscv64-linux-gnu-gcc riscv64-unknown-elf-gcc
+    NAMES riscv64-linux-gnu-gcc riscv64-unknown-elf-gcc
     REQUIRED
   )
 
@@ -345,6 +349,7 @@ if(HOLON_NPU_BUILD_GEM5)
   set(gem5_overlay ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/patches/cxx26.patch)
   set(gem5_metadata ${CMAKE_BINARY_DIR}/simulation-metadata.json)
   set(gem5_baremetal_binary ${CMAKE_BINARY_DIR}/guest/holon_smoke.elf)
+  set(gem5_checkpoint_binary ${CMAKE_BINARY_DIR}/guest/holon_checkpoint.elf)
 
   ExternalProject_Add(
     holon_npu_gem5_external
@@ -380,6 +385,7 @@ if(HOLON_NPU_BUILD_GEM5)
       ${gem5_compile_commands}
       ${gem5_metadata}
       ${gem5_baremetal_binary}
+      ${gem5_checkpoint_binary}
     BUILD_ALWAYS TRUE
     EXCLUDE_FROM_ALL TRUE
     USES_TERMINAL_DOWNLOAD TRUE
@@ -422,6 +428,19 @@ if(HOLON_NPU_BUILD_GEM5)
       --binary ${gem5_baremetal_binary}
   )
   holon_npu_test_labels(gem5_riscv_baremetal gem5-fast)
+  add_test(
+    NAME gem5_idle_checkpoint
+    COMMAND
+      ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_gem5_checkpoint.py
+      --gem5 ${gem5_binary}
+      --output ${CMAKE_BINARY_DIR}/gem5-tests/checkpoint
+      --config
+      ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/configs/holon_baremetal.py
+      --binary ${gem5_checkpoint_binary}
+  )
+  holon_npu_test_labels(gem5_idle_checkpoint gem5-fast)
 
   if(HOLON_NPU_ENABLE_GEM5_LINUX)
     if(NOT EXISTS "${HOLON_NPU_GEM5_LINUX_BUNDLE}")

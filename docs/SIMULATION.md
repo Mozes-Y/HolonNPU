@@ -100,6 +100,9 @@ they become model parameters only after a simulator-first architecture proposal.
 Checkpoints are accepted only when the device is both `IDLE` and quiescent;
 descriptor, IRQ enable/status, and software-visible cycle state are preserved.
 Any pending semantic operation, DMA, or scheduled device event rejects capture.
+The fast gem5 gate captures after a completed program with sticky IRQ state,
+restores in a separate gem5 process, verifies the restored MMIO state, and
+submits another program before reporting success.
 
 The default system uses a RISC-V Host. Device and bare-metal tests form the
 normal development gate; RISC-V Linux full-system workloads run in nightly and
@@ -221,8 +224,8 @@ configuration, statistics, terminal, and simulation metadata under
 The semantic, baseline timing, gem5 device, and bare-metal tiers are implemented
 in the normal `gem5` preset. The separate Linux gate passes with the locked
 Ubuntu 24.04 image, Linux 6.8.12 matching module, C23 workload, DMA/IRQ
-completion, and a unique guest sentinel. Queue-depth, bank-contention,
-checkpoint, and broader sensitivity studies remain follow-up work.
+completion, and a unique guest sentinel. Queue-depth, bank-contention, and
+broader sensitivity studies remain follow-up work.
 
 The current semantic registry contains 13 required events. Each event is marked
 where its assertions or scoreboard comparison succeeds, never as a test-exit

@@ -26,6 +26,9 @@ from m5.objects import (
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=pathlib.Path, required=True)
+    checkpoint_group = parser.add_mutually_exclusive_group()
+    checkpoint_group.add_argument("--checkpoint-out", type=pathlib.Path)
+    checkpoint_group.add_argument("--restore", type=pathlib.Path)
     args = parser.parse_args()
 
     system = RiscvSystem()
@@ -89,13 +92,31 @@ def main() -> int:
     system.mem_ctrl.port = system.membus.mem_side_ports
 
     Root(full_system=True, system=system)
-    m5.instantiate()
+    if args.restore is None:
+        m5.instantiate()
+    else:
+        m5.instantiate(str(args.restore.resolve()))
     event = m5.simulate()
+    if args.checkpoint_out is not None:
+        if event.getCause() != "checkpoint" or event.getCode() != 0:
+            print(
+                f"HolonNPU checkpoint request failed: {event.getCause()} "
+                f"code {event.getCode()} at tick {m5.curTick()}"
+            )
+            return 1
+        args.checkpoint_out.parent.mkdir(parents=True, exist_ok=True)
+        m5.checkpoint(str(args.checkpoint_out.resolve()))
+        print(f"HOLON_NPU_CHECKPOINT_CAPTURED {args.checkpoint_out.resolve()}")
+        return 0
+
     print(
         f"HolonNPU bare-metal exit: {event.getCause()} "
         f"code {event.getCode()} at tick {m5.curTick()}"
     )
-    return 0 if event.getCode() == 0 else 1
+    passed = event.getCause() == "m5_exit instruction encountered" and event.getCode() == 0
+    if args.restore is not None and passed:
+        print("HOLON_NPU_CHECKPOINT_RESTORED")
+    return 0 if passed else 1
 
 
 if __name__ == "__m5_main__":

@@ -115,7 +115,8 @@ ctest --preset gem5 --output-on-failure
 ```
 
 该测试会验证 upstream `stable` SHA、完整 C++26 compile database、timing
-calculator 和 RISC-V bare-metal 的 vector/matrix/DMA/IRQ/fault/reset 流程。
+calculator、RISC-V bare-metal 的 vector/matrix/DMA/IRQ/fault/reset 流程，以及
+独立 gem5 进程间的 idle checkpoint capture/restore。
 Linux full-system 需要锁定的大型资源和 matching kernel/module bundle，不属于
 普通开发 gate。其资源准备、kernel build 与 guest build 均由 lock file 驱动，
 gem5 运行阶段不会访问在线 resource catalog。完整命令见

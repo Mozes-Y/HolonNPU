@@ -18,6 +18,9 @@ All notable project-level release changes are recorded here.
   matching simulation driver, DMA/IRQ workload, and retained provenance.
 - Added a typed 13-event semantic evidence registry whose events are observed
   only at successful invariant and scoreboard checks.
+- Added an idle/quiescent gem5 checkpoint gate that captures and restores in
+  separate processes, verifies descriptor/IRQ/cycle state, and submits another
+  Holon program after restore.
 
 ### Changed
 
@@ -33,6 +36,9 @@ All notable project-level release changes are recorded here.
   with 16 workers and run the locked Ubuntu full-system gate.
 - Removed raw-integer semantic address overloads and made DMA setup latency part
   of the actual gem5 event timeline rather than statistics-only accounting.
+- Made RISC-V guest compiler discovery resilient to versioned toolchain upgrades
+  by preferring the stable unversioned compiler driver and repairing stale CMake
+  cache entries.
 
 ## v2.0 - 2026-07-18
 
