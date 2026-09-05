@@ -84,6 +84,11 @@ Implementation order and acceptance:
    upstream assembler/compiler cross-checks. Next: standard scalar execution,
    M-mode CSR/trap semantics and ELF startup; then the redesigned NPU operands.
    Current RTL capability generation stays unchanged until a reviewed cutover.
+   Completed slice (ADR-0061): pure RV32 scalar effects shared with the current
+   machine, typed memory/CSR/control requests and precise exceptions. Verified
+   every selected opcode, arithmetic edges, source/destination aliasing,
+   load completion and unchanged current-program results. This precedes
+   physical memory routing and M-mode state, not a second interpreter.
 3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
    execution object and timing memory request port. Reuse the semantic core and
    run the identical boot image without a RISC-V CPU or MMIO launch sequence.

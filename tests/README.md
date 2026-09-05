@@ -8,6 +8,10 @@ module wrapper.
   flows, and the shared ABI headers.
 - `instruction_test.cpp` checks mixed-width framing and RV32 scalar decoding;
   `isa_schema_test.py` tests malformed metadata and the RTL generation boundary.
+- `scalar_test.cpp` verifies all selected scalar effects with independent
+  arithmetic scoreboards, captured memory requests, load extension, CSR enable
+  matrices, precise exceptions and source/destination aliases. It does not
+  substitute for full RV32 program-machine integration.
 - `scalar_toolchain_test.py` cross-checks decoding with upstream RISC-V tools
   in the gem5 preset. It generates assembly/ELF/disassembly artifacts, not a
   second ISA implementation or a program-execution reference.

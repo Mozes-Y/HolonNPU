@@ -6,6 +6,11 @@ All notable project-level release changes are recorded here.
 
 ### Added
 
+- Added shared RV32 scalar effect evaluation: all integer arithmetic/branches,
+  typed 32-bit physical load/store requests, load completion, CSR/FENCE enables,
+  and precise exception/machine-control requests. Existing machine arithmetic
+  uses the evaluator; full RV32 boot, routing and trap commit remain next.
+
 - Added schema-generated RV32IM/Zicsr/MRET/WFI decode metadata, typed mixed
   32/64-bit framing, scalar operand extraction/disassembly, exhaustive immediate
   tests, and upstream assembler/compiler cross-checking. This is a semantic
@@ -42,8 +47,9 @@ All notable project-level release changes are recorded here.
 - Accepted RV32IM + Zicsr scalar compatibility, ILP32, and no C extension for
   the self-hosted target; documented coordinated vector/matrix ISA redesign
   with 32-bit scalar and fixed 64-bit Holon instructions in reclaimed non-RVC
-  space, without changing VLA/predication principles. Current schemas/RTL are
-  unchanged; operand fields and the execution environment remain under review.
+  space, without changing VLA/predication principles. Released RTL/ABI
+  capability values remain unchanged; operand fields and detailed execution contracts
+  remain under review.
 - Made self-hosted functional execution, complete Transformer correctness, and
   autonomous gem5 timing the simulation sequence. Existing Host integration is
   a migration baseline, not the destination (ADR-0058).

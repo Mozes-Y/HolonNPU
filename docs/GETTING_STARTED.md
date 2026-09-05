@@ -230,12 +230,13 @@ workload 评估，经 ADR 批准后才能开始 RTL。直接运行 semantic core
 RVC 后释放的前缀，不能套用标准 RISC-V 的指令长度解码规则。
 Holon vector/matrix 先通过显式 intrinsic 或汇编接入，保留 VLA 与独立 predicate
 设计，不承诺自动向量化。执行环境为单 hart M-mode 裸机，无 U/S mode、MMU 或 OS。
-当前已实现取指分帧与标量解码，还没有执行这个 RV32 合同；迁移边界见
+当前已实现取指分帧、标量解码和无状态的执行结果计算；memory/CSR/control
+请求不等于已经提交。完整 RV32 启动、物理地址路由和 trap 状态仍待接入；迁移边界见
 [ISA Redesign](ISA_REDESIGN.md)。
 
 ```bash
-cmake --build --preset debug --target holon_npu_instruction_test --parallel 2
-ctest --preset debug -R '^(holon_npu_instruction|isa_schema_tests)$' --verbose
+cmake --build --preset debug --target holon_npu_instruction_test holon_npu_scalar_test --parallel 2
+ctest --preset debug -R '^(holon_npu_instruction|holon_npu_scalar|isa_schema_tests)$' --verbose
 ```
 
 `scalar_toolchain_check` 在 gem5 preset 中用上游 RISC-V 汇编器独立校验全部

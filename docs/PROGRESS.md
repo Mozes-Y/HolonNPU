@@ -14,12 +14,14 @@ not yet implemented.
 
 The target is RV32IM + Zicsr, ILP32, no C extension, single-hart M-mode, and
 coordinated vector/matrix redesign (ADR-0059). Typed 32/64-bit framing and
-standard scalar decoding are implemented under ADR-0060. The canonical ISA
-schema generates internal decode-only metadata without changing RTL capability.
-NPU operands, execution semantics, detailed traps, and ELF startup remain next.
+standard scalar decoding are implemented under ADR-0060. ADR-0061 adds shared
+scalar effect evaluation and typed memory/CSR/control requests. The canonical
+ISA schema generates internal scalar metadata without changing RTL capability.
+Full RV32 machine execution, NPU operands, trap state, and ELF startup remain next.
 The next scalar execution contract uses a confirmed unified 32-bit physical
 address space with scalar access to mapped scratchpad/system memory and DMA
-for bulk tensor movement; this memory behavior is not implemented yet.
+for bulk tensor movement; physical requests exist, but the router and machine
+completion path are not implemented yet.
 The autonomous boot/runner feature is committed as `84551c8` and remains the
 functional migration starting point.
 
@@ -99,7 +101,7 @@ and has not been rerun with the updated upstream/compiler:
 | Semantic core | migrated model/runtime/frontend differential tests passed; 13/13 typed required events observed |
 | Typed completion protocol | wrong, duplicate, and invalid completions rejected transactionally |
 | gem5 upstream | official `stable` SHA `cbc94c1a773e94118070294750dbe2c9c75898cb` |
-| C++ standard audit | 27,560/27,560 translation units use effective C++26 |
+| C++ standard audit | 27,569/27,569 translation units use effective C++26 |
 | gem5 build | complete `RISCV/gem5.opt` built with 16 SCons jobs |
 | gem5 fast gate | `7/7` passed, including upstream scalar toolchain oracle |
 | RISC-V bare-metal | vector, matrix, DMA, completion, IRQ, fault, and reset passed |
@@ -163,8 +165,36 @@ The repeatable toolchain gate replaces the earlier manual compiler probe;
 artifacts live under `build/gem5/scalar-toolchain/`. Current RTL, public ABI
 headers, and program-machine behavior are unchanged. Regression/coverage and
 Linux FS were not rerun for this feature. RV32 execution, CSR/trap effects,
-ELF startup, and NPU 64-bit opcode semantics remain unimplemented; framing and
-compilation are not evidence of those capabilities.
+ELF startup, and NPU 64-bit opcode semantics remained unimplemented at that
+checkpoint; framing and compilation are not evidence of those capabilities.
+
+## Scalar Effects Verification
+
+Completed and verified on 2026-09-05: ADR-0061 RV32 integer/branch results, physical load/store requests,
+load completion, CSR/FENCE enables and synchronous trap/machine-control
+requests. The existing program machine reuses this evaluator for MOVI/ADD/ADDI;
+there is no additional interpreter, memory owner or timing model.
+
+| Command/gate | Result |
+| ------------ | ------ |
+| `ctest --preset debug --output-on-failure` | 27/27 passed |
+| `ctest --preset lint --output-on-failure` | 11/11 passed |
+| `ctest --preset debug -R '^holon_npu_scalar$' --verbose` | 56/56 effects, 122,960 arithmetic scoreboard cases, exhaustive byte/halfword loads passed |
+| `ctest --preset regression --output-on-failure` | 38/38 passed |
+| `ctest --preset coverage --output-on-failure` | 40/40 passed |
+| `python3 tools/check_coverage.py --build-dir build/coverage` | 12 raw files, 137/137 functional events, 56/56 product RTL covers; structural baseline unchanged |
+| Scalar source/test strict warnings and ASan/UBSan | passed |
+| `cmake --build --preset gem5 --parallel 16` | passed; current stable SHA above |
+| `ctest --preset gem5 --output-on-failure` | 7/7 passed |
+
+Debug and regression were configured and built with two jobs; coverage with
+eight jobs. All builds passed. ABI/ISA
+generation, schema, ownership, macro policy, Markdown links and whitespace
+checks pass. Public generated headers, RTL, ABI schema and driver are unchanged.
+GCC reduced variable-tracking detail in two large Verilator-generated coverage
+functions; this is a debug-information note, not a warning in Holon sources.
+Linux FS has not been rerun. This evidence does not establish physical routing,
+M-mode CSR/trap commit, full RV32 boot or Transformer execution.
 
 ## Known Limits
 

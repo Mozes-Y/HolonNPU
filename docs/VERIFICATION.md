@@ -182,6 +182,15 @@ The cross-toolchain dependency stays in that preset, not ordinary Debug builds.
 Artifacts in `build/gem5/scalar-toolchain/` retain input assembly, ELF attributes,
 decoded instructions, and compiler identity. These checks do not execute RV32.
 
+`holon_npu_scalar` verifies all 56 scalar instruction effects: independent
+arithmetic scoreboards (including signed-magnitude division and partial-product
+multiplication), deterministic random cases, branch/JALR alignment and aliases,
+32-bit physical-address requests, captured store bytes, exhaustive byte/halfword
+load extension, CSR read/write suppression and machine-control/trap requests.
+The existing machine shares matching arithmetic with this evaluator. These
+tests do not establish physical routing, M-mode trap entry or complete RV32
+retirement; those require the next program-machine integration tests.
+
 ```bash
 cmake --build --preset debug --target holon_npu_execution_test --parallel 2
 ctest --preset debug -R '^holon_npu_execution$' --verbose

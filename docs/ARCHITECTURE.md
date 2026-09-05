@@ -189,9 +189,10 @@ invariants. See `docs/ISA_REDESIGN.md` and ADR-0059 for the remaining operand,
 encoding, and CSR/trap review.
 
 The execution environment is selected as single-hart M-mode bare metal,
-without U/S mode, MMU, or OS. ADR-0060 implements only model-stage framing and
-standard scalar decoding so far; it does not change this document's current RTL
-capability or make the existing program machine RV32-compatible.
+without U/S mode, MMU, or OS. ADR-0060/0061 implement model-stage framing,
+standard scalar decoding and typed scalar effects. These do not change this
+document's current RTL capability or make the existing program machine fully
+RV32-compatible; physical routing and M-mode state/retirement remain next.
 The target scalar memory contract is a unified 32-bit physical address space
 with direct scalar scratchpad/system access and explicit DMA for tensor bulk
 movement. The current accelerator's scratchpad-only scalar path is unchanged.

@@ -17,6 +17,18 @@ inline constexpr unsigned rd_shift = 7;
 inline constexpr unsigned rs1_shift = 15;
 inline constexpr unsigned rs2_shift = 20;
 
+enum class scalar_trap_cause : std::uint8_t {
+    instruction_address_misaligned = 0,
+    instruction_access_fault = 1,
+    illegal_instruction = 2,
+    breakpoint = 3,
+    load_address_misaligned = 4,
+    load_access_fault = 5,
+    store_address_misaligned = 6,
+    store_access_fault = 7,
+    machine_environment_call = 11,
+};
+
 enum class scalar_opcode : std::uint8_t {
     LUI,
     AUIPC,

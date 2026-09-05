@@ -268,7 +268,7 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
     frontend = schema["semantic_frontend"]
     lines.extend([
         "", "## Semantic Frontend Migration", "",
-        "This decode-only contract is not a capability of the current RTL or",
+        "This scalar-effects contract is not a capability of the current RTL or",
         "the current program machine. It will replace the custom control encoding",
         "through simulator-first execution verification, not a compatibility mode.", "",
         f"- Scalar profile: `{frontend['scalar_profile']}`, `{frontend['abi']}`.",
@@ -277,6 +277,12 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
         f"- Low bits `11`: {frontend['scalar_bytes']}-byte scalar word.",
         f"- Low bits `00/01/10`: {frontend['holon_bytes']}-byte Holon frame (opcode legality separate).",
         f"- Authority: {frontend['authority']}.", "",
+        "Scalar effects use 32-bit little-endian physical addresses and trap on",
+        "misaligned halfword/word accesses. Memory/CSR/fence/machine-control",
+        "requests are not retired by evaluation; the machine must complete them.", "",
+        "| Scalar exception | Cause |",
+        "| ---------------- | ----- |",
+        *[f"| `{name}` | {value} |" for name, value in frontend["scalar_traps"].items()], "",
         "| Scalar instruction | Extension | Format | Match | Mask |",
         "| ------------------ | --------- | ------ | ----- | ---- |",
     ])
@@ -302,7 +308,9 @@ def generated_scalar_metadata(schema: dict[str, Any]) -> str:
         lines.append(f"inline constexpr std::uint32_t {key} = {c_hex(frontend[key])};")
     for name, shift in frontend["register_fields"].items():
         lines.append(f"inline constexpr unsigned {name}_shift = {shift};")
-    lines.extend(["", "enum class scalar_opcode : std::uint8_t {"])
+    lines.extend(["", "enum class scalar_trap_cause : std::uint8_t {"])
+    lines.extend(f"    {name} = {value}," for name, value in frontend["scalar_traps"].items())
+    lines.extend(["};", "", "enum class scalar_opcode : std::uint8_t {"])
     lines.extend(f"    {entry['name']}," for entry in entries)
     lines.extend(["};", "", "enum class scalar_format : std::uint8_t {"])
     lines.extend(f"    {name}," for name in formats)

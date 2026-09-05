@@ -74,11 +74,19 @@ def check_semantic_frontend(schema: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     frontend = schema.get("semantic_frontend", {})
     contract = {
-        "stage": "decode_only", "scalar_profile": "rv32im_zicsr", "abi": "ilp32",
+        "stage": "scalar_effects", "scalar_profile": "rv32im_zicsr", "abi": "ilp32",
         "execution_environment": "single_hart_machine", "byte_order": "little",
         "alignment_bytes": 4, "scalar_bytes": 4, "holon_bytes": 8,
         "holon_prefixes": [0, 1, 2], "register_count": 32,
         "register_fields": {"rd": 7, "rs1": 15, "rs2": 20},
+        "scalar_memory": {"address_bits": 32, "byte_order": "little", "misaligned": "trap"},
+        "scalar_traps": {
+            "instruction_address_misaligned": 0, "instruction_access_fault": 1,
+            "illegal_instruction": 2, "breakpoint": 3,
+            "load_address_misaligned": 4, "load_access_fault": 5,
+            "store_address_misaligned": 6, "store_access_fault": 7,
+            "machine_environment_call": 11,
+        },
     }
     for key, value in contract.items():
         if frontend.get(key) != value:

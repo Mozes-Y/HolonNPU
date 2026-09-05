@@ -27,12 +27,19 @@ replaced and verified.
 The target executes in single-hart M-mode, without U/S mode, MMU, or OS.
 `holon_npu_instruction.hpp` separates typed frame recognition from standard
 scalar opcode/operand decoding. The internal metadata is generated from the
-canonical ISA schema's decode-only `semantic_frontend` section; it is not an
+canonical ISA schema's `semantic_frontend` section; it is not an
 independently executable ISA mode or an advertised RTL capability. Program
 execution/trap migration must consume this decoder rather than duplicate it.
 The selected scalar address model maps scratchpad and system memory into one
 32-bit physical space. Scalar system accesses will use the same typed external
 completion boundary; system storage must not move into the semantic core.
+
+`holon_npu_scalar.hpp` implements the scalar-effects stage (ADR-0061): standard
+integer arithmetic, branch decisions, precise exception candidates and typed
+load/store/CSR/fence/machine-control requests. It owns no state, run loop, memory
+storage or timing. Existing scalar arithmetic already uses it; full RV32
+machine cutover must consume these same effects. An evaluated memory or CSR
+request is not evidence of successful access, retirement or trap handling.
 
 The current accelerator adapter and Host tests remain useful for released RTL
 differential verification during migration. They are not the target execution

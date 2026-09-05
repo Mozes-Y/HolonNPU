@@ -156,7 +156,7 @@ and regenerate outputs instead of editing this file by hand.
 
 ## Semantic Frontend Migration
 
-This decode-only contract is not a capability of the current RTL or
+This scalar-effects contract is not a capability of the current RTL or
 the current program machine. It will replace the custom control encoding
 through simulator-first execution verification, not a compatibility mode.
 
@@ -166,6 +166,22 @@ through simulator-first execution verification, not a compatibility mode.
 - Low bits `11`: 4-byte scalar word.
 - Low bits `00/01/10`: 8-byte Holon frame (opcode legality separate).
 - Authority: RISC-V specifications 20260120: RV32I 2.1, M 2.0, Zicsr 2.0, machine-mode instructions.
+
+Scalar effects use 32-bit little-endian physical addresses and trap on
+misaligned halfword/word accesses. Memory/CSR/fence/machine-control
+requests are not retired by evaluation; the machine must complete them.
+
+| Scalar exception | Cause |
+| ---------------- | ----- |
+| `instruction_address_misaligned` | 0 |
+| `instruction_access_fault` | 1 |
+| `illegal_instruction` | 2 |
+| `breakpoint` | 3 |
+| `load_address_misaligned` | 4 |
+| `load_access_fault` | 5 |
+| `store_address_misaligned` | 6 |
+| `store_access_fault` | 7 |
+| `machine_environment_call` | 11 |
 
 | Scalar instruction | Extension | Format | Match | Mask |
 | ------------------ | --------- | ------ | ----- | ---- |

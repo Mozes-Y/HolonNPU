@@ -104,6 +104,46 @@ instruction emission still obeys its instruction-length checks. A raw-word
 carrier is not stock disassembler support. See the
 [GNU assembler directives](https://sourceware.org/binutils/docs/as/RISC_002dV_002dDirectives.html).
 
+## Scalar Effects Contract
+
+ADR-0061 implements a pure scalar evaluation layer inside the existing semantic
+library, not a second interpreter or an independently bootable ISA mode. It
+consumes a standard scalar word, its PC and captured source values; x0 sources
+always read zero. It returns either a register/next-PC update, a typed memory,
+CSR, fence or machine-control request, or a synchronous trap. Evaluation does
+not mutate a machine, retire an instruction, perform I/O or account for cycles.
+
+- Integer computation uses modulo-2^32 results and defined signed comparisons.
+  Shifts mask register shift counts to five bits. All eight M operations include
+  division by zero and signed overflow, without host-language undefined behavior.
+- Taken branches and JAL/JALR check four-byte target alignment before producing
+  any link-register update. Untaken branches do not fault on their unused target.
+  JALR clears bit zero; PC-relative arithmetic wraps to XLEN. A target fetch
+  access fault belongs to the next instruction, not the successful jump.
+- Scalar effective addresses are 32-bit physical addresses, not SPM offsets.
+  LB/LH/LW/LBU/LHU and SB/SH/SW are little-endian; halfword/word misalignment
+  raises a contained machine exception before any memory access. The eventual
+  router checks mapping/permissions and returns load/store access faults.
+  Load-to-x0 still accesses memory and may fault. Store bytes are captured at
+  issue; a failed load produces no register update. A payload with the wrong
+  length is a simulator API error, not an architectural trap.
+- Zicsr requests retain separate read and write enables. CSRRS/CSRRC with a
+  nonzero source register containing zero still request a write. Immediate
+  zero suppresses writes only for CSRRSI/CSRRCI. CSR permissions, WARL updates
+  and atomic commit belong to the upcoming M-mode state implementation.
+- FENCE preserves predecessor/successor sets and ignores reserved mode/rd/rs1
+  fields as RV32I specifies. It requires an ordering completion, not an early
+  retirement. ECALL/EBREAK produce machine-call/breakpoint traps; MRET and WFI
+  produce distinct machine-control requests, never a fake successful exit.
+
+The existing machine consumes shared scalar arithmetic during migration.
+Full 32-register execution, physical region mapping, trap entry/return, ELF
+startup and the new Holon operand formats are separate remaining steps. Tests
+must distinguish an evaluated request from its successful architectural commit.
+The behavior follows the [RV32I specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html),
+[M extension](https://docs.riscv.org/reference/isa/v20260120/unpriv/m-st-ext.html), and
+[Zicsr specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/zicsr.html).
+
 ## Vector Contract To Freeze
 
 1. Register/state model: independently addressable vector and predicate banks;

@@ -1,5 +1,6 @@
 #include "holon_npu_semantic.hpp"
 #include "holon_npu_execution.hpp"
+#include "holon_npu_scalar.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -18,6 +19,10 @@ constexpr std::uint32_t k_rs2_shift = HOLON_NPU_ISA_RS2_SHIFT;
 constexpr std::uint32_t k_field_mask = HOLON_NPU_ISA_FIELD_MASK;
 constexpr std::uint32_t k_imm_mask = HOLON_NPU_ISA_IMM_MASK;
 constexpr std::uint32_t k_pc_increment = HOLON_NPU_ISA_INSTRUCTION_BYTES;
+constexpr auto k_scalar_add = std::ranges::find(
+    instruction::scalar_patterns, instruction::scalar_opcode::ADD, &instruction::scalar_pattern::opcode)->value;
+constexpr auto k_scalar_addi = std::ranges::find(
+    instruction::scalar_patterns, instruction::scalar_opcode::ADDI, &instruction::scalar_pattern::opcode)->value;
 
 std::int32_t wrap_add(std::int32_t lhs, std::int32_t rhs) {
     const auto lhs_bits = static_cast<std::uint32_t>(lhs);
@@ -909,30 +914,31 @@ run_result program_machine::execute_current_instruction() {
                     scalar_registers_.at(index) = value;
                 }
             };
-            if (opcode ==  instruction_opcode::frontend_control_movi) {
-                if (inst.rs1 != 0 || inst.rs2 != 0) {
+            if (opcode == instruction_opcode::frontend_control_movi ||
+                opcode == instruction_opcode::frontend_control_add ||
+                opcode == instruction_opcode::frontend_control_addi) {
+                const auto add = opcode == instruction_opcode::frontend_control_add;
+                if ((add && inst.imm != 0) || (!add && inst.rs2 != 0) ||
+                    (opcode == instruction_opcode::frontend_control_movi && inst.rs1 != 0)) {
                     raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
                 }
-                write_scalar(inst.rd, signed_imm);
-                pc_ = next_pc;
-            } else if (opcode ==  instruction_opcode::frontend_control_add) {
-                if (inst.imm != 0) {
+                // Lower the migration encoding into the one scalar arithmetic owner.
+                const instruction::scalar_word word{(add ? k_scalar_add : k_scalar_addi)
+                    | (std::uint32_t{inst.rd} << instruction::rd_shift)
+                    | (std::uint32_t{inst.rs1} << instruction::rs1_shift)
+                    | (add ? std::uint32_t{inst.rs2} << instruction::rs2_shift
+                           : std::uint32_t{inst.imm} << 20)};
+                const auto evaluated = scalar::evaluate(word, instruction_address{pc_}, {
+                    std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1)),
+                    std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs2))});
+                if (!evaluated) {
                     raise_fault(architectural_fault::illegal_instruction);
                     return run_result{state_, fault_, pc_, retired_};
                 }
-                write_scalar(
-                    inst.rd,
-                    wrap_add(scalar_registers_.at(inst.rs1), scalar_registers_.at(inst.rs2))
-                );
-                pc_ = next_pc;
-            } else if (opcode ==  instruction_opcode::frontend_control_addi) {
-                if (inst.rs2 != 0) {
-                    raise_fault(architectural_fault::illegal_instruction);
-                    return run_result{state_, fault_, pc_, retired_};
-                }
-                write_scalar(inst.rd, wrap_add(scalar_registers_.at(inst.rs1), signed_imm));
-                pc_ = next_pc;
+                if (const auto& write = std::get<scalar::register_result>(evaluated->value).write)
+                    write_scalar(write->destination.value(), std::bit_cast<std::int32_t>(write->value));
+                pc_ = evaluated->next_pc.value();
             } else if (opcode ==  instruction_opcode::frontend_control_load ||
                        opcode ==  instruction_opcode::frontend_control_store) {
                 if ((opcode ==  instruction_opcode::frontend_control_load && inst.rs2 != 0) ||
