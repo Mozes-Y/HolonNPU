@@ -18,12 +18,14 @@ standard scalar decoding are implemented under ADR-0060. ADR-0061 adds shared
 scalar effect evaluation and typed memory/CSR/control requests. The canonical
 ISA schema generates internal scalar metadata without changing RTL capability.
 ADR-0062 adds shared M-mode state, trap/MRET/WFI, interrupts and transactional
-scalar completion. Full RV32 program execution, NPU operands, physical routing
-and ELF startup remain next; the released RTL/ABI are unchanged.
+scalar completion. ADR-0063 adds physical routing, parcel fetch and synchronous
+memory servicing, verified with compiled RV32 C23/C++26 probes. The canonical
+mixed-width program machine, NPU operands and ELF startup remain next;
+the released RTL/ABI are unchanged.
 The next scalar execution contract uses a confirmed unified 32-bit physical
 address space with scalar access to mapped scratchpad/system memory and DMA
-for bulk tensor movement; physical requests and hart completion exist, but the
-router and complete program fetch/execute path are not implemented yet.
+for bulk tensor movement. The checked router and hart completion exist; the
+complete Holon program fetch/execute cutover is not implemented yet.
 The autonomous boot/runner feature is committed as `84551c8` and remains the
 functional migration starting point.
 
@@ -229,6 +231,46 @@ outside upstream's supported compiler range and optional HDF5 support remain
 unchanged. Linux FS was not rerun. Debug/regression builds used two jobs;
 coverage used eight and gem5 used sixteen. Public generated headers, RTL,
 ABI schema and driver have no changes in this feature.
+
+## Physical Routing Verification
+
+Implemented on 2026-09-06 under ADR-0063. Maps own no memory; typed regions
+select local program bytes, scratchpad or identity-mapped external system
+memory. Reads/writes validate permissions, region and backing bounds before
+mutation. Fetch reports the failing parcel separately from the instruction PC.
+The synchronous service consumes only the hart's live pending operation.
+
+| Command/gate | Result |
+| ------------ | ------ |
+| Debug configure/build; `ctest --preset debug --output-on-failure` | 29/29 passed |
+| `ctest --preset lint --output-on-failure` | 11/11 passed |
+| Regression configure/build; `ctest --preset regression --output-on-failure` | 40/40 passed |
+| Coverage configure/build; `ctest --preset coverage --output-on-failure` | 42/42 passed |
+| `python3 tools/check_coverage.py --build-dir build/coverage` | 12 raw, 137 functional events, 56 product RTL covers; structural baseline unchanged |
+| New memory/execution/hart/scalar sources and memory test: strict warnings, ASan/UBSan | passed, including both compiled probes |
+| `cmake --preset gem5`; `cmake --build --preset gem5 --parallel 16` | passed; 27,587/27,587 translation units audited as C++26 |
+| `ctest --preset gem5 --output-on-failure` | 7/7 passed |
+| `ctest --preset gem5 -R '^scalar_toolchain_check$' --verbose` | 56/56 encoding oracle plus both executed RV32 probes passed |
+
+The memory test verifies directed permission, ownership, fetch and completion
+cases plus 8192 interval-scoreboard cases (seed `0x4d415033`). The toolchain
+fixture compiles the same control workload in C23 and C++26 and verifies all
+16 values, checksum 261 and publication before WFI wait. C23 retires 536
+instructions with 110 stack/35 system accesses; C++26 retires 737 with 174/35,
+including a compiler-generated memset executed by the guest. These are
+instruction/access counts, not cycle or performance measurements.
+
+Portable guest memory support moved to `sim/guest/freestanding.c` without
+duplication; CI watches the guest/probe sources and uploads toolchain artifacts.
+ABI/ISA generation, ownership, macro policy, workflow YAML parsing, local links
+and whitespace checks pass. Public RTL, ABI/ISA schemas, headers and driver
+are unchanged. No production ELF loader, second interpreter or autonomous
+gem5 model is claimed by these component integration tests.
+gem5 remains on stable `cbc94c1a773e94118070294750dbe2c9c75898cb` with the
+existing GCC-version and optional-HDF5 warnings. Linux FS was not rerun.
+Debug/regression builds used two jobs, coverage eight, and gem5 sixteen.
+Workflow YAML was parsed locally; GitHub Actions itself has not been run for
+this unpushed feature. `actionlint` is not installed in this environment.
 
 ## Known Limits
 

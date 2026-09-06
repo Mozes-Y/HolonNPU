@@ -42,7 +42,7 @@ def main() -> int:
             "-T",
             str(args.source_dir / "link.ld"),
             str(args.source_dir / "start.S"),
-            str(args.source_dir / "freestanding.c"),
+            str(Path(__file__).resolve().parents[1] / "sim/guest/freestanding.c"),
             str(args.workload),
             "-o",
             str(args.output),

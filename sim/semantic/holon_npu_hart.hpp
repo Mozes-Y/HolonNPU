@@ -35,7 +35,8 @@ public:
     [[nodiscard]] std::expected<hart_event, hart_error> issue(instruction::scalar_word word);
     [[nodiscard]] std::expected<hart_event, hart_error> complete(hart_token token, external_result result);
     [[nodiscard]] std::expected<std::optional<trap_taken>, hart_error> poll_interrupt();
-    [[nodiscard]] std::expected<trap_taken, hart_error> fetch_fault();
+    [[nodiscard]] std::expected<trap_taken, hart_error> fetch_fault(
+        std::optional<instruction_address> failing_address = {});
     void set_interrupts(interrupt_lines lines);
     void account_cycles(elapsed_cycles elapsed);
     [[nodiscard]] instruction_address pc() const { return instruction_address{pc_}; }
@@ -44,6 +45,9 @@ public:
     [[nodiscard]] std::expected<std::uint32_t, hart_error> read_csr(csr_address address) const;
     [[nodiscard]] bool waiting() const { return waiting_; }
     [[nodiscard]] bool pending() const { return pending_.has_value(); }
+    [[nodiscard]] std::optional<pending_effect> pending_request() const {
+        return pending_ ? std::optional{pending_->event} : std::nullopt;
+    }
 
 private:
     friend class ::holon_npu::semantic::program_machine;

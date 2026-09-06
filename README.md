@@ -56,8 +56,9 @@ being redesigned without changing VLA/predication principles; see the
 [ISA Redesign](docs/ISA_REDESIGN.md).
 The model-stage frontend has typed framing, RV32 effects and shared M-mode
 hart state with CSR/trap/MRET/WFI and delayed memory completion. The existing
-machine owns this scalar state; full RV32 boot, physical routing and redesigned
-NPU instruction execution are not yet implemented.
+machine owns this scalar state. Checked physical regions and synchronous memory
+servicing run compiled RV32 C23/C++26 probes through the shared hart. Full ELF
+boot and redesigned NPU instruction execution are not yet implemented.
 See the [Simulation Contract](docs/SIMULATION.md) for ownership and acceptance.
 
 ## Architecture Roadmap

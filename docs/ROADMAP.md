@@ -81,8 +81,8 @@ Implementation order and acceptance:
    and compile a complete autonomous Transformer forward pass.
    Completed first slice (ADR-0060): machine-checkable mixed-width framing and
    RV32IM/Zicsr/MRET/WFI metadata, operand extraction, and disassembly, including
-   upstream assembler/compiler cross-checks. Next: standard scalar execution,
-   M-mode CSR/trap semantics and ELF startup; then the redesigned NPU operands.
+   upstream assembler/compiler cross-checks. This underpins standard scalar
+   execution, M-mode state, ELF startup and the redesigned NPU operands.
    Current RTL capability generation stays unchanged until a reviewed cutover.
    Completed slice (ADR-0061): pure RV32 scalar effects shared with the current
    machine, typed memory/CSR/control requests and precise exceptions. Verified
@@ -94,7 +94,13 @@ Implementation order and acceptance:
    The current machine's scalar register/PC/retirement storage uses
    this state. Tests cover CSR WARL/read-only behavior, precise fault
    PC, counter writes/inhibition, interrupt boundaries and stale completions;
-   physical routing and mixed-width program execution follow separately.
+   physical routing is verified below; mixed-width program execution follows.
+   Completed slice (ADR-0063): checked physical regions for local program memory,
+   data scratchpad and environment-owned system memory, instruction fetch and
+   synchronous servicing of the hart's captured memory/fence requests. Verified
+   permissions, overflow, region/backing boundaries and compiled RV32 C23/C++26
+   control code through the shared hart. This is not a production ELF loader
+   or another interpreter; integrated mixed-width execution remains next.
 3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
    execution object and timing memory request port. Reuse the semantic core and
    run the identical boot image without a RISC-V CPU or MMIO launch sequence.

@@ -298,6 +298,7 @@ target_sources(
     sim/semantic/holon_npu_instruction.cpp
     sim/semantic/holon_npu_scalar.cpp
     sim/semantic/holon_npu_hart.cpp
+    sim/semantic/holon_npu_memory.cpp
   PUBLIC
     FILE_SET semantic_headers
     TYPE HEADERS
@@ -309,6 +310,7 @@ target_sources(
       sim/semantic/holon_npu_instruction.hpp
       sim/semantic/holon_npu_scalar.hpp
       sim/semantic/holon_npu_hart.hpp
+      sim/semantic/holon_npu_memory.hpp
       sim/semantic/holon_npu_scalar_metadata.hpp
 )
 target_compile_features(holon_npu_semantic PUBLIC cxx_std_26)
@@ -1011,17 +1013,24 @@ target_sources(holon_npu_hart_test PRIVATE tests/hart_test.cpp)
 holon_npu_target_options(holon_npu_hart_test)
 target_link_libraries(holon_npu_hart_test PRIVATE holon_npu_semantic)
 holon_npu_add_ctest(TEST holon_npu_hart TARGET holon_npu_hart_test LABELS fast)
+
+add_executable(holon_npu_memory_test)
+target_sources(holon_npu_memory_test PRIVATE tests/memory_test.cpp)
+holon_npu_target_options(holon_npu_memory_test)
+target_link_libraries(holon_npu_memory_test PRIVATE holon_npu_semantic)
+holon_npu_add_ctest(TEST holon_npu_memory TARGET holon_npu_memory_test LABELS fast)
 holon_npu_add_python_check(
   TARGET isa_schema_tests TEST isa_schema_tests SCRIPT tests/isa_schema_test.py LABELS fast static
 )
 if(HOLON_NPU_BUILD_GEM5)
-  add_dependencies(gem5 holon_npu_instruction_test)
+  add_dependencies(gem5 holon_npu_instruction_test holon_npu_memory_test)
   holon_npu_add_python_check(
     TARGET scalar_toolchain_check TEST scalar_toolchain_check
     SCRIPT tests/scalar_toolchain_test.py LABELS gem5-fast
     ARGS --compiler ${HOLON_NPU_RISCV_GCC}
       --decoder $<TARGET_FILE:holon_npu_instruction_test>
       --output ${CMAKE_BINARY_DIR}/scalar-toolchain
+      --runner $<TARGET_FILE:holon_npu_memory_test>
   )
 endif()
 

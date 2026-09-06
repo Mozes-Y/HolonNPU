@@ -1,31 +1,16 @@
 #include "holon_npu_execution.hpp"
 
 #include <algorithm>
+#include <array>
 #include <concepts>
 #include <limits>
+#include <type_traits>
 
 namespace holon_npu::semantic {
 namespace {
 
-std::optional<std::span<std::byte>> mapped_range(
-    system_memory_view memory,
-    system_address address,
-    std::size_t byte_count
-) {
-    if (address < memory.base ||
-        (byte_count != 0 && byte_count - 1 >
-            std::numeric_limits<std::uint64_t>::max() - address.value())) {
-        return std::nullopt;
-    }
-    const auto offset = address.value() - memory.base.value();
-    if (offset > memory.bytes.size() || byte_count > memory.bytes.size() - offset) {
-        return std::nullopt;
-    }
-    return memory.bytes.subspan(static_cast<std::size_t>(offset), byte_count);
-}
-
 operation_result read_memory(system_memory_view memory, system_address address, std::size_t size) {
-    if (const auto range = mapped_range(memory, address, size)) {
+    if (const auto range = memory.range(address, size)) {
         return read_payload{{range->begin(), range->end()}};
     }
     return operation_failure{architectural_fault::axi_read};
@@ -36,7 +21,7 @@ operation_result write_memory(
     system_address address,
     std::span<const std::byte> bytes
 ) {
-    if (const auto range = mapped_range(memory, address, bytes.size())) {
+    if (const auto range = memory.range(address, bytes.size())) {
         std::ranges::copy(bytes, range->begin());
         return operation_success{};
     }
@@ -44,6 +29,49 @@ operation_result write_memory(
 }
 
 }  // namespace
+
+std::expected<instruction::instruction_frame, scalar::trap> fetch_instruction(
+    const memory::physical_map& map, memory::bindings memory, instruction_address pc) {
+    using enum instruction::scalar_trap_cause;
+    if (pc.value() % instruction::alignment_bytes)
+        return std::unexpected(scalar::trap{instruction_address_misaligned, pc, pc.value()});
+    std::array<std::byte, instruction::holon_bytes> bytes{};
+    if (!map.read(physical_address{pc.value()}, std::span{bytes}.first(instruction::scalar_bytes), memory, memory::access::execute))
+        return std::unexpected(scalar::trap{instruction_access_fault, pc, pc.value()});
+    const auto first = instruction::fetch(std::span{bytes}.first(instruction::scalar_bytes), pc, pc);
+    if (first) return *first;
+    if (pc.value() > std::numeric_limits<std::uint32_t>::max() - (instruction::holon_bytes - 1))
+        return std::unexpected(scalar::trap{instruction_access_fault, pc, pc.value()});
+    const auto second = pc.value() + instruction::scalar_bytes;
+    if (!map.read(physical_address{second}, std::span{bytes}.subspan(instruction::scalar_bytes), memory, memory::access::execute))
+        return std::unexpected(scalar::trap{instruction_access_fault, pc, second});
+    return *instruction::fetch(bytes, pc, pc);
+}
+
+std::expected<scalar::hart_event, scalar::hart_error> service_scalar(
+    scalar::hart_state& hart, const memory::physical_map& map, memory::bindings memory) {
+    const auto pending = hart.pending_request();
+    if (!pending) return std::unexpected(scalar::hart_error::no_pending);
+    return std::visit([&](const auto& request) -> std::expected<scalar::hart_event, scalar::hart_error> {
+        using T = std::remove_cvref_t<decltype(request)>;
+        if constexpr (std::same_as<T, scalar::load_request>) {
+            std::array<std::byte, 4> bytes{};
+            const auto payload = std::span{bytes}.first(static_cast<std::size_t>(request.width));
+            if (!map.read(request.address, payload, memory))
+                return hart.complete(pending->token, scalar::access_fault{});
+            return hart.complete(pending->token, scalar::load_data{payload});
+        } else if constexpr (std::same_as<T, scalar::store_request>) {
+            const auto payload = std::span{request.payload}.first(static_cast<std::size_t>(request.width));
+            if (!map.write(request.address, payload, memory))
+                return hart.complete(pending->token, scalar::access_fault{});
+            return hart.complete(pending->token, scalar::acknowledged{});
+        } else {
+            static_assert(std::same_as<T, scalar::fence_request>);
+            // This environment completes every prior memory request synchronously.
+            return hart.complete(pending->token, scalar::acknowledged{});
+        }
+    }, pending->request);
+}
 
 operation_result service_operation(const operation& request, system_memory_view memory) {
     return std::visit([memory]<typename Request>(const Request& value) -> operation_result {

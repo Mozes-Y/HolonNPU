@@ -39,6 +39,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Cross-check Holon scalar decoding against upstream RISC-V tools.")
     parser.add_argument("--compiler", required=True)
     parser.add_argument("--decoder", type=Path, required=True)
+    parser.add_argument("--runner", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
@@ -90,8 +91,30 @@ unsigned probe(const unsigned* p, unsigned count) {
         decoded = run(args.decoder.resolve(), "--scalar-words", raw)
         (output / f"{suffix}-disassembly.txt").write_text(decoded)
     (output / "compiler.txt").write_text(run(compiler, "--version"))
+    for language, tool, standard in (("c", compiler, "c23"), ("c++", cxx, "c++26")):
+        directory = output / ("execution-c" if language == "c" else "execution-cpp")
+        directory.mkdir(exist_ok=True)
+        obj = directory / "probe.o"
+        run(tool, *flags, "-x", language, f"-std={standard}", "-ffreestanding", "-fno-pic",
+            "-fno-pie", "-fno-common", "-fno-inline", "-fno-omit-frame-pointer", "-fdata-sections",
+            "-O2", "-Wall", "-Wextra", "-Werror", "-c", root / "tests/rv32_memory_probe.c", "-o", obj)
+        program = directory / "probe.elf"
+        run(compiler, *flags, "-nostdlib", "-nostartfiles", "-static", "-no-pie",
+            "-Wl,--build-id=none", "-Wl,--no-relax", f"-Wl,-T,{root / 'tests/rv32_memory.ld'}",
+            "-std=c23", "-ffreestanding", "-fno-builtin", "-O2",
+            root / "tests/rv32_memory_start.S", root / "sim/guest/freestanding.c", obj, "-o", program)
+        header = struct.unpack_from("<16sHHIIIIIHHHHHH", program.read_bytes())
+        if header[0][:6] != b"\x7fELF\x01\x01" or header[2] != 243 or header[7] != 0 or header[4] != 0x1000:
+            raise RuntimeError("execution probe requires ELF32 little-endian RV32/no-RVC at expected entry")
+        (directory / "elf.txt").write_text(run(readelf, "-h", "-A", "-l", program))
+        code, data = directory / "code.bin", directory / "data.bin"
+        run(objcopy, "-O", "binary", "-j", ".text", program, code)
+        run(objcopy, "-O", "binary", "-j", ".data", program, data)
+        result = run(args.runner.resolve(), code, data)
+        (directory / "execution.txt").write_text(result)
+        print(f"{standard}: {result.strip()}")
     print(f"upstream scalar oracle: {len(expected)}/{len(expected)} instructions, C23/C++26 decode PASS")
-    print("This verifies encoding/toolchain compatibility, not program execution.")
+    print("Compiled scalar probes exercise shared hart + physical routing; full Holon machine/ELF loading remains separate.")
 
 
 if __name__ == "__main__":

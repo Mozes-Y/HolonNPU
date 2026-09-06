@@ -430,3 +430,36 @@ mutation in the runner would make gem5 and fast execution disagree. Neither is
 accepted. This component issues effects without owning system memory or
 claiming complete RV32 boot. Region routing, instruction fetch and ELF startup
 remain subsequent work. Public accelerator ABI/ISA values stay unchanged.
+
+## ADR-0063: Unified Physical Regions And External Storage
+
+**Status:** Accepted for semantic implementation; no RTL authorization.
+
+**Decision:** A validated, immutable physical map routes 32-bit addresses to
+local program memory, data scratchpad or system memory. Placement is a boot/
+board parameter, not a new ABI register. Local regions have one storage owner
+each; program memory is read/execute, scratchpad is read/write and non-executable.
+System regions have explicit read/write/execute permissions and identity
+physical addresses. The environment owns system bytes. Maps never own storage.
+
+Validate nonempty regions, permissions, overflow, overlap and duplicate local
+windows before accepting a map. A data transfer must fit one permitted region
+and its actual backing before any write. Instruction fetch reads aligned
+32-bit parcels, including a second parcel for Holon words; adjacent executable
+regions may meet at a parcel boundary. Address-space wrap never fabricates a
+contiguous instruction or memory transfer.
+
+**Ordering:** The synchronous environment services only the hart's current
+pending request, not a caller-supplied stale copy. Stores use captured bytes;
+loads commit only after a complete read. A fence can acknowledge once prior
+requests have completed, which is immediate in this single-pending synchronous
+environment. gem5 must use real completion/events instead of this synchronous
+service shortcut. No cache, MMIO device, timing model or second interpreter is
+introduced by this feature.
+
+**Alternatives:** Putting system storage into the core prevents correct gem5
+memory integration. Treating every pointer as an SPM offset breaks ordinary
+RV32 code. Silently falling through a denied/local access into system memory
+breaks permissions and ownership. These alternatives are rejected. Compiled
+scalar tests may drive fetch/issue/complete but contain no instruction arithmetic;
+the eventual canonical mixed-width machine must reuse these mechanisms.

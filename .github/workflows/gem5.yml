@@ -10,6 +10,10 @@ on:
       - "CMakePresets.json"
       - "include/**"
       - "sim/gem5/**"
+      - "sim/guest/**"
+      - "tests/scalar_toolchain_test.py"
+      - "tests/memory_test.cpp"
+      - "tests/rv32_memory*"
       - "sim/semantic/**"
       - "spec/**"
       - "sw/holon_npu_runtime.*"
@@ -22,6 +26,10 @@ on:
       - "CMakePresets.json"
       - "include/**"
       - "sim/gem5/**"
+      - "sim/guest/**"
+      - "tests/scalar_toolchain_test.py"
+      - "tests/memory_test.cpp"
+      - "tests/rv32_memory*"
       - "sim/semantic/**"
       - "spec/**"
       - "sw/holon_npu_runtime.*"
@@ -176,6 +184,7 @@ jobs:
             build/gem5/gem5-tests/**/stats.txt
             build/gem5/gem5-tests/**/simout
             build/gem5/gem5-tests/**/simerr
+            build/gem5/scalar-toolchain/
             build/gem5/gem5-tests/linux/board.platform.terminal
             build/gem5/gem5-tests/linux/resources-metadata.json
             build/gem5/linux-kernel/kernel-metadata.json

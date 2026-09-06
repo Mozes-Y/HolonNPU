@@ -232,17 +232,17 @@ Holon vector/matrix 先通过显式 intrinsic 或汇编接入，保留 VLA 与�
 设计，不承诺自动向量化。执行环境为单 hart M-mode 裸机，无 U/S mode、MMU 或 OS。
 当前已实现取指分帧、标量 effects，以及共享的 M-mode CSR/trap/MRET/WFI 状态。
 访存和 fence 必须经过 token 校验后完成，issue 不代表退休。
-完整 RV32 启动、物理地址路由和新的 NPU 指令执行仍待接入；迁移边界见
+物理地址路由和同步访存服务也已实现；完整 ELF 启动和新的 NPU 指令执行仍待接入。迁移边界见
 [ISA Redesign](ISA_REDESIGN.md)。
 
 ```bash
-cmake --build --preset debug --target holon_npu_instruction_test holon_npu_scalar_test holon_npu_hart_test --parallel 2
-ctest --preset debug -R '^(holon_npu_instruction|holon_npu_scalar|holon_npu_hart|isa_schema_tests)$' --verbose
+cmake --build --preset debug --target holon_npu_instruction_test holon_npu_scalar_test holon_npu_hart_test holon_npu_memory_test --parallel 2
+ctest --preset debug -R '^(holon_npu_instruction|holon_npu_scalar|holon_npu_hart|holon_npu_memory|isa_schema_tests)$' --verbose
 ```
 
 `scalar_toolchain_check` 在 gem5 preset 中用上游 RISC-V 汇编器独立校验全部
-56 个标量/机器指令编码，并检查 C23/C++26 编译输出。结果位于
-`build/gem5/scalar-toolchain/`；编码检查不等同于程序执行验证。
+56 个标量/机器指令编码，并执行 C23/C++26 编译的标量程序，验证 SPM 栈、系统内存全局变量、
+计算结果及 WFI 等待状态。结果位于 `build/gem5/scalar-toolchain/`；这不是完整 Holon ELF 启动的验收。
 
 自主功能入口是 `program_machine::boot(boot_image)` 和
 `run_program(machine, system_memory_view, instruction_budget)`。它不需要 descriptor；

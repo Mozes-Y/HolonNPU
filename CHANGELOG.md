@@ -4,6 +4,13 @@ All notable project-level release changes are recorded here.
 
 ## Unreleased
 
+- Added checked unified physical regions, executable-parcel fetch and typed
+  scalar memory servicing. Compiled C23/C++26 RV32 probes execute through the
+  shared hart with real SPM stack and system-memory globals. Full ELF loading
+  and redesigned Holon program execution remain subsequent work.
+- Shared portable freestanding guest memory routines under `sim/guest/` between
+  scalar probes and the existing bare-metal verification path.
+
 ### Added
 
 - Added shared RV32 scalar effect evaluation: all integer arithmetic/branches,

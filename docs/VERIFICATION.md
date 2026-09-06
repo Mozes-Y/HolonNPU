@@ -192,8 +192,15 @@ The existing machine shares matching arithmetic with this evaluator.
 8192 random CSR operations, 8192 random register commits, WARL/read-only fields,
 counter inhibition/writes, trap PC, interrupt priority, MRET/WFI and transactional
 memory/fence completion. Seeds and verified case totals are printed by the test.
-These tests do not establish physical routing, ELF startup or complete RV32
-program execution; those require the next program-machine integration tests.
+`holon_npu_memory` gates region permissions/ownership, atomic failed accesses,
+32-bit bounds, cross-region instruction parcels, and routed hart completion.
+An independent interval scoreboard checks 8192 deterministic cases with seed
+`0x4d415033`. `scalar_toolchain_check` additionally compiles and executes C23
+and C++26 probes using real RV32 stack/global accesses and target-side memory
+support. The fixture checks every result, checksum, publication marker and WFI
+wait; it does not substitute Host arithmetic or interpret guest instructions.
+These tests do not establish a production ELF loader or the full redesigned
+Holon program machine; those require the next integration steps.
 
 ```bash
 cmake --build --preset debug --target holon_npu_execution_test --parallel 2

@@ -192,7 +192,8 @@ The execution environment is selected as single-hart M-mode bare metal,
 without U/S mode, MMU, or OS. ADR-0060/0061/0062 implement model-stage framing,
 standard scalar effects and shared M-mode state/commit. These do not change this
 document's current RTL capability or make the existing program machine fully
-RV32-compatible; physical routing, mixed-width execution and ELF startup remain next.
+RV32-compatible. ADR-0063 adds checked physical routing and scalar memory
+servicing; canonical mixed-width execution and ELF startup remain next.
 The target scalar memory contract is a unified 32-bit physical address space
 with direct scalar scratchpad/system access and explicit DMA for tensor bulk
 movement. The current accelerator's scratchpad-only scalar path is unchanged.

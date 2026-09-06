@@ -133,9 +133,9 @@ std::expected<std::optional<trap_taken>, hart_error> hart_state::poll_interrupt(
     return std::nullopt;
 }
 
-std::expected<trap_taken, hart_error> hart_state::fetch_fault() {
+std::expected<trap_taken, hart_error> hart_state::fetch_fault(std::optional<instruction_address> failing_address) {
     if (pending_) return std::unexpected(hart_error::operation_pending);
-    return enter_trap(cause(scalar_trap_cause::instruction_access_fault), pc_);
+    return enter_trap(cause(scalar_trap_cause::instruction_access_fault), failing_address.value_or(pc()).value());
 }
 
 std::expected<hart_event, hart_error> hart_state::issue(instruction::scalar_word word) {

@@ -15,6 +15,10 @@ module wrapper.
 - `hart_test.cpp` verifies shared M-mode CSR/trap/interrupt state and precise
   memory/fence completion, independent CSR/register scoreboards and budget-safe
   architectural counters. It does not replace program-level boot/router tests.
+- `memory_test.cpp` verifies physical maps, permissions, backing boundaries,
+  instruction parcels and routed hart completion. Its compiled-probe fixture
+  supplies bytes but never implements guest arithmetic. `rv32_memory_probe.c`,
+  `rv32_memory_start.S` and `rv32_memory.ld` are test-only RV32 guest inputs.
 - `scalar_toolchain_test.py` cross-checks decoding with upstream RISC-V tools
   in the gem5 preset. It generates assembly/ELF/disassembly artifacts, not a
   second ISA implementation or a program-execution reference.

@@ -4,7 +4,8 @@ Status: active architecture review under ADR-0059. This records the accepted
 direction and remaining contract work, not features of the current decoder.
 `docs/ISA.md` and generated metadata still describe the verified ISA 1.0
 migration baseline. Scalar scope, M-mode execution, and instruction widths are
-confirmed; NPU opcode/operand allocation and detailed CSR/trap contracts remain.
+confirmed. ADR-0062 defines machine CSR/trap behavior; NPU operand allocation,
+program startup and the integrated execution contract remain.
 
 ## Invariants
 
@@ -68,8 +69,8 @@ before accepting ELF programs. See the
 
 The execution environment is confirmed as single-hart M-mode bare metal, with
 standard traps, CSRs, MRET, and WFI; no U/S mode, MMU, or OS is introduced.
-The machine-mode CSR inventory, reset values, interrupt sources, trap priority,
-and termination interface still require an execution contract. WFI is not a
+Machine-mode CSR inventory, reset values, interrupt sources and trap priority
+are defined below under ADR-0062. Program termination still requires a contract. WFI is not a
 program-exit instruction. Decode recognition alone does not implement traps.
 
 Upstream GCC/LLVM are the intended scalar toolchains. A freestanding ILP32 runtime
@@ -82,8 +83,9 @@ The selected address model is a unified 32-bit physical address space. Scalar
 loads/stores may access mapped scratchpad and system memory; they are not
 restricted to scratchpad. Tensor bulk transfers remain explicit DMA operations.
 Core-owned local memory and environment-owned system memory remain separate
-storage owners behind that address map. Region placement, access permissions,
-scalar/DMA ordering and fault rules must be frozen before execution. This is a
+storage owners behind that address map. ADR-0063 defines checked regions,
+permissions and scalar-access faults. Region placement is a boot/board input;
+integrated scalar/DMA ordering must be preserved at machine cutover. This is a
 target change, not a claim that the released accelerator permits scalar system
 memory accesses.
 
@@ -122,7 +124,7 @@ not mutate a machine, retire an instruction, perform I/O or account for cycles.
   access fault belongs to the next instruction, not the successful jump.
 - Scalar effective addresses are 32-bit physical addresses, not SPM offsets.
   LB/LH/LW/LBU/LHU and SB/SH/SW are little-endian; halfword/word misalignment
-  raises a contained machine exception before any memory access. The eventual
+  raises a contained machine exception before any memory access. The
   router checks mapping/permissions and returns load/store access faults.
   Load-to-x0 still accesses memory and may fault. Store bytes are captured at
   issue; a failed load produces no register update. A payload with the wrong
@@ -130,15 +132,16 @@ not mutate a machine, retire an instruction, perform I/O or account for cycles.
 - Zicsr requests retain separate read and write enables. CSRRS/CSRRC with a
   nonzero source register containing zero still request a write. Immediate
   zero suppresses writes only for CSRRSI/CSRRCI. CSR permissions, WARL updates
-  and atomic commit belong to the upcoming M-mode state implementation.
+  and atomic commit are implemented by the shared M-mode hart state.
 - FENCE preserves predecessor/successor sets and ignores reserved mode/rd/rs1
   fields as RV32I specifies. It requires an ordering completion, not an early
   retirement. ECALL/EBREAK produce machine-call/breakpoint traps; MRET and WFI
   produce distinct machine-control requests, never a fake successful exit.
 
 The existing machine consumes shared scalar arithmetic during migration.
-Full 32-register execution, physical region mapping, trap entry/return, ELF
-startup and the new Holon operand formats are separate remaining steps. Tests
+Shared 32-register state and trap entry/return are implemented by ADR-0062.
+ADR-0063 implements physical routing; integrated ELF startup and new Holon
+operand formats remain subsequent steps. Tests
 must distinguish an evaluated request from its successful architectural commit.
 The behavior follows the [RV32I specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html),
 [M extension](https://docs.riscv.org/reference/isa/v20260120/unpriv/m-st-ext.html), and

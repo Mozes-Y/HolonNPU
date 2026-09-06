@@ -47,8 +47,30 @@ Machine CSRs, interrupt/trap entry, MRET/WFI and token-checked memory/fence
 completion are implemented without a second fetch loop or memory owner.
 Architectural counters and simulator budget counts are distinct. MCYCLE only
 consumes externally supplied elapsed cycles; no latency model is introduced.
-The component tests are not evidence of an RV32 physical router, ELF startup,
-mixed-width program execution or autonomous gem5 completion.
+These state tests alone are not evidence of ELF startup, mixed-width program
+execution or autonomous gem5 completion.
+
+ADR-0063 adds `memory::physical_map`, a validated mapping without storage.
+`memory::bindings` supplies core-owned program/SPM bytes and environment-owned
+system bytes; system addresses retain identity. Permissions, region boundaries
+and backing extents are checked before any transfer. Program and SPM windows
+cannot be aliased or silently redirected into system memory. Placement is an
+explicit fixture/boot configuration, not a public ABI address allocation.
+
+`fetch_instruction` uses the shared frame recognizer and executable 32-bit
+parcels. A 64-bit word may span adjacent executable regions; a missing second
+parcel reports that parcel's address while retaining the instruction PC.
+`service_scalar` synchronously services only the hart's live pending effect;
+loads/stores/fences still retire through `hart_state::complete`. It must not be
+used as a gem5 timing shortcut. Existing accelerator system transfers use the
+same checked external-memory view.
+
+The toolchain fixture compiles C23/C++26 RV32 control programs, executes their
+stack accesses in SPM and globals in system memory, and verifies published
+results before observing WFI wait. Portable guest `memset`/`memcpy` live in
+`sim/guest/freestanding.c` and execute as guest instructions, not Host helpers.
+This is component integration evidence, not a production ELF loader or a
+second boot mode. The canonical mixed-width execution cutover remains next.
 
 The current accelerator adapter and Host tests remain useful for released RTL
 differential verification during migration. They are not the target execution
