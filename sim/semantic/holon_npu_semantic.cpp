@@ -392,7 +392,7 @@ void program_machine::reset() {
     for (auto& reg : vector_registers_) {
         std::ranges::fill(reg, 0);
     }
-    std::ranges::fill(scalar_registers_, 0);
+    scalar_.reset();
     std::ranges::fill(predicate_active_, 1);
     matrix_accumulator_ = {};
     matrix_accumulator_valid_ = false;
@@ -400,13 +400,11 @@ void program_machine::reset() {
     matrix_accumulator_n_ = 0;
     state_ = lifecycle_state::idle;
     fault_ = architectural_fault::none;
-    pc_ = 0;
     vl_ = 0;
     element_width_ = vector_element_width::bits_32;
     rounding_ = vector_rounding::nearest_even;
     elements_signed_ = true;
     saturate_ = false;
-    retired_ = 0;
     dma_events_.clear();
     matrix_events_.clear();
     matrix_accumulator_ = {};
@@ -450,7 +448,7 @@ std::expected<void, boot_error> program_machine::boot(const boot_image& image) {
     program_ = std::move(instructions);
     active_local_mem_bytes_ = image.local_memory_bytes;
     std::ranges::copy(data, scratchpad_.begin() + offset);
-    pc_ = image.entry.value();
+    scalar_.pc_ = image.entry.value();
     state_ = lifecycle_state::running;
     return {};
 }
@@ -463,9 +461,7 @@ void program_machine::initialize(
     program_.assign(words.begin(), words.end());
     state_ = lifecycle_state::idle;
     fault_ = architectural_fault::none;
-    pc_ = 0;
-    retired_ = 0;
-    std::ranges::fill(scalar_registers_, 0);
+    scalar_.reset();
     dma_events_.clear();
     matrix_events_.clear();
     matrix_accumulator_ = {};
@@ -476,7 +472,7 @@ void program_machine::initialize(
     next_matrix_sequence_ = 0;
     pending_.reset();
     active_local_mem_bytes_ = std::min(active_local_mem_bytes, scratchpad_.size());
-    pc_ = entry.value();
+    scalar_.pc_ = entry.value();
 }
 
 bool program_machine::load_arguments(std::span<const std::byte> bytes, local_address destination) {
@@ -641,7 +637,7 @@ std::optional<operation> program_machine::operation_for(const decoded_instructio
         if (opcode == instruction_opcode::frontend_control_load ||
             opcode == instruction_opcode::frontend_control_store) {
             const auto base = static_cast<std::uint64_t>(
-                std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1))
+                std::bit_cast<std::uint32_t>(scalar_.registers_.at(inst.rs1))
             );
             const auto address = static_cast<std::int64_t>(base) + sign_extend_imm12(inst.imm);
             return scalar_local_operation{
@@ -735,12 +731,12 @@ std::optional<operation> program_machine::operation_for(const decoded_instructio
             return std::nullopt;
         }
         const auto system = system_address{
-            static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rd))) |
+            static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(scalar_.registers_.at(inst.rd))) |
             (static_cast<std::uint64_t>(
-                 std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1))) << 32U)
+                 std::bit_cast<std::uint32_t>(scalar_.registers_.at(inst.rs1))) << 32U)
         };
         const auto local = local_address{
-            std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs2))
+            std::bit_cast<std::uint32_t>(scalar_.registers_.at(inst.rs2))
         };
         const auto byte_count = static_cast<std::uint32_t>(
             static_cast<std::size_t>(inst.imm + 1U) * HOLON_NPU_ISA_DMA_WORD_BYTES
@@ -773,29 +769,29 @@ std::expected<execution_event, api_error> program_machine::advance() {
         return std::unexpected(api_error::operation_pending);
     }
     if (state_ == lifecycle_state::done || state_ == lifecycle_state::fault) {
-        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+        return terminal_event{state_, fault_, instruction_address{scalar_.pc_}, scalar_.retired_};
     }
-    if (pc_ % k_pc_increment != 0 || pc_ / k_pc_increment >= program_.size()) {
+    if (scalar_.pc_ % k_pc_increment != 0 || scalar_.pc_ / k_pc_increment >= program_.size()) {
         raise_fault(architectural_fault::illegal_instruction);
-        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+        return terminal_event{state_, fault_, instruction_address{scalar_.pc_}, scalar_.retired_};
     }
 
     state_ = lifecycle_state::running;
-    const auto inst = decode(program_.at(pc_ / k_pc_increment));
+    const auto inst = decode(program_.at(scalar_.pc_ / k_pc_increment));
     if (auto request = operation_for(inst)) {
         pending_operation public_request{
             .token = operation_token{next_token_++},
-            .pc = instruction_address{pc_},
+            .pc = instruction_address{scalar_.pc_},
             .value = std::move(*request),
         };
         pending_ = pending_context{public_request, inst};
         return public_request;
     }
     if (state_ == lifecycle_state::fault) {
-        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+        return terminal_event{state_, fault_, instruction_address{scalar_.pc_}, scalar_.retired_};
     }
 
-    const auto retired_pc = pc_;
+    const auto retired_pc = scalar_.pc_;
     const auto result = execute_current_instruction();
     if (result.state == lifecycle_state::done || result.state == lifecycle_state::fault) {
         return terminal_event{result.state, result.fault, instruction_address{result.pc}, result.retired};
@@ -824,8 +820,8 @@ bool program_machine::complete_dma(
         .local_byte_offset = request.local,
         .byte_count = request.byte_count,
     });
-    pc_ += k_pc_increment;
-    ++retired_;
+    scalar_.pc_ += k_pc_increment;
+    scalar_.retire();
     return true;
 }
 
@@ -862,10 +858,10 @@ std::expected<execution_event, api_error> program_machine::complete(
                 ? architectural_fault::dma_request
                 : failure->fault
         );
-        return terminal_event{state_, fault_, instruction_address{pc_}, retired_};
+        return terminal_event{state_, fault_, instruction_address{scalar_.pc_}, scalar_.retired_};
     }
 
-    const auto retired_pc = pc_;
+    const auto retired_pc = scalar_.pc_;
     if (const auto* dma = std::get_if<program_dma_operation>(&context.public_operation.value)) {
         if (!complete_dma(*dma, result)) {
             return std::unexpected(api_error::invalid_completion);
@@ -888,22 +884,22 @@ std::expected<execution_event, api_error> program_machine::complete(
     return retired_event{
         instruction_address{retired_pc},
         context.instruction.word,
-        retired_,
+        scalar_.retired_,
     };
 }
 
 run_result program_machine::execute_current_instruction() {
     if (state_ == lifecycle_state::done || state_ == lifecycle_state::fault) {
-        return run_result{state_, fault_, pc_, retired_};
+        return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
     }
-    if (pc_ % k_pc_increment != 0 || pc_ / k_pc_increment >= program_.size()) {
+    if (scalar_.pc_ % k_pc_increment != 0 || scalar_.pc_ / k_pc_increment >= program_.size()) {
         raise_fault(architectural_fault::illegal_instruction);
-        return run_result{state_, fault_, pc_, retired_};
+        return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
     }
 
     state_ = lifecycle_state::running;
-    const auto inst = decode(program_.at(pc_ / k_pc_increment));
-    const auto next_pc = pc_ + k_pc_increment;
+    const auto inst = decode(program_.at(scalar_.pc_ / k_pc_increment));
+    const auto next_pc = scalar_.pc_ + k_pc_increment;
 
     switch (inst.isa_class) {
         case HOLON_NPU_ISA_ENUM_FRONTEND_CONTROL: {
@@ -911,7 +907,7 @@ run_result program_machine::execute_current_instruction() {
             const auto signed_imm = sign_extend_imm12(inst.imm);
             const auto write_scalar = [&](std::uint8_t index, std::int32_t value) {
                 if (index != 0) {
-                    scalar_registers_.at(index) = value;
+                    scalar_.registers_.at(index) = value;
                 }
             };
             if (opcode == instruction_opcode::frontend_control_movi ||
@@ -921,7 +917,7 @@ run_result program_machine::execute_current_instruction() {
                 if ((add && inst.imm != 0) || (!add && inst.rs2 != 0) ||
                     (opcode == instruction_opcode::frontend_control_movi && inst.rs1 != 0)) {
                     raise_fault(architectural_fault::illegal_instruction);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
                 // Lower the migration encoding into the one scalar arithmetic owner.
                 const instruction::scalar_word word{(add ? k_scalar_add : k_scalar_addi)
@@ -929,52 +925,48 @@ run_result program_machine::execute_current_instruction() {
                     | (std::uint32_t{inst.rs1} << instruction::rs1_shift)
                     | (add ? std::uint32_t{inst.rs2} << instruction::rs2_shift
                            : std::uint32_t{inst.imm} << 20)};
-                const auto evaluated = scalar::evaluate(word, instruction_address{pc_}, {
-                    std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1)),
-                    std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs2))});
-                if (!evaluated) {
+                const auto executed = scalar_.issue(word);
+                if (!executed || !std::holds_alternative<scalar::committed>(*executed)) {
                     raise_fault(architectural_fault::illegal_instruction);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
-                if (const auto& write = std::get<scalar::register_result>(evaluated->value).write)
-                    write_scalar(write->destination.value(), std::bit_cast<std::int32_t>(write->value));
-                pc_ = evaluated->next_pc.value();
+                return snapshot();
             } else if (opcode ==  instruction_opcode::frontend_control_load ||
                        opcode ==  instruction_opcode::frontend_control_store) {
                 if ((opcode ==  instruction_opcode::frontend_control_load && inst.rs2 != 0) ||
                     (opcode ==  instruction_opcode::frontend_control_store && inst.rd != 0)) {
                     raise_fault(architectural_fault::illegal_instruction);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
                 const auto base = static_cast<std::uint64_t>(
-                    std::bit_cast<std::uint32_t>(scalar_registers_.at(inst.rs1))
+                    std::bit_cast<std::uint32_t>(scalar_.registers_.at(inst.rs1))
                 );
                 const auto address = static_cast<std::int64_t>(base) + signed_imm;
                 if (address < 0 || address > std::numeric_limits<std::uint32_t>::max() ||
                     !aligned(static_cast<std::uint64_t>(address), sizeof(std::uint32_t)) ||
                     !local_range_ok(static_cast<std::uint32_t>(address), sizeof(std::uint32_t))) {
                     raise_fault(architectural_fault::local_memory_bounds);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
                 if (opcode ==  instruction_opcode::frontend_control_load) {
                     write_scalar(inst.rd, load_i32(static_cast<std::uint32_t>(address)));
                 } else {
                     store_i32(
                         static_cast<std::uint32_t>(address),
-                        scalar_registers_.at(inst.rs2)
+                        scalar_.registers_.at(inst.rs2)
                     );
                 }
-                pc_ = next_pc;
+                scalar_.pc_ = next_pc;
             } else if (opcode ==  instruction_opcode::frontend_control_beq ||
                        opcode ==  instruction_opcode::frontend_control_bne) {
                 if (inst.rd != 0) {
                     raise_fault(architectural_fault::illegal_instruction);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
-                const auto equal = scalar_registers_.at(inst.rs1) == scalar_registers_.at(inst.rs2);
+                const auto equal = scalar_.registers_.at(inst.rs1) == scalar_.registers_.at(inst.rs2);
                 const auto taken = opcode ==  instruction_opcode::frontend_control_beq ? equal : !equal;
                 if (taken) {
-                    const auto target = static_cast<std::int64_t>(pc_) +
+                    const auto target = static_cast<std::int64_t>(scalar_.pc_) +
                         static_cast<std::int64_t>(signed_imm) * HOLON_NPU_ISA_SCALAR_BRANCH_SCALE;
                     const auto program_bytes = static_cast<std::int64_t>(
                         program_.size() * sizeof(std::uint32_t)
@@ -982,30 +974,30 @@ run_result program_machine::execute_current_instruction() {
                     if (target < 0 || target + HOLON_NPU_ISA_INSTRUCTION_BYTES > program_bytes ||
                         target % HOLON_NPU_ISA_INSTRUCTION_BYTES != 0) {
                         raise_fault(architectural_fault::illegal_instruction);
-                        return run_result{state_, fault_, pc_, retired_};
+                        return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                     }
-                    pc_ = static_cast<std::uint32_t>(target);
+                    scalar_.pc_ = static_cast<std::uint32_t>(target);
                 } else {
-                    pc_ = next_pc;
+                    scalar_.pc_ = next_pc;
                 }
             } else {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
-            scalar_registers_.at(0) = 0;
-            ++retired_;
+            scalar_.registers_.at(0) = 0;
+            scalar_.retire();
             break;
         }
 
         case HOLON_NPU_ISA_ENUM_PREDICATE:
             if (!predicate_index_ok(inst.rd) || inst.rs1 != 0 || inst.rs2 != 0) {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::predicate_ptrue)) {
                 if (inst.imm != 0 || vl_ == 0) {
                     raise_fault(architectural_fault::vector_config);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
                 for (std::size_t lane = 0; lane < predicate_active_.size(); ++lane) {
                     predicate_active_.at(lane) = lane < vl_ ? 1 : 0;
@@ -1014,7 +1006,7 @@ run_result program_machine::execute_current_instruction() {
                 if (!aligned(inst.imm, HOLON_NPU_ISA_PREDICATE_WORD_BYTES) ||
                     !local_range_ok(inst.imm, HOLON_NPU_ISA_PREDICATE_WORD_BYTES)) {
                     raise_fault(architectural_fault::local_memory_bounds);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
                 const auto bits = static_cast<std::uint32_t>(load_i32(inst.imm));
                 for (std::size_t lane = 0; lane < predicate_active_.size(); ++lane) {
@@ -1022,10 +1014,10 @@ run_result program_machine::execute_current_instruction() {
                 }
             } else {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
 
         case HOLON_NPU_ISA_ENUM_VECTOR_CONFIG:
@@ -1050,7 +1042,7 @@ run_result program_machine::execute_current_instruction() {
                                   HOLON_NPU_ISA_VTYPE_ROUND_MASK |
                                   HOLON_NPU_ISA_VTYPE_SATURATE)) != 0) {
                     raise_fault(architectural_fault::vector_config);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                 }
                 vl_ = configured_vl;
                 element_width_ = static_cast<vector_element_width>(sew);
@@ -1058,20 +1050,20 @@ run_result program_machine::execute_current_instruction() {
                 elements_signed_ = (inst.imm & HOLON_NPU_ISA_VTYPE_SIGNED) != 0;
                 saturate_ = (inst.imm & HOLON_NPU_ISA_VTYPE_SATURATE) != 0;
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
 
         case HOLON_NPU_ISA_ENUM_VECTOR_MEMORY:
             if (!register_index_ok(inst.rd) || !predicate_index_ok(inst.rs1) ||
                 inst.rs2 != 0 || vl_ == 0) {
                 raise_fault(architectural_fault::vector_config);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             if ((inst.imm % element_bytes()) != 0 ||
                 !local_range_ok(inst.imm, static_cast<std::size_t>(vl_) * element_bytes())) {
                 raise_fault(architectural_fault::local_memory_bounds);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::vector_memory_load)) {
                 for (std::uint32_t lane = 0; lane < vl_; ++lane) {
@@ -1091,10 +1083,10 @@ run_result program_machine::execute_current_instruction() {
                 }
             } else {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
 
         case HOLON_NPU_ISA_ENUM_VECTOR_ALU: {
@@ -1105,7 +1097,7 @@ run_result program_machine::execute_current_instruction() {
                 !register_index_ok(inst.rs2) || !predicate_index_ok(predicate) || vl_ == 0 ||
                 (inst.imm & HOLON_NPU_ISA_VECTOR_PREDICATE_RESERVED_MASK) != 0) {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             const auto opcode = static_cast<instruction_opcode>(inst.opcode);
             const auto opcode_valid = opcode ==  instruction_opcode::vector_alu_add ||
@@ -1116,7 +1108,7 @@ run_result program_machine::execute_current_instruction() {
                 opcode ==  instruction_opcode::vector_alu_select;
             if (!opcode_valid) {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             for (std::uint32_t lane = 0; lane < vl_; ++lane) {
                 if (opcode ==  instruction_opcode::vector_alu_select) {
@@ -1193,8 +1185,8 @@ run_result program_machine::execute_current_instruction() {
                     }
                 }
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
         }
 
@@ -1213,7 +1205,7 @@ run_result program_machine::execute_current_instruction() {
                 !register_index_ok(inst.rs2) || !predicate_index_ok(predicate) || vl_ == 0 ||
                 (inst.imm & HOLON_NPU_ISA_VECTOR_PREDICATE_RESERVED_MASK) != 0) {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             if (((opcode ==  instruction_opcode::vector_permute_zip_lo ||
                   opcode ==  instruction_opcode::vector_permute_zip_hi ||
@@ -1222,7 +1214,7 @@ run_result program_machine::execute_current_instruction() {
                 (opcode ==  instruction_opcode::vector_permute_transpose4 &&
                  (vl_ != 16U || inst.rs2 != 0))) {
                 raise_fault(architectural_fault::vector_config);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             const auto source = vector_registers_.at(inst.rs1);
             const auto source2 = vector_registers_.at(inst.rs2);
@@ -1231,7 +1223,7 @@ run_result program_machine::execute_current_instruction() {
                     if (predicate_active_.at(lane) != 0 &&
                         static_cast<std::uint32_t>(source2.at(lane)) >= vl_) {
                         raise_fault(architectural_fault::vector_config);
-                        return run_result{state_, fault_, pc_, retired_};
+                        return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
                     }
                 }
             }
@@ -1268,8 +1260,8 @@ run_result program_machine::execute_current_instruction() {
                     }
                 }
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
         }
 
@@ -1285,7 +1277,7 @@ run_result program_machine::execute_current_instruction() {
                 inst.rs2 != 0 || !predicate_index_ok(predicate) || vl_ == 0 ||
                 (inst.imm & HOLON_NPU_ISA_VECTOR_PREDICATE_RESERVED_MASK) != 0) {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             const auto element_bits = static_cast<std::uint32_t>(element_bytes() * 8U);
             const auto unsigned_max = element_bits == 32U
@@ -1319,8 +1311,8 @@ run_result program_machine::execute_current_instruction() {
                 }
             }
             vector_registers_.at(inst.rd).at(0) = accumulator;
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
         }
 
@@ -1331,7 +1323,7 @@ run_result program_machine::execute_current_instruction() {
                 !aligned(inst.imm, HOLON_NPU_ISA_QUANT_COMMAND_ALIGN) ||
                 !local_range_ok(inst.imm, HOLON_NPU_ISA_QUANT_COMMAND_BYTES)) {
                 raise_fault(architectural_fault::vector_config);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             const auto multiplier = load_i32(inst.imm + HOLON_NPU_ISA_QUANT_COMMAND_MULTIPLIER_OFFSET);
             const auto shift_word = std::bit_cast<std::uint32_t>(
@@ -1343,7 +1335,7 @@ run_result program_machine::execute_current_instruction() {
             const auto reserved = load_i32(inst.imm + HOLON_NPU_ISA_QUANT_COMMAND_RESERVED_OFFSET);
             if (shift_word > 31U || clamp_min > clamp_max || reserved != 0) {
                 raise_fault(architectural_fault::vector_config);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             for (std::uint32_t lane = 0; lane < vl_; ++lane) {
                 if (predicate_active_.at(lane) == 0) {
@@ -1365,8 +1357,8 @@ run_result program_machine::execute_current_instruction() {
                 vector_registers_.at(inst.rd).at(lane) =
                     normalize_element(static_cast<std::uint32_t>(clamped));
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
         }
 
@@ -1376,7 +1368,7 @@ run_result program_machine::execute_current_instruction() {
                 !aligned(inst.imm, HOLON_NPU_ISA_MATRIX_COMMAND_BYTES) ||
                 !local_range_ok(inst.imm, HOLON_NPU_ISA_MATRIX_COMMAND_BYTES)) {
                 raise_fault(architectural_fault::matrix_issue);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             const auto command_word = [&](std::uint32_t offset) {
                 return std::bit_cast<std::uint32_t>(load_i32(inst.imm + offset));
@@ -1388,7 +1380,7 @@ run_result program_machine::execute_current_instruction() {
             if (command_word(HOLON_NPU_ISA_MATRIX_COMMAND_RESERVED_OFFSET) != 0 ||
                 (flags & ~HOLON_NPU_ISA_MATRIX_FLAGS_VALID_MASK) != 0) {
                 raise_fault(architectural_fault::matrix_issue);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             const auto op = matrix_gemm_i8_i32_op{
                 .a_offset = local_address{command_word(HOLON_NPU_ISA_MATRIX_COMMAND_A_OFFSET)},
@@ -1415,10 +1407,10 @@ run_result program_machine::execute_current_instruction() {
                 .store_result = (flags & HOLON_NPU_ISA_MATRIX_FLAG_STORE) != 0,
             };
             if (!issue_matrix_gemm_i8_i32(op)) {
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
         }
 
@@ -1426,19 +1418,19 @@ run_result program_machine::execute_current_instruction() {
             if (inst.opcode != static_cast<std::uint8_t>( instruction_opcode::csr_debug_read) ||
                 inst.rs1 != 0 || inst.rs2 != 0) {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
 
             std::uint32_t value = 0;
             switch (inst.imm) {
                 case HOLON_NPU_ISA_CSR_PC:
-                    value = pc_;
+                    value = scalar_.pc_;
                     break;
                 case HOLON_NPU_ISA_CSR_INSTRET_LO:
-                    value = static_cast<std::uint32_t>(retired_);
+                    value = static_cast<std::uint32_t>(scalar_.retired_);
                     break;
                 case HOLON_NPU_ISA_CSR_INSTRET_HI:
-                    value = static_cast<std::uint32_t>(retired_ >> 32U);
+                    value = static_cast<std::uint32_t>(scalar_.retired_ >> 32U);
                     break;
                 case HOLON_NPU_ISA_CSR_PROGRAM_SIZE_BYTES:
                     value = static_cast<std::uint32_t>(program_.size() * k_pc_increment);
@@ -1448,13 +1440,13 @@ run_result program_machine::execute_current_instruction() {
                     break;
                 default:
                     raise_fault(architectural_fault::illegal_instruction);
-                    return run_result{state_, fault_, pc_, retired_};
+                    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             if (inst.rd != 0) {
-                scalar_registers_.at(inst.rd) = std::bit_cast<std::int32_t>(value);
+                scalar_.registers_.at(inst.rd) = std::bit_cast<std::int32_t>(value);
             }
-            pc_ = next_pc;
-            ++retired_;
+            scalar_.pc_ = next_pc;
+            scalar_.retire();
             break;
         }
 
@@ -1466,13 +1458,13 @@ run_result program_machine::execute_current_instruction() {
         case HOLON_NPU_ISA_ENUM_SYNC:
             if (inst.rd != 0 || inst.rs1 != 0 || inst.rs2 != 0 || inst.imm != 0) {
                 raise_fault(architectural_fault::illegal_instruction);
-                return run_result{state_, fault_, pc_, retired_};
+                return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
             }
             if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::sync_wait_dma) ||
                 inst.opcode == static_cast<std::uint8_t>( instruction_opcode::sync_fence_local) ||
                 inst.opcode == static_cast<std::uint8_t>( instruction_opcode::sync_fence_dma)) {
-                pc_ = next_pc;
-                ++retired_;
+                scalar_.pc_ = next_pc;
+                scalar_.retire();
             } else {
                 raise_fault(architectural_fault::illegal_instruction);
             }
@@ -1480,9 +1472,9 @@ run_result program_machine::execute_current_instruction() {
 
         case HOLON_NPU_ISA_ENUM_SYSTEM:
             if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::system_exit)) {
-                pc_ = next_pc;
+                scalar_.pc_ = next_pc;
                 state_ = lifecycle_state::done;
-                ++retired_;
+                scalar_.retire();
             } else if (inst.opcode == static_cast<std::uint8_t>( instruction_opcode::system_fault)) {
                 raise_fault(
                     inst.imm == 0
@@ -1499,7 +1491,7 @@ run_result program_machine::execute_current_instruction() {
             break;
     }
 
-    return run_result{state_, fault_, pc_, retired_};
+    return run_result{state_, fault_, scalar_.pc_, scalar_.retired_};
 }
 
 bool program_machine::local_range_ok(local_address address, std::size_t byte_count) const {

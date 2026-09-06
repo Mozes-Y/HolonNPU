@@ -17,6 +17,62 @@ inline constexpr unsigned rd_shift = 7;
 inline constexpr unsigned rs1_shift = 15;
 inline constexpr unsigned rs2_shift = 20;
 
+enum class machine_csr : std::uint16_t {
+    mstatus = 0x300,
+    misa = 0x301,
+    mie = 0x304,
+    mtvec = 0x305,
+    mstatush = 0x310,
+    mcountinhibit = 0x320,
+    mscratch = 0x340,
+    mepc = 0x341,
+    mcause = 0x342,
+    mtval = 0x343,
+    mip = 0x344,
+    mcycle = 0xb00,
+    minstret = 0xb02,
+    mcycleh = 0xb80,
+    minstreth = 0xb82,
+    mvendorid = 0xf11,
+    marchid = 0xf12,
+    mimpid = 0xf13,
+    mhartid = 0xf14,
+    mconfigptr = 0xf15,
+};
+struct machine_csr_spec {
+    machine_csr address;
+    std::uint32_t reset, write_mask;
+};
+inline constexpr std::array machine_csrs{
+    machine_csr_spec{machine_csr::mstatus, 0x00001800u, 0x00000088u},
+    machine_csr_spec{machine_csr::misa, 0x40001100u, 0x00000000u},
+    machine_csr_spec{machine_csr::mie, 0x00000000u, 0x00000888u},
+    machine_csr_spec{machine_csr::mtvec, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::mstatush, 0x00000000u, 0x00000000u},
+    machine_csr_spec{machine_csr::mcountinhibit, 0x00000000u, 0x00000005u},
+    machine_csr_spec{machine_csr::mscratch, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::mepc, 0x00000000u, 0xFFFFFFFCu},
+    machine_csr_spec{machine_csr::mcause, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::mtval, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::mip, 0x00000000u, 0x00000000u},
+    machine_csr_spec{machine_csr::mcycle, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::minstret, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::mcycleh, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::minstreth, 0x00000000u, 0xFFFFFFFFu},
+    machine_csr_spec{machine_csr::mvendorid, 0x00000000u, 0x00000000u},
+    machine_csr_spec{machine_csr::marchid, 0x00000000u, 0x00000000u},
+    machine_csr_spec{machine_csr::mimpid, 0x00000000u, 0x00000000u},
+    machine_csr_spec{machine_csr::mhartid, 0x00000000u, 0x00000000u},
+    machine_csr_spec{machine_csr::mconfigptr, 0x00000000u, 0x00000000u},
+};
+struct zero_csr_range { std::uint16_t first, last; };
+inline constexpr std::array machine_zero_csr_ranges{
+    zero_csr_range{0x323, 0x33f},
+    zero_csr_range{0xb03, 0xb1f},
+    zero_csr_range{0xb83, 0xb9f},
+};
+
+
 enum class scalar_trap_cause : std::uint8_t {
     instruction_address_misaligned = 0,
     instruction_access_fault = 1,

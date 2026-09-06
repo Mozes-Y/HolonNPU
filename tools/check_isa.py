@@ -74,7 +74,7 @@ def check_semantic_frontend(schema: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     frontend = schema.get("semantic_frontend", {})
     contract = {
-        "stage": "scalar_effects", "scalar_profile": "rv32im_zicsr", "abi": "ilp32",
+        "stage": "scalar_hart", "scalar_profile": "rv32im_zicsr", "abi": "ilp32",
         "execution_environment": "single_hart_machine", "byte_order": "little",
         "alignment_bytes": 4, "scalar_bytes": 4, "holon_bytes": 8,
         "holon_prefixes": [0, 1, 2], "register_count": 32,
@@ -91,6 +91,40 @@ def check_semantic_frontend(schema: dict[str, Any]) -> list[str]:
     for key, value in contract.items():
         if frontend.get(key) != value:
             failures.append(f"semantic_frontend.{key} must be {value!r}")
+    csrs = frontend.get("machine_csrs", [])
+    names, addresses = set(), set()
+    required = {"mstatus", "misa", "mie", "mtvec", "mstatush", "mcountinhibit",
+                "mscratch", "mepc", "mcause", "mtval", "mip", "mcycle", "minstret",
+                "mcycleh", "minstreth", "mvendorid", "marchid", "mimpid", "mhartid", "mconfigptr"}
+    try:
+        for csr in csrs:
+            name, address = csr["name"], int(csr["address"], 0)
+            reset, mask = int(csr["reset"], 0), int(csr["write_mask"], 0)
+            if name in names or address in addresses or not 0 <= address < 4096:
+                failures.append("duplicate or invalid machine CSR")
+            if not 0 <= reset <= 0xffffffff or not 0 <= mask <= 0xffffffff:
+                failures.append("machine CSR value exceeds XLEN")
+            if address >> 10 == 3 and mask:
+                failures.append("read-only CSR has writable fields")
+            names.add(name)
+            addresses.add(address)
+        for region in frontend.get("machine_zero_csr_ranges", []):
+            first, last = int(region["first"], 0), int(region["last"], 0)
+            if not 0 <= first <= last < 4096:
+                failures.append("invalid machine CSR range")
+                continue
+            for address in range(first, last + 1):
+                if address in addresses:
+                    failures.append("overlapping machine CSR range")
+                addresses.add(address)
+    except (KeyError, TypeError, ValueError):
+        failures.append("malformed machine CSR metadata")
+    if names != required:
+        failures.append("incomplete machine CSR inventory")
+    if frontend.get("machine_zero_csr_ranges") != [
+        {"first": "0x323", "last": "0x33f"}, {"first": "0xb03", "last": "0xb1f"},
+        {"first": "0xb83", "last": "0xb9f"}]:
+        failures.append("machine HPM zero ranges must cover counters/selectors 3..31")
     for key in ("prefix_mask", "scalar_prefix"):
         if as_int(frontend.get(key, 0)) != 3:
             failures.append(f"semantic_frontend.{key} must be 3")

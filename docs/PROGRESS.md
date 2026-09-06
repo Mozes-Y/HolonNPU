@@ -1,6 +1,6 @@
 # HolonNPU Progress
 
-Last updated: 2026-09-05.
+Last updated: 2026-09-06.
 
 ## Current Status
 
@@ -17,11 +17,13 @@ coordinated vector/matrix redesign (ADR-0059). Typed 32/64-bit framing and
 standard scalar decoding are implemented under ADR-0060. ADR-0061 adds shared
 scalar effect evaluation and typed memory/CSR/control requests. The canonical
 ISA schema generates internal scalar metadata without changing RTL capability.
-Full RV32 machine execution, NPU operands, trap state, and ELF startup remain next.
+ADR-0062 adds shared M-mode state, trap/MRET/WFI, interrupts and transactional
+scalar completion. Full RV32 program execution, NPU operands, physical routing
+and ELF startup remain next; the released RTL/ABI are unchanged.
 The next scalar execution contract uses a confirmed unified 32-bit physical
 address space with scalar access to mapped scratchpad/system memory and DMA
-for bulk tensor movement; physical requests exist, but the router and machine
-completion path are not implemented yet.
+for bulk tensor movement; physical requests and hart completion exist, but the
+router and complete program fetch/execute path are not implemented yet.
 The autonomous boot/runner feature is committed as `84551c8` and remains the
 functional migration starting point.
 
@@ -195,6 +197,38 @@ GCC reduced variable-tracking detail in two large Verilator-generated coverage
 functions; this is a debug-information note, not a warning in Holon sources.
 Linux FS has not been rerun. This evidence does not establish physical routing,
 M-mode CSR/trap commit, full RV32 boot or Transformer execution.
+
+## Shared M-Mode State Verification
+
+Implemented on 2026-09-06 under ADR-0062. `program_machine` owns one
+`scalar::hart_state` for registers, PC and retirement; matching arithmetic
+commits through it. Internal schema metadata defines machine CSR inventory,
+reset values, masks and zero HPM ranges. No second interpreter was introduced.
+
+| Command/gate | Result |
+| ------------ | ------ |
+| Debug configure/build; `ctest --preset debug --output-on-failure` | 28/28 passed |
+| `ctest --preset lint --output-on-failure` | 11/11 passed |
+| Regression configure/build; `ctest --preset regression --output-on-failure` | 39/39 passed |
+| Coverage configure/build; `ctest --preset coverage --output-on-failure` | 41/41 passed |
+| `python3 tools/check_coverage.py --build-dir build/coverage` | 12 raw, 137/137 functional, 56/56 product RTL covers; structural baseline unchanged |
+| Hart strict warnings and ASan/UBSan | passed |
+| `cmake --preset gem5`; `cmake --build --preset gem5 --parallel 16` | passed; 27,578/27,578 translation units audited as C++26 |
+| `ctest --preset gem5 --output-on-failure` | 7/7 passed |
+
+`holon_npu_hart` independently checks all 4096 CSR addresses, 8192 register
+commits (seed `0x52454732`), 8192 CSR operations (seed `0x43535232`), precise
+trap PC, MRET/WFI, interrupt priority, counter writes/inhibition, delayed
+memory/fence results, invalid payloads/tokens and external-reset token lifetime.
+ABI/ISA generation, schema, ownership, macro policy and local Markdown links
+pass. These component results do not establish physical routing, complete RV32
+boot, Transformer execution or autonomous gem5 performance modeling.
+The gem5 build uses upstream stable
+`cbc94c1a773e94118070294750dbe2c9c75898cb`. Existing warnings about GCC 16.2
+outside upstream's supported compiler range and optional HDF5 support remain
+unchanged. Linux FS was not rerun. Debug/regression builds used two jobs;
+coverage used eight and gem5 used sixteen. Public generated headers, RTL,
+ABI schema and driver have no changes in this feature.
 
 ## Known Limits
 

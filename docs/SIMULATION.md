@@ -41,6 +41,15 @@ storage or timing. Existing scalar arithmetic already uses it; full RV32
 machine cutover must consume these same effects. An evaluated memory or CSR
 request is not evidence of successful access, retirement or trap handling.
 
+`holon_npu_hart.hpp` adds shared scalar state/commit (ADR-0062). The canonical
+program machine owns it, and current matching arithmetic retires through it.
+Machine CSRs, interrupt/trap entry, MRET/WFI and token-checked memory/fence
+completion are implemented without a second fetch loop or memory owner.
+Architectural counters and simulator budget counts are distinct. MCYCLE only
+consumes externally supplied elapsed cycles; no latency model is introduced.
+The component tests are not evidence of an RV32 physical router, ELF startup,
+mixed-width program execution or autonomous gem5 completion.
+
 The current accelerator adapter and Host tests remain useful for released RTL
 differential verification during migration. They are not the target execution
 path and must not become a second permanent product. Their replacement and

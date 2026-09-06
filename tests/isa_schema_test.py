@@ -52,6 +52,20 @@ class ScalarSchemaTests(unittest.TestCase):
                 elif change == "outside_mask": entries[0]["value"] = "0xF0000037"
                 self.assertTrue(check_schema(bad))
 
+    def test_machine_csrs(self) -> None:
+        for change in ("missing", "duplicate", "overlap", "width", "readonly", "range"):
+            with self.subTest(change=change):
+                bad = copy.deepcopy(self.schema)
+                frontend = bad["semantic_frontend"]
+                csrs = frontend["machine_csrs"]
+                if change == "missing": csrs.pop()
+                elif change == "duplicate": csrs.append(copy.deepcopy(csrs[0]))
+                elif change == "overlap": csrs[0]["address"] = "0xb03"
+                elif change == "width": csrs[0]["reset"] = "0x100000000"
+                elif change == "readonly": csrs[-1]["write_mask"] = "0x1"
+                elif change == "range": frontend["machine_zero_csr_ranges"] = []
+                self.assertTrue(check_schema(bad))
+
     def test_no_rtl_capability_leak(self) -> None:
         original = render_all(self.schema)
         changed = copy.deepcopy(self.schema)

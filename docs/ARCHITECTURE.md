@@ -186,13 +186,13 @@ extension for toolchain reuse. Standard scalar instructions remain 32-bit;
 independently redesigned Holon vector/matrix/DMA instructions use a 64-bit
 envelope in reclaimed non-RVC space. VLA and explicit predication remain
 invariants. See `docs/ISA_REDESIGN.md` and ADR-0059 for the remaining operand,
-encoding, and CSR/trap review.
+encoding, and execution review.
 
 The execution environment is selected as single-hart M-mode bare metal,
-without U/S mode, MMU, or OS. ADR-0060/0061 implement model-stage framing,
-standard scalar decoding and typed scalar effects. These do not change this
+without U/S mode, MMU, or OS. ADR-0060/0061/0062 implement model-stage framing,
+standard scalar effects and shared M-mode state/commit. These do not change this
 document's current RTL capability or make the existing program machine fully
-RV32-compatible; physical routing and M-mode state/retirement remain next.
+RV32-compatible; physical routing, mixed-width execution and ELF startup remain next.
 The target scalar memory contract is a unified 32-bit physical address space
 with direct scalar scratchpad/system access and explicit DMA for tensor bulk
 movement. The current accelerator's scratchpad-only scalar path is unchanged.

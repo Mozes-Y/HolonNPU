@@ -268,8 +268,8 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
     frontend = schema["semantic_frontend"]
     lines.extend([
         "", "## Semantic Frontend Migration", "",
-        "This scalar-effects contract is not a capability of the current RTL or",
-        "the current program machine. It will replace the custom control encoding",
+        "This scalar-hart contract is not a capability of the current RTL or",
+        "its program encoding. It will replace the custom control encoding",
         "through simulator-first execution verification, not a compatibility mode.", "",
         f"- Scalar profile: `{frontend['scalar_profile']}`, `{frontend['abi']}`.",
         f"- Environment: `{frontend['execution_environment']}`.",
@@ -292,6 +292,16 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
             f"`{c_hex(entry['value'])}` | `{c_hex(entry['mask'])}` |"
         )
     lines.append("")
+    lines.extend(["### Machine CSR Inventory", "",
+                  "Internal semantic migration contract; not accelerator MMIO registers.", "",
+                  "| CSR | Address | Reset | Writable fields |", "| --- | --- | --- | --- |"])
+    for csr in frontend["machine_csrs"]:
+        lines.append(f"| `{csr['name']}` | `{csr['address']}` | `{csr['reset']}` | `{csr['write_mask']}` |")
+    lines.extend(["", "Unimplemented HPM counter/selector fields read zero and ignore writes:"])
+    for region in frontend["machine_zero_csr_ranges"]:
+        lines.append(f"- `{region['first']}..{region['last']}`.")
+    lines.extend(["", "CSR instruction write legality is separate from field writability.",
+                  "See [M-mode semantics](ISA_REDESIGN.md#m-mode-state-contract-adr-0062).", ""])
     return "\n".join(lines)
 
 
@@ -308,6 +318,17 @@ def generated_scalar_metadata(schema: dict[str, Any]) -> str:
         lines.append(f"inline constexpr std::uint32_t {key} = {c_hex(frontend[key])};")
     for name, shift in frontend["register_fields"].items():
         lines.append(f"inline constexpr unsigned {name}_shift = {shift};")
+    lines.extend(["", "enum class machine_csr : std::uint16_t {"])
+    lines.extend(f"    {csr['name']} = {csr['address']}," for csr in frontend["machine_csrs"])
+    lines.extend(["};", "struct machine_csr_spec {", "    machine_csr address;",
+                  "    std::uint32_t reset, write_mask;", "};",
+                  "inline constexpr std::array machine_csrs{"])
+    for csr in frontend["machine_csrs"]:
+        lines.append(f"    machine_csr_spec{{machine_csr::{csr['name']}, {c_hex(csr['reset'])}, {c_hex(csr['write_mask'])}}},")
+    lines.extend(["};", "struct zero_csr_range { std::uint16_t first, last; };",
+                  "inline constexpr std::array machine_zero_csr_ranges{"])
+    lines.extend(f"    zero_csr_range{{{r['first']}, {r['last']}}}," for r in frontend["machine_zero_csr_ranges"])
+    lines.extend(["};", ""])
     lines.extend(["", "enum class scalar_trap_cause : std::uint8_t {"])
     lines.extend(f"    {name} = {value}," for name, value in frontend["scalar_traps"].items())
     lines.extend(["};", "", "enum class scalar_opcode : std::uint8_t {"])

@@ -234,6 +234,42 @@ out-of-band arithmetic or repeated configuration just to overcome field limits.
 
 ## Implementation Order And Evidence
 
+### M-Mode State Contract (ADR-0062)
+
+The shared hart commits one evaluated scalar instruction at a time. Its API
+does not fetch programs, own system memory or calculate latency. Loads, stores
+and fences return stable tokenized requests; invalid completions preserve all
+state. Access failures trap at the issuing PC and do not retire. Reset clears
+state but never reuses completion tokens; it is an external-reset operation,
+not a substitute for software-reset drain.
+
+Machine CSR inventory/reset values and writable masks come from the internal
+ISA metadata. MSTATUS implements MIE/MPIE and fixed MPP=M; MISA advertises RV32IM
+only during scalar migration. MTVEC supports direct/vectored modes (reserved
+modes coerce to direct), MEPC clears bits 1:0, MIP reflects external interrupt
+inputs. Machine identity values are zero. Unsupported HPM counters/selectors
+are read-only zero fields; unsupported CSR addresses are illegal. No U/S,
+delegation, PMP, Zicntr aliases or MMU are advertised.
+
+Trap entry saves PC/cause/value, copies MIE to MPIE and clears MIE. MRET restores
+MIE from MPIE, sets MPIE and returns to MEPC. Interrupt priority is machine
+external, software, timer; vectored offsets apply only to interrupts. Pending
+memory/fence effects must complete before an interrupt can be taken. WFI retires
+once and waits; a locally enabled pending interrupt wakes it even with global
+MIE clear, but trap entry still requires global MIE.
+
+MCYCLE is supplied elapsed cycles by the execution environment. MINSTRET counts
+successful commits unless inhibited; simulator retirement remains independently
+monotonic for budgets. Counter CSR writes replace the selected half after the
+writing instruction completes, suppressing its implicit increment when writing
+MINSTRET. MCOUNTINHIBIT changes apply after the writing instruction retires.
+CSR reads sample the pre-instruction value. ECALL/EBREAK enter standard traps,
+never successful program exit. These choices follow the
+[RISC-V machine specification](https://docs.riscv.org/reference/isa/priv/machine.html)
+and [Zicsr](https://docs.riscv.org/reference/isa/v20260120/unpriv/zicsr.html).
+
+### Sequence
+
 1. Scalar extension/ABI scope and 32/64-bit framing are confirmed. Implement
    framing and standard scalar decode independently of the remaining NPU
    operands, memory map, and detailed trap contract. Freeze each remaining

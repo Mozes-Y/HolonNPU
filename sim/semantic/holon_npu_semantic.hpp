@@ -4,6 +4,7 @@
 #include "holon_npu_program.h"
 #include "holon_npu_runtime.hpp"
 #include "holon_npu_types.hpp"
+#include "holon_npu_hart.hpp"
 
 #include <array>
 #include <cstddef>
@@ -303,16 +304,16 @@ public:
     [[nodiscard]] const std::vector<matrix_event>& matrix_events() const { return matrix_events_; }
     void clear_dma_events();
     void clear_matrix_events();
-    [[nodiscard]] run_result snapshot() const { return {state_, fault_, pc_, retired_}; }
+    [[nodiscard]] run_result snapshot() const { return {state_, fault_, scalar_.pc_, scalar_.retired_}; }
     [[nodiscard]] lifecycle_state state() const { return state_; }
     [[nodiscard]] architectural_fault fault() const { return fault_; }
-    [[nodiscard]] std::uint32_t pc() const { return pc_; }
+    [[nodiscard]] std::uint32_t pc() const { return scalar_.pc_; }
     [[nodiscard]] std::uint32_t vl() const { return vl_; }
     [[nodiscard]] vector_element_width element_width() const { return element_width_; }
     [[nodiscard]] bool elements_signed() const { return elements_signed_; }
-    [[nodiscard]] std::uint64_t retired() const { return retired_; }
+    [[nodiscard]] std::uint64_t retired() const { return scalar_.retired_; }
     [[nodiscard]] std::int32_t scalar_register(std::size_t index) const {
-        return scalar_registers_.at(index);
+        return scalar_.registers_.at(index);
     }
 
 private:
@@ -359,7 +360,7 @@ private:
     std::vector<dma_event> dma_events_;
     std::vector<matrix_event> matrix_events_;
     std::array<vector_register, vector_register_count> vector_registers_;
-    std::array<std::int32_t, HOLON_NPU_ISA_SCALAR_REGISTER_COUNT> scalar_registers_{};
+    scalar::hart_state scalar_;
     std::vector<std::uint8_t> predicate_active_;
     matrix_accumulator matrix_accumulator_{};
     bool matrix_accumulator_valid_ = false;
@@ -367,13 +368,11 @@ private:
     std::uint16_t matrix_accumulator_n_ = 0;
     lifecycle_state state_ = lifecycle_state::idle;
     architectural_fault fault_ = architectural_fault::none;
-    std::uint32_t pc_ = 0;
     std::uint32_t vl_ = 0;
     vector_element_width element_width_ = vector_element_width::bits_32;
     vector_rounding rounding_ = vector_rounding::nearest_even;
     bool elements_signed_ = true;
     bool saturate_ = false;
-    std::uint64_t retired_ = 0;
     std::uint64_t next_token_ = 1;
     std::uint64_t next_dma_sequence_ = 0;
     std::uint64_t next_matrix_sequence_ = 0;

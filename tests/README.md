@@ -12,6 +12,9 @@ module wrapper.
   arithmetic scoreboards, captured memory requests, load extension, CSR enable
   matrices, precise exceptions and source/destination aliases. It does not
   substitute for full RV32 program-machine integration.
+- `hart_test.cpp` verifies shared M-mode CSR/trap/interrupt state and precise
+  memory/fence completion, independent CSR/register scoreboards and budget-safe
+  architectural counters. It does not replace program-level boot/router tests.
 - `scalar_toolchain_test.py` cross-checks decoding with upstream RISC-V tools
   in the gem5 preset. It generates assembly/ELF/disassembly artifacts, not a
   second ISA implementation or a program-execution reference.

@@ -9,7 +9,11 @@ All notable project-level release changes are recorded here.
 - Added shared RV32 scalar effect evaluation: all integer arithmetic/branches,
   typed 32-bit physical load/store requests, load completion, CSR/FENCE enables,
   and precise exception/machine-control requests. Existing machine arithmetic
-  uses the evaluator; full RV32 boot, routing and trap commit remain next.
+  uses the evaluator; full RV32 boot and routing remain next.
+- Added one shared M-mode scalar hart state: schema-derived machine CSRs,
+  precise trap/MRET/WFI, interrupts, counters and token-checked memory/fence
+  completion. Existing machine arithmetic uses its commit path. No new RTL,
+  public capability, physical router or second interpreter is introduced.
 
 - Added schema-generated RV32IM/Zicsr/MRET/WFI decode metadata, typed mixed
   32/64-bit framing, scalar operand extraction/disassembly, exhaustive immediate

@@ -187,9 +187,13 @@ arithmetic scoreboards (including signed-magnitude division and partial-product
 multiplication), deterministic random cases, branch/JALR alignment and aliases,
 32-bit physical-address requests, captured store bytes, exhaustive byte/halfword
 load extension, CSR read/write suppression and machine-control/trap requests.
-The existing machine shares matching arithmetic with this evaluator. These
-tests do not establish physical routing, M-mode trap entry or complete RV32
-retirement; those require the next program-machine integration tests.
+The existing machine shares matching arithmetic with this evaluator.
+`holon_npu_hart` verifies shared scalar state/commit: all 4096 CSR addresses,
+8192 random CSR operations, 8192 random register commits, WARL/read-only fields,
+counter inhibition/writes, trap PC, interrupt priority, MRET/WFI and transactional
+memory/fence completion. Seeds and verified case totals are printed by the test.
+These tests do not establish physical routing, ELF startup or complete RV32
+program execution; those require the next program-machine integration tests.
 
 ```bash
 cmake --build --preset debug --target holon_npu_execution_test --parallel 2

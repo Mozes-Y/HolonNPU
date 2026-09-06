@@ -405,3 +405,28 @@ all instruction effects and delayed load completion. The next cutover must
 consume this evaluator in `program_machine`, implement physical routing and
 M-mode state, and remove the old control decoder rather than retain a mode
 switch. This feature is not evidence of complete RV32 program execution.
+
+## ADR-0062: Shared M-Mode Hart State
+
+**Status:** Accepted for semantic implementation; no RTL authorization.
+
+**Decision:** One scalar hart state owns 32 registers, PC, retirement, machine
+CSRs and pending scalar effects. The existing program machine owns this state;
+there is no second interpreter, fetch loop or memory model. RV32 effects from
+ADR-0061 commit through typed events. Memory/fence issue does not retire;
+completion validates token and payload before mutation. Trap entry records the
+faulting PC, and interrupts wait for accepted operations to complete.
+
+**Contract:** M-mode only, IALIGN=32, little-endian, MPP fixed to M. Support direct
+and vectored mtvec, standard machine software/timer/external interrupts, MRET
+and a real WFI wait state. CSR inventory is internal ISA-schema metadata.
+Unimplemented hardware performance counters/selectors read zero; unsupported
+CSR addresses trap. Architectural mcycle consumes externally supplied elapsed
+cycles, never a second timing model. Guest-writable minstret is separate from
+monotonic simulator retirement used for execution budgets.
+
+**Alternatives:** A standalone RV32 machine would duplicate state; direct CSR
+mutation in the runner would make gem5 and fast execution disagree. Neither is
+accepted. This component issues effects without owning system memory or
+claiming complete RV32 boot. Region routing, instruction fetch and ELF startup
+remain subsequent work. Public accelerator ABI/ISA values stay unchanged.

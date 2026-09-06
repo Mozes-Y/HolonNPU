@@ -89,6 +89,12 @@ Implementation order and acceptance:
    every selected opcode, arithmetic edges, source/destination aliasing,
    load completion and unchanged current-program results. This precedes
    physical memory routing and M-mode state, not a second interpreter.
+   Completed slice (ADR-0062): a shared scalar hart state with standard machine
+   CSRs, trap/MRET/WFI, interrupts and token-checked memory/fence completion.
+   The current machine's scalar register/PC/retirement storage uses
+   this state. Tests cover CSR WARL/read-only behavior, precise fault
+   PC, counter writes/inhibition, interrupt boundaries and stale completions;
+   physical routing and mixed-width program execution follow separately.
 3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
    execution object and timing memory request port. Reuse the semantic core and
    run the identical boot image without a RISC-V CPU or MMIO launch sequence.

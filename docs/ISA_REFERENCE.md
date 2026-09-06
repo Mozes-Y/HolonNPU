@@ -156,8 +156,8 @@ and regenerate outputs instead of editing this file by hand.
 
 ## Semantic Frontend Migration
 
-This scalar-effects contract is not a capability of the current RTL or
-the current program machine. It will replace the custom control encoding
+This scalar-hart contract is not a capability of the current RTL or
+its program encoding. It will replace the custom control encoding
 through simulator-first execution verification, not a compatibility mode.
 
 - Scalar profile: `rv32im_zicsr`, `ilp32`.
@@ -241,3 +241,38 @@ requests are not retired by evaluation; the machine must complete them.
 | `CSRRCI` | Zicsr | `csr_immediate` | `0x00007073u` | `0x0000707Fu` |
 | `MRET` | machine | `system` | `0x30200073u` | `0xFFFFFFFFu` |
 | `WFI` | machine | `system` | `0x10500073u` | `0xFFFFFFFFu` |
+
+### Machine CSR Inventory
+
+Internal semantic migration contract; not accelerator MMIO registers.
+
+| CSR | Address | Reset | Writable fields |
+| --- | --- | --- | --- |
+| `mstatus` | `0x300` | `0x1800` | `0x88` |
+| `misa` | `0x301` | `0x40001100` | `0x0` |
+| `mie` | `0x304` | `0x0` | `0x888` |
+| `mtvec` | `0x305` | `0x0` | `0xffffffff` |
+| `mstatush` | `0x310` | `0x0` | `0x0` |
+| `mcountinhibit` | `0x320` | `0x0` | `0x5` |
+| `mscratch` | `0x340` | `0x0` | `0xffffffff` |
+| `mepc` | `0x341` | `0x0` | `0xfffffffc` |
+| `mcause` | `0x342` | `0x0` | `0xffffffff` |
+| `mtval` | `0x343` | `0x0` | `0xffffffff` |
+| `mip` | `0x344` | `0x0` | `0x0` |
+| `mcycle` | `0xb00` | `0x0` | `0xffffffff` |
+| `minstret` | `0xb02` | `0x0` | `0xffffffff` |
+| `mcycleh` | `0xb80` | `0x0` | `0xffffffff` |
+| `minstreth` | `0xb82` | `0x0` | `0xffffffff` |
+| `mvendorid` | `0xf11` | `0x0` | `0x0` |
+| `marchid` | `0xf12` | `0x0` | `0x0` |
+| `mimpid` | `0xf13` | `0x0` | `0x0` |
+| `mhartid` | `0xf14` | `0x0` | `0x0` |
+| `mconfigptr` | `0xf15` | `0x0` | `0x0` |
+
+Unimplemented HPM counter/selector fields read zero and ignore writes:
+- `0x323..0x33f`.
+- `0xb03..0xb1f`.
+- `0xb83..0xb9f`.
+
+CSR instruction write legality is separate from field writability.
+See [M-mode semantics](ISA_REDESIGN.md#m-mode-state-contract-adr-0062).

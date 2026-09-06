@@ -2,7 +2,34 @@
   "schema_version": 1,
   "project": "HolonNPU",
   "semantic_frontend": {
-    "stage": "scalar_effects",
+    "stage": "scalar_hart",
+    "machine_csrs": [
+      {"name":"mstatus", "address":"0x300", "reset":"0x1800", "write_mask":"0x88"},
+      {"name":"misa", "address":"0x301", "reset":"0x40001100", "write_mask":"0x0"},
+      {"name":"mie", "address":"0x304", "reset":"0x0", "write_mask":"0x888"},
+      {"name":"mtvec", "address":"0x305", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"mstatush", "address":"0x310", "reset":"0x0", "write_mask":"0x0"},
+      {"name":"mcountinhibit", "address":"0x320", "reset":"0x0", "write_mask":"0x5"},
+      {"name":"mscratch", "address":"0x340", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"mepc", "address":"0x341", "reset":"0x0", "write_mask":"0xfffffffc"},
+      {"name":"mcause", "address":"0x342", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"mtval", "address":"0x343", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"mip", "address":"0x344", "reset":"0x0", "write_mask":"0x0"},
+      {"name":"mcycle", "address":"0xb00", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"minstret", "address":"0xb02", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"mcycleh", "address":"0xb80", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"minstreth", "address":"0xb82", "reset":"0x0", "write_mask":"0xffffffff"},
+      {"name":"mvendorid", "address":"0xf11", "reset":"0x0", "write_mask":"0x0"},
+      {"name":"marchid", "address":"0xf12", "reset":"0x0", "write_mask":"0x0"},
+      {"name":"mimpid", "address":"0xf13", "reset":"0x0", "write_mask":"0x0"},
+      {"name":"mhartid", "address":"0xf14", "reset":"0x0", "write_mask":"0x0"},
+      {"name":"mconfigptr", "address":"0xf15", "reset":"0x0", "write_mask":"0x0"}
+    ],
+    "machine_zero_csr_ranges": [
+      {"first":"0x323", "last":"0x33f"},
+      {"first":"0xb03", "last":"0xb1f"},
+      {"first":"0xb83", "last":"0xb9f"}
+    ],
     "scalar_memory": {"address_bits": 32, "byte_order": "little", "misaligned": "trap"},
     "scalar_traps": {
       "instruction_address_misaligned": 0,
