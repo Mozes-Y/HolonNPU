@@ -147,6 +147,16 @@ The behavior follows the [RV32I specification](https://docs.riscv.org/reference/
 [M extension](https://docs.riscv.org/reference/isa/v20260120/unpriv/m-st-ext.html), and
 [Zicsr specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/zicsr.html).
 
+## ELF Loading Slice (ADR-0064)
+
+`elf::image` validates static RV32 ELF32 executables and transactionally loads
+PT_LOAD bytes/BSS through the checked physical map. Supported arch versions and
+stack alignment come from `semantic_frontend.elf_profile` in the canonical ISA
+schema. The runtime decoder still rejects unsupported instructions regardless
+of ELF attributes. Actual C23/C++26 images execute through the shared hart in
+component tests; full mixed-width program-machine boot remains an integration
+step, not a second permanent execution mode.
+
 ## Vector Contract To Freeze
 
 1. Register/state model: independently addressable vector and predicate banks;

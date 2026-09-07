@@ -4,10 +4,12 @@ All notable project-level release changes are recorded here.
 
 ## Unreleased
 
+- Added owning ELF32 load plans, schema-derived RV32 profile validation and
+  all-or-nothing PT_LOAD/BSS initialization. C23/C++26 probes now execute actual
+  ELF files; canonical mixed-width Holon execution remains subsequent work.
 - Added checked unified physical regions, executable-parcel fetch and typed
   scalar memory servicing. Compiled C23/C++26 RV32 probes execute through the
-  shared hart with real SPM stack and system-memory globals. Full ELF loading
-  and redesigned Holon program execution remain subsequent work.
+  shared hart with real SPM stack and system-memory globals.
 - Shared portable freestanding guest memory routines under `sim/guest/` between
   scalar probes and the existing bare-metal verification path.
 

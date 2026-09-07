@@ -299,6 +299,7 @@ target_sources(
     sim/semantic/holon_npu_scalar.cpp
     sim/semantic/holon_npu_hart.cpp
     sim/semantic/holon_npu_memory.cpp
+    sim/semantic/holon_npu_elf.cpp
   PUBLIC
     FILE_SET semantic_headers
     TYPE HEADERS
@@ -311,6 +312,7 @@ target_sources(
       sim/semantic/holon_npu_scalar.hpp
       sim/semantic/holon_npu_hart.hpp
       sim/semantic/holon_npu_memory.hpp
+      sim/semantic/holon_npu_elf.hpp
       sim/semantic/holon_npu_scalar_metadata.hpp
 )
 target_compile_features(holon_npu_semantic PUBLIC cxx_std_26)
@@ -1019,6 +1021,13 @@ target_sources(holon_npu_memory_test PRIVATE tests/memory_test.cpp)
 holon_npu_target_options(holon_npu_memory_test)
 target_link_libraries(holon_npu_memory_test PRIVATE holon_npu_semantic)
 holon_npu_add_ctest(TEST holon_npu_memory TARGET holon_npu_memory_test LABELS fast)
+
+add_executable(holon_npu_elf_test)
+target_sources(holon_npu_elf_test PRIVATE tests/elf_test.cpp)
+holon_npu_target_options(holon_npu_elf_test)
+target_link_libraries(holon_npu_elf_test PRIVATE holon_npu_semantic)
+holon_npu_add_ctest(TEST holon_npu_elf TARGET holon_npu_elf_test LABELS fast)
+
 holon_npu_add_python_check(
   TARGET isa_schema_tests TEST isa_schema_tests SCRIPT tests/isa_schema_test.py LABELS fast static
 )

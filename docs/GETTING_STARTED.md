@@ -236,13 +236,15 @@ Holon vector/matrix 先通过显式 intrinsic 或汇编接入，保留 VLA 与�
 [ISA Redesign](ISA_REDESIGN.md)。
 
 ```bash
-cmake --build --preset debug --target holon_npu_instruction_test holon_npu_scalar_test holon_npu_hart_test holon_npu_memory_test --parallel 2
-ctest --preset debug -R '^(holon_npu_instruction|holon_npu_scalar|holon_npu_hart|holon_npu_memory|isa_schema_tests)$' --verbose
+cmake --build --preset debug --target holon_npu_instruction_test holon_npu_scalar_test holon_npu_hart_test holon_npu_memory_test holon_npu_elf_test --parallel 2
+ctest --preset debug -R '^(holon_npu_instruction|holon_npu_scalar|holon_npu_hart|holon_npu_memory|holon_npu_elf|isa_schema_tests)$' --verbose
 ```
 
 `scalar_toolchain_check` 在 gem5 preset 中用上游 RISC-V 汇编器独立校验全部
 56 个标量/机器指令编码，并执行 C23/C++26 编译的标量程序，验证 SPM 栈、系统内存全局变量、
-计算结果及 WFI 等待状态。结果位于 `build/gem5/scalar-toolchain/`；这不是完整 Holon ELF 启动的验收。
+计算结果及 WFI 等待状态。现在直接加载 ELF32 的 PT_LOAD 和 BSS，不再抽取代码/数据 section。
+`holon_npu_elf` 检查兼容性、地址/权限和加载失败不修改内存，并运行确定性变异测试。
+结果位于 `build/gem5/scalar-toolchain/`；这不是完整 Holon 混合指令启动的验收。
 
 自主功能入口是 `program_machine::boot(boot_image)` 和
 `run_program(machine, system_memory_view, instruction_budget)`。它不需要 descriptor；

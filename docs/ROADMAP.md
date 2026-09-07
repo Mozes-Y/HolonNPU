@@ -99,8 +99,13 @@ Implementation order and acceptance:
    data scratchpad and environment-owned system memory, instruction fetch and
    synchronous servicing of the hart's captured memory/fence requests. Verified
    permissions, overflow, region/backing boundaries and compiled RV32 C23/C++26
-   control code through the shared hart. This is not a production ELF loader
-   or another interpreter; integrated mixed-width execution remains next.
+   control code through the shared hart. Integrated mixed-width execution
+   remains next; routing does not add another interpreter.
+   Completed slice (ADR-0064): validated ELF32 executable loading by PT_LOAD,
+   including RISC-V profile attributes, permissions, initialized bytes and BSS.
+   Replaced raw-section extraction in the compiled scalar fixture. Bad images
+   fail before memory mutation. Directed, sanitizer and deterministic mutation
+   checks pass; production machine cutover remains separate.
 3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
    execution object and timing memory request port. Reuse the semantic core and
    run the identical boot image without a RISC-V CPU or MMIO launch sequence.

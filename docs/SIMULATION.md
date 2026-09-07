@@ -69,8 +69,24 @@ The toolchain fixture compiles C23/C++26 RV32 control programs, executes their
 stack accesses in SPM and globals in system memory, and verifies published
 results before observing WFI wait. Portable guest `memset`/`memcpy` live in
 `sim/guest/freestanding.c` and execute as guest instructions, not Host helpers.
-This is component integration evidence, not a production ELF loader or a
+The probes now load actual ELF executables through `elf::image` (ADR-0064),
+not objcopy section binaries. This is component integration evidence, not a
 second boot mode. The canonical mixed-width execution cutover remains next.
+
+`elf::image::parse` owns validated ELF32 bytes and PT_LOAD metadata. `load`
+preflights every segment against physical permissions and actual storage before
+copying initialized bytes and zeroing BSS. It is a quiescent initialization API,
+not a runtime store. ELF permissions are minimum requirements on the board map;
+loading never changes runtime permissions. Program/SPM and system backings must
+be distinct storage owned by the core and environment respectively.
+
+The initial profile accepts static little-endian RV32 ILP32 ET_EXEC, no RVC,
+matching virtual/physical addresses, nonoverlapping load segments and an aligned
+entry parcel in initialized executable storage. Schema-derived RISC-V attributes
+are required. PT attributes are authoritative, with SHT fallback when absent;
+one `riscv` vendor/Tag_file record is accepted. Dynamic/TLS images, extended
+table numbering and unsupported mandatory attributes fail explicitly. No ELF
+loader invents ISA semantics, initializes sp/gp, or adds a syscall exit.
 
 The current accelerator adapter and Host tests remain useful for released RTL
 differential verification during migration. They are not the target execution

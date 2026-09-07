@@ -199,8 +199,13 @@ An independent interval scoreboard checks 8192 deterministic cases with seed
 and C++26 probes using real RV32 stack/global accesses and target-side memory
 support. The fixture checks every result, checksum, publication marker and WFI
 wait; it does not substitute Host arithmetic or interpret guest instructions.
-These tests do not establish a production ELF loader or the full redesigned
-Holon program machine; those require the next integration steps.
+`holon_npu_elf` verifies ELF/profile compatibility, segment size/alignment/bounds,
+attributes, entry validation, BSS, owning-image lifetime and transactional
+failure. It checks every truncation and 16384 deterministic byte mutations
+(seed `0x454c4632`); accepted loads must match exact initialized/zeroed bytes.
+The toolchain probes use this loader directly on C23/C++26 executables and
+verify BSS before execution. These tests do not establish the full redesigned
+Holon program machine; that requires the next integration steps.
 
 ```bash
 cmake --build --preset debug --target holon_npu_execution_test --parallel 2

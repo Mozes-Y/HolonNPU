@@ -167,6 +167,9 @@ through simulator-first execution verification, not a compatibility mode.
 - Low bits `00/01/10`: 8-byte Holon frame (opcode legality separate).
 - Authority: RISC-V specifications 20260120: RV32I 2.1, M 2.0, Zicsr 2.0, machine-mode instructions.
 
+- ELF scalar base: `rv32i2p1`; supported extension requirements: `m2p0`, `zicsr2p0`, `zmmul1p0`.
+- ELF stack alignment: 16 bytes.
+
 Scalar effects use 32-bit little-endian physical addresses and trap on
 misaligned halfword/word accesses. Memory/CSR/fence/machine-control
 requests are not retired by evaluation; the machine must complete them.

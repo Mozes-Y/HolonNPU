@@ -93,7 +93,9 @@ unsigned probe(const unsigned* p, unsigned count) {
     (output / "compiler.txt").write_text(run(compiler, "--version"))
     for language, tool, standard in (("c", compiler, "c23"), ("c++", cxx, "c++26")):
         directory = output / ("execution-c" if language == "c" else "execution-cpp")
-        directory.mkdir(exist_ok=True)
+        if directory.exists():
+            shutil.rmtree(directory)
+        directory.mkdir()
         obj = directory / "probe.o"
         run(tool, *flags, "-x", language, f"-std={standard}", "-ffreestanding", "-fno-pic",
             "-fno-pie", "-fno-common", "-fno-inline", "-fno-omit-frame-pointer", "-fdata-sections",
@@ -107,14 +109,11 @@ unsigned probe(const unsigned* p, unsigned count) {
         if header[0][:6] != b"\x7fELF\x01\x01" or header[2] != 243 or header[7] != 0 or header[4] != 0x1000:
             raise RuntimeError("execution probe requires ELF32 little-endian RV32/no-RVC at expected entry")
         (directory / "elf.txt").write_text(run(readelf, "-h", "-A", "-l", program))
-        code, data = directory / "code.bin", directory / "data.bin"
-        run(objcopy, "-O", "binary", "-j", ".text", program, code)
-        run(objcopy, "-O", "binary", "-j", ".data", program, data)
-        result = run(args.runner.resolve(), code, data)
+        result = run(args.runner.resolve(), program)
         (directory / "execution.txt").write_text(result)
         print(f"{standard}: {result.strip()}")
     print(f"upstream scalar oracle: {len(expected)}/{len(expected)} instructions, C23/C++26 decode PASS")
-    print("Compiled scalar probes exercise shared hart + physical routing; full Holon machine/ELF loading remains separate.")
+    print("Compiled ELF probes exercise transactional loading, shared hart and physical routing; full Holon machine cutover remains separate.")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,13 @@ inline constexpr std::uint32_t register_count = 0x00000020u;
 inline constexpr unsigned rd_shift = 7;
 inline constexpr unsigned rs1_shift = 15;
 inline constexpr unsigned rs2_shift = 20;
+inline constexpr std::string_view elf_base = "rv32i2p1";
+inline constexpr unsigned elf_stack_alignment = 16;
+inline constexpr std::array elf_extensions{
+    std::string_view{"m2p0"},
+    std::string_view{"zicsr2p0"},
+    std::string_view{"zmmul1p0"},
+};
 
 enum class machine_csr : std::uint16_t {
     mstatus = 0x300,

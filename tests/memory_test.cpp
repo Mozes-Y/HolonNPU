@@ -1,4 +1,5 @@
 #include "holon_npu_execution.hpp"
+#include "holon_npu_elf.hpp"
 
 #include <array>
 #include <fstream>
@@ -158,17 +159,21 @@ std::vector<std::byte> read_file(const char* path) {
     return bytes;
 }
 
-void compiled_program(const char* code_path, const char* data_path) {
-    auto code = read_file(code_path), data = read_file(data_path);
-    require(!code.empty() && code.size() <= 4096 && data.size() <= 2048, "bounded test image");
-    std::array<std::byte, 4096> spm{}, ram{};
-    std::ranges::copy(data, ram.begin());
+void compiled_program(const char* path) {
+    const auto image = elf::image::parse(read_file(path));
+    require(image.has_value(), "valid compiled ELF32 image");
+    std::array<std::byte, 4096> code{}, spm{}, ram{};
+    code.fill(std::byte{0xa5}); spm.fill(std::byte{0xa5}); ram.fill(std::byte{0xa5});
     const auto map = mapped({{physical_address{0x1000}, code.size(), storage::program, rx},
         {physical_address{0x10000000}, spm.size(), storage::scratchpad, rw},
         {physical_address{0x80000000}, ram.size(), storage::system, rw}});
     bindings memory{code, spm, {system_address{0x80000000}, ram}};
+    require(image->load(map, {code, spm, memory.system}).has_value(), "complete ELF load");
+    require(std::ranges::all_of(std::span{ram}.subspan(0x800, 72), [](auto b) { return b == std::byte{}; }),
+        "ELF BSS zeroed before execution");
+    require(ram.back() == std::byte{0xa5} && spm.front() == std::byte{0xa5}, "unloaded storage preserved");
     hart_state hart;
-    require(hart.start(instruction_address{0x1000}).has_value(), "compiled program entry");
+    require(hart.start(image->entry()).has_value(), "compiled program entry");
     unsigned stack_accesses = 0, system_accesses = 0;
     // Test harness supplies memory and instruction bytes; all execution is in the shared hart.
     for (unsigned attempt = 0; attempt < 100000 && !hart.waiting(); ++attempt) {
@@ -209,9 +214,9 @@ void compiled_program(const char* code_path, const char* data_path) {
 
 int main(int argc, char** argv) {
     try {
-        if (argc == 3) compiled_program(argv[1], argv[2]);
+        if (argc == 2) compiled_program(argv[1]);
         else {
-            require(argc == 1, "expected code/data binaries or no arguments");
+            require(argc == 1, "expected ELF file or no arguments");
             regions_and_transfers(); randomized_bounds(); fetch_and_complete();
             std::cout << "physical memory: directed permissions/fetch/completion and 8192 interval cases seed=0x4d415033 passed\n";
         }

@@ -57,8 +57,9 @@ being redesigned without changing VLA/predication principles; see the
 The model-stage frontend has typed framing, RV32 effects and shared M-mode
 hart state with CSR/trap/MRET/WFI and delayed memory completion. The existing
 machine owns this scalar state. Checked physical regions and synchronous memory
-servicing run compiled RV32 C23/C++26 probes through the shared hart. Full ELF
-boot and redesigned NPU instruction execution are not yet implemented.
+servicing run compiled RV32 C23/C++26 ELF probes through the shared hart.
+Validated ELF32 segment loading and BSS initialization are implemented; canonical
+mixed-width boot and redesigned NPU instruction execution remain next.
 See the [Simulation Contract](docs/SIMULATION.md) for ownership and acceptance.
 
 ## Architecture Roadmap

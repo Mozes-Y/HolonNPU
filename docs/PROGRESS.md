@@ -1,6 +1,6 @@
 # HolonNPU Progress
 
-Last updated: 2026-09-06.
+Last updated: 2026-09-07.
 
 ## Current Status
 
@@ -20,8 +20,10 @@ ISA schema generates internal scalar metadata without changing RTL capability.
 ADR-0062 adds shared M-mode state, trap/MRET/WFI, interrupts and transactional
 scalar completion. ADR-0063 adds physical routing, parcel fetch and synchronous
 memory servicing, verified with compiled RV32 C23/C++26 probes. The canonical
-mixed-width program machine, NPU operands and ELF startup remain next;
+mixed-width program machine and NPU operands remain next;
 the released RTL/ABI are unchanged.
+ADR-0064 implements owning ELF32 validation and transactional PT_LOAD/BSS
+initialization, verified with actual compiled C23/C++26 executables.
 The next scalar execution contract uses a confirmed unified 32-bit physical
 address space with scalar access to mapped scratchpad/system memory and DMA
 for bulk tensor movement. The checked router and hart completion exist; the
@@ -232,45 +234,50 @@ unchanged. Linux FS was not rerun. Debug/regression builds used two jobs;
 coverage used eight and gem5 used sixteen. Public generated headers, RTL,
 ABI schema and driver have no changes in this feature.
 
-## Physical Routing Verification
+## ELF And Physical Routing Verification
 
 Implemented on 2026-09-06 under ADR-0063. Maps own no memory; typed regions
 select local program bytes, scratchpad or identity-mapped external system
 memory. Reads/writes validate permissions, region and backing bounds before
 mutation. Fetch reports the failing parcel separately from the instruction PC.
 The synchronous service consumes only the hart's live pending operation.
+ADR-0064 adds ELF32 profile/segment validation and all-or-nothing initialization.
+Latest gates were rerun on 2026-09-07, using the final ELF implementation.
 
 | Command/gate | Result |
 | ------------ | ------ |
-| Debug configure/build; `ctest --preset debug --output-on-failure` | 29/29 passed |
+| Debug configure/build; `ctest --preset debug --output-on-failure` | 30/30 passed |
 | `ctest --preset lint --output-on-failure` | 11/11 passed |
-| Regression configure/build; `ctest --preset regression --output-on-failure` | 40/40 passed |
-| Coverage configure/build; `ctest --preset coverage --output-on-failure` | 42/42 passed |
+| Regression configure/build; `ctest --preset regression --output-on-failure` | 41/41 passed |
+| Coverage configure/build; `ctest --preset coverage --output-on-failure` | 43/43 passed |
 | `python3 tools/check_coverage.py --build-dir build/coverage` | 12 raw, 137 functional events, 56 product RTL covers; structural baseline unchanged |
-| New memory/execution/hart/scalar sources and memory test: strict warnings, ASan/UBSan | passed, including both compiled probes |
-| `cmake --preset gem5`; `cmake --build --preset gem5 --parallel 16` | passed; 27,587/27,587 translation units audited as C++26 |
+| ELF/memory/execution/hart/scalar sources and tests: strict warnings, ASan/UBSan | passed, including both compiled ELF probes |
+| `cmake --preset gem5`; `cmake --build --preset gem5 --parallel 16` | passed; 27,596/27,596 translation units audited as C++26 |
 | `ctest --preset gem5 --output-on-failure` | 7/7 passed |
 | `ctest --preset gem5 -R '^scalar_toolchain_check$' --verbose` | 56/56 encoding oracle plus both executed RV32 probes passed |
 
 The memory test verifies directed permission, ownership, fetch and completion
 cases plus 8192 interval-scoreboard cases (seed `0x4d415033`). The toolchain
-fixture compiles the same control workload in C23 and C++26 and verifies all
+fixture directly loads the compiled ELF, including PT_LOAD bytes and BSS,
+instead of extracting sections. `holon_npu_elf` verifies truncation, unsupported
+profiles, attributes, overlap/alignment/bounds, owning-image lifetime and atomic
+failure, plus 16384 deterministic mutations (seed `0x454c4632`).
+The same control workload in C23 and C++26 verifies all
 16 values, checksum 261 and publication before WFI wait. C23 retires 536
 instructions with 110 stack/35 system accesses; C++26 retires 737 with 174/35,
 including a compiler-generated memset executed by the guest. These are
 instruction/access counts, not cycle or performance measurements.
 
-Portable guest memory support moved to `sim/guest/freestanding.c` without
-duplication; CI watches the guest/probe sources and uploads toolchain artifacts.
-ABI/ISA generation, ownership, macro policy, workflow YAML parsing, local links
-and whitespace checks pass. Public RTL, ABI/ISA schemas, headers and driver
-are unchanged. No production ELF loader, second interpreter or autonomous
-gem5 model is claimed by these component integration tests.
+Portable guest memory support remains in `sim/guest/freestanding.c`; CI uploads
+toolchain artifacts. ABI/ISA generation, schema, ownership, macro policy, local
+links and whitespace checks pass. Only internal ELF profile metadata is added
+to the ISA schema; public generated RTL/headers, ABI schema and driver are
+unchanged. No second interpreter or autonomous gem5 model is claimed by these
+component integration tests. Canonical mixed-width machine boot remains next.
 gem5 remains on stable `cbc94c1a773e94118070294750dbe2c9c75898cb` with the
 existing GCC-version and optional-HDF5 warnings. Linux FS was not rerun.
-Debug/regression builds used two jobs, coverage eight, and gem5 sixteen.
-Workflow YAML was parsed locally; GitHub Actions itself has not been run for
-this unpushed feature. `actionlint` is not installed in this environment.
+Debug/regression/coverage builds used two jobs and gem5 sixteen.
+GitHub Actions has not been run for this unpushed feature.
 
 ## Known Limits
 

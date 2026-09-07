@@ -463,3 +463,42 @@ RV32 code. Silently falling through a denied/local access into system memory
 breaks permissions and ownership. These alternatives are rejected. Compiled
 scalar tests may drive fetch/issue/complete but contain no instruction arithmetic;
 the eventual canonical mixed-width machine must reuse these mechanisms.
+
+## ADR-0064: Validated ELF Boot Images
+
+**Status:** Accepted for semantic implementation; no RTL authorization.
+
+**Decision:** Parse static ELF32 little-endian RISC-V ET_EXEC images into an
+owning, immutable load plan. Use PT_LOAD rather than section names; copy file
+bytes and zero the remaining memory extent. Validate the complete plan and all
+backings before any memory mutation. Boot-time initialization may populate
+read-only program storage, but never grants runtime write permission.
+
+Require ILP32/no-RVC ELF flags, four-byte entry alignment, matching physical and
+virtual load addresses (no MMU), valid size/alignment arithmetic, nonoverlapping
+segments and an entry parcel in initialized executable bytes. Require RISC-V
+file attributes from PT_RISCV_ATTRIBUTES or SHT_RISCV_ATTRIBUTES: RV32I 2.1 with
+only supported M 2.0, Zicsr 2.0 and implied Zmmul 1.0 requirements. Stack alignment
+is 16; alternative gp use, mandatory unknown attributes and unsupported ISA
+requirements are rejected. Deprecated privileged-version tags are advisory.
+PT attributes are authoritative; SHT attributes are the fallback. The initial
+profile supports one `riscv` vendor/Tag_file record. ELF permissions are minimum
+requirements on the physical map, not a replacement map. Callers provide
+distinct program/SPM/system backing storage and quiescent execution.
+
+Dynamic loading, TLS initialization, extended ELF table numbering and alternate
+OS ABIs are outside this initial freestanding profile and fail explicitly.
+Metadata does not prove every executable byte is an instruction or free of
+hidden unsupported encodings; the normal decoder remains authoritative at
+execution. ELF loading does not add instruction semantics, a second run loop,
+an exit syscall, or gem5 timing. Guest startup still initializes sp/gp and guest
+code supplies its own completion behavior.
+
+**Alternatives:** Raw objcopy sections omit segment/BSS and permission semantics.
+Loading while parsing risks partial memory corruption on malformed images.
+An embedded Host loader/interpreter would duplicate ownership. The chosen
+stdlib-only C++26 parser and preflighted load plan avoid those problems and are
+shared by direct and future autonomous gem5 boot.
+
+**Authority:** [ELF program headers](https://www.sco.com/developers/gabi/2003-12-17/ch5.pheader.html)
+and [RISC-V psABI](https://riscv-non-isa.github.io/riscv-elf-psabi-doc/).

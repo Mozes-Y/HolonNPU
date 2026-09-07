@@ -75,6 +75,7 @@ def check_semantic_frontend(schema: dict[str, Any]) -> list[str]:
     frontend = schema.get("semantic_frontend", {})
     contract = {
         "stage": "scalar_hart", "scalar_profile": "rv32im_zicsr", "abi": "ilp32",
+        "elf_profile": {"base": "rv32i2p1", "extensions": ["m2p0", "zicsr2p0", "zmmul1p0"], "stack_alignment": 16},
         "execution_environment": "single_hart_machine", "byte_order": "little",
         "alignment_bytes": 4, "scalar_bytes": 4, "holon_bytes": 8,
         "holon_prefixes": [0, 1, 2], "register_count": 32,

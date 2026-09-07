@@ -30,6 +30,7 @@ class ScalarSchemaTests(unittest.TestCase):
             "execution_environment": "host", "stage": "implemented",
             "scalar_memory": {"address_bits": 64, "byte_order": "little", "misaligned": "emulate"},
             "scalar_traps": {"illegal_instruction": 0},
+            "elf_profile": {"base": "rv32i2p1", "extensions": ["c2p0"], "stack_alignment": 4},
         }.items():
             with self.subTest(field=field):
                 bad = copy.deepcopy(self.schema)

@@ -277,6 +277,9 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
         f"- Low bits `11`: {frontend['scalar_bytes']}-byte scalar word.",
         f"- Low bits `00/01/10`: {frontend['holon_bytes']}-byte Holon frame (opcode legality separate).",
         f"- Authority: {frontend['authority']}.", "",
+        f"- ELF scalar base: `{frontend['elf_profile']['base']}`; supported extension requirements: "
+        + ", ".join(f"`{e}`" for e in frontend["elf_profile"]["extensions"]) + ".",
+        f"- ELF stack alignment: {frontend['elf_profile']['stack_alignment']} bytes.", "",
         "Scalar effects use 32-bit little-endian physical addresses and trap on",
         "misaligned halfword/word accesses. Memory/CSR/fence/machine-control",
         "requests are not retired by evaluation; the machine must complete them.", "",
@@ -318,6 +321,12 @@ def generated_scalar_metadata(schema: dict[str, Any]) -> str:
         lines.append(f"inline constexpr std::uint32_t {key} = {c_hex(frontend[key])};")
     for name, shift in frontend["register_fields"].items():
         lines.append(f"inline constexpr unsigned {name}_shift = {shift};")
+    profile = frontend["elf_profile"]
+    lines.append(f"inline constexpr std::string_view elf_base = \"{profile['base']}\";")
+    lines.append(f"inline constexpr unsigned elf_stack_alignment = {profile['stack_alignment']};")
+    lines.append("inline constexpr std::array elf_extensions{")
+    lines.extend(f"    std::string_view{{\"{extension}\"}}," for extension in profile["extensions"])
+    lines.append("};")
     lines.extend(["", "enum class machine_csr : std::uint16_t {"])
     lines.extend(f"    {csr['name']} = {csr['address']}," for csr in frontend["machine_csrs"])
     lines.extend(["};", "struct machine_csr_spec {", "    machine_csr address;",
