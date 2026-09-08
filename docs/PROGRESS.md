@@ -1,6 +1,6 @@
 # HolonNPU Progress
 
-Last updated: 2026-09-07.
+Last updated: 2026-09-08.
 
 ## Current Status
 
@@ -24,6 +24,11 @@ mixed-width program machine and NPU operands remain next;
 the released RTL/ABI are unchanged.
 ADR-0064 implements owning ELF32 validation and transactional PT_LOAD/BSS
 initialization, verified with actual compiled C23/C++26 executables.
+ADR-0065 NPU operand-contract metadata and typed encoding are implemented;
+the new decoder currently has test consumers only. The canonical program
+machine still executes the former 32-bit ISA. New vector/matrix arithmetic and
+mixed-width machine execution are not yet implemented. This is an incomplete
+replacement, not an intended compatibility mode or completed ISA redesign.
 The next scalar execution contract uses a confirmed unified 32-bit physical
 address space with scalar access to mapped scratchpad/system memory and DMA
 for bulk tensor movement. The checked router and hart completion exist; the
@@ -278,6 +283,41 @@ gem5 remains on stable `cbc94c1a773e94118070294750dbe2c9c75898cb` with the
 existing GCC-version and optional-HDF5 warnings. Linux FS was not rerun.
 Debug/regression/coverage builds used two jobs and gem5 sixteen.
 GitHub Actions has not been run for this unpushed feature.
+
+## NPU Operand Contract Verification
+
+Completed on 2026-09-08 under ADR-0065: schema-generated 54-opcode typed codec,
+operand reference and explicit vector/predicate/matrix/DMA contracts. Reserved
+bits, illegal all-zero allocation, register domains, type restrictions and
+displacement limits are checked. This feature does not execute NPU arithmetic.
+
+| Command/gate | Result |
+| ------------ | ------ |
+| Debug configure/build; `ctest --preset debug --output-on-failure` | 30/30 passed |
+| `ctest --preset lint --output-on-failure` | 11/11 passed |
+| Regression configure/build; `ctest --preset regression --output-on-failure` | 41/41 passed |
+| Coverage configure/build; `ctest --preset coverage --output-on-failure` | 43/43 passed |
+| `python3 tools/check_coverage.py --build-dir build/coverage` | 12 raw, 137 functional events, 56 product RTL covers; structural baseline unchanged |
+| Instruction strict-warning ASan/UBSan test | 54/54 NPU forms, 55,296 round trips; all scalar/framing cases passed |
+| `python3 tests/isa_schema_test.py` | 7/7 passed, including invalid NPU metadata mutations |
+| `cmake --build --preset gem5 --parallel 16` | passed; 27,596/27,596 compilation units use C++26 |
+| `ctest --preset gem5 --output-on-failure` | 7/7 passed |
+
+The upstream raw-link oracle preserves all 54 NPU forms mixed with scalar
+instructions at both allowed modulo-8 starts and checks typed disassembly.
+Compiled C23/C++26 ELF probes retain their exact scalar results and access
+counts. ABI/ISA generation, ownership, macro policy, Markdown links and
+whitespace checks pass. RTL, public generated headers and driver are unchanged.
+
+This build follows upstream stable `f5c5a6e390f55dd5984977815bf9d0bd05da6945`,
+recorded in `build/gem5/simulation-metadata.json`; GCC 16.2/C++26 and the existing
+reviewed overlay remain in use. Upstream compiler-support and optional-HDF5
+warnings persist. Linux FS and GitHub Actions were not rerun.
+
+The canonical executor still consumes the former ISA. None of these green gates
+proves new vector/matrix arithmetic, mixed-width machine execution, Transformer
+correctness or autonomous gem5 performance. The next feature replaces that
+execution path and its program consumers rather than keeping two ISA modes.
 
 ## Known Limits
 

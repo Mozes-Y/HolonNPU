@@ -53,6 +53,28 @@ class ScalarSchemaTests(unittest.TestCase):
                 elif change == "outside_mask": entries[0]["value"] = "0xF0000037"
                 self.assertTrue(check_schema(bad))
 
+    def test_npu_operand_contract(self) -> None:
+        for change in ("missing", "opcode", "zero_opcode", "prefix", "field_overlap", "field_end", "domain",
+                       "role", "format", "hook", "type", "type_without_field", "registers"):
+            with self.subTest(change=change):
+                bad = copy.deepcopy(self.schema)
+                npu = bad["semantic_npu"]
+                match change:
+                    case "missing": del bad["semantic_npu"]
+                    case "opcode": npu["instructions"][1]["opcode"] = npu["instructions"][0]["opcode"]
+                    case "zero_opcode": npu["instructions"][0]["opcode"] = 0
+                    case "prefix": npu["families"]["vector"] = 3
+                    case "field_overlap": npu["formats"]["binary"][1][1] = 12
+                    case "field_end": npu["formats"]["binary"][1][1] = 63
+                    case "domain": npu["formats"]["binary"][1][2] = 4
+                    case "role": npu["roles"]["va"] = "untyped"
+                    case "format": npu["instructions"][1]["format"] = "missing"
+                    case "hook": npu["instructions"][1]["semantics"] = ""
+                    case "type": npu["instructions"][1]["types"] = ["bf16"]
+                    case "type_without_field": npu["instructions"][-1]["types"] = ["i32"]
+                    case "registers": npu["register_counts"]["predicate"] = 1
+                self.assertTrue(check_schema(bad))
+
     def test_machine_csrs(self) -> None:
         for change in ("missing", "duplicate", "overlap", "width", "readonly", "range"):
             with self.subTest(change=change):

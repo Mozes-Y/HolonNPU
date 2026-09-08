@@ -93,6 +93,15 @@ differential verification during migration. They are not the target execution
 path and must not become a second permanent product. Their replacement and
 removal are gated together after autonomous gem5 validation.
 
+ADR-0065 defines the next NPU instruction/state contract in ISA_REDESIGN. The
+canonical schema's `semantic_npu` generates a typed operand registry and
+[reference](NPU_OPERAND_REFERENCE.md). `encode_holon`/`decode_holon` enforce
+register domains, reserved fields and operation type restrictions; they do not
+execute those operations. Integration must consume this codec in the existing
+semantic machine, not introduce a second interpreter. Subsequent vector/matrix
+engines must preserve explicit length, predicate, numeric and precise-fault
+rules before the complete Transformer and autonomous gem5 gates.
+
 ### Autonomous Boot And Execution Contract
 
 - A boot image supplies instruction words, an aligned in-range entry PC, active

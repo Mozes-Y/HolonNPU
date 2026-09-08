@@ -35,6 +35,47 @@ def sample(entry: dict) -> tuple[str, str]:
     return assembly, assembly
 
 
+def mixed_link_probe(root: Path, output: Path, compiler: Path, objcopy: str, decoder: Path, flags: list[str]) -> None:
+    npu = json.loads((root / "spec/holon_npu_isa.json").read_text())["semantic_npu"]
+    assembly = [".option norvc", ".option norelax", ".text", ".balign 4", ".global mixed_probe", "mixed_probe:"]
+    expected_bytes, expected_text = bytearray(), []
+    for entry in npu["instructions"]:
+        word = entry["opcode"] << npu["opcode_shift"] | npu["families"][entry["family"]]
+        fields = []
+        for role, shift, width in npu["formats"][entry["format"]]:
+            kind = npu["roles"][role]
+            match kind:
+                case "scalar" | "vector" | "predicate" | "tile" | "view":
+                    bits = npu["register_counts"][kind] - 1
+                    text = {"scalar": "x", "vector": "v", "predicate": "p", "tile": "t", "view": "view"}[kind] + str(bits)
+                case "element":
+                    text = entry.get("types", list(npu["types"]))[-1] if role == "type" else "f32"
+                    bits = npu["types"][text]
+                case "policy": text, bits = "zero", 1
+                case "rounding": text, bits = "rup", 3
+                case "capability": text, bits = "tile_bytes", 3
+                case "scale": text, bits = "3", 3
+                case "displacement": text, bits = "-524288", 1 << (width - 1)
+                case other: raise ValueError(other)
+            fields.append(f"{role}={text}")
+            word |= bits << shift
+        assembly.extend(["addi x0, x0, 0", f".word 0x{word & 0xffffffff:08x}, 0x{word >> 32:08x}"])
+        expected_bytes.extend(struct.pack("<IQ", 0x13, word))
+        expected_text.extend(["addi x0, x0, 0", entry["name"].lower() + " " + ", ".join(fields)])
+    source, program, binary = output / "mixed.S", output / "mixed.elf", output / "mixed.bin"
+    source.write_text("\n".join(assembly) + "\n")
+    run(compiler, *flags, "-nostdlib", "-nostartfiles", "-static", "-no-pie", "-Wl,--build-id=none",
+        "-Wl,--no-relax", "-Wl,-Ttext=0x1000", "-Wl,-e,mixed_probe", source, "-o", program)
+    run(objcopy, "-O", "binary", "-j", ".text", program, binary)
+    if binary.read_bytes() != expected_bytes:
+        raise RuntimeError("upstream assembler/linker changed mixed 32/64-bit instruction bytes")
+    actual = run(decoder, "--mixed-words", binary).splitlines()
+    if actual != expected_text:
+        raise RuntimeError(f"mixed instruction decode mismatch\nexpected={expected_text}\nactual={actual}")
+    (output / "mixed-disassembly.txt").write_text("\n".join(actual) + "\n")
+    print(f"Holon raw-link oracle: {len(npu['instructions'])} NPU forms, alternating 0/4 modulo-8 placement PASS (decode only)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cross-check Holon scalar decoding against upstream RISC-V tools.")
     parser.add_argument("--compiler", required=True)
@@ -91,6 +132,7 @@ unsigned probe(const unsigned* p, unsigned count) {
         decoded = run(args.decoder.resolve(), "--scalar-words", raw)
         (output / f"{suffix}-disassembly.txt").write_text(decoded)
     (output / "compiler.txt").write_text(run(compiler, "--version"))
+    mixed_link_probe(root, output, compiler, objcopy, args.decoder.resolve(), flags)
     for language, tool, standard in (("c", compiler, "c23"), ("c++", cxx, "c++26")):
         directory = output / ("execution-c" if language == "c" else "execution-cpp")
         if directory.exists():

@@ -1,12 +1,15 @@
 #pragma once
 
 #include "holon_npu_scalar_metadata.hpp"
+#include "holon_npu_operand_metadata.hpp"
 #include "holon_npu_types.hpp"
 
 #include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <expected>
+#include <initializer_list>
+#include <optional>
 #include <span>
 #include <string>
 #include <variant>
@@ -18,7 +21,7 @@ struct holon_word { std::uint64_t bits{}; };
 using instruction_frame = std::variant<scalar_word, holon_word>;
 
 enum class fetch_error { invalid_image, misaligned_pc, out_of_bounds, truncated };
-enum class decode_error { illegal_scalar };
+enum class decode_error { illegal_scalar, illegal_holon };
 
 // Framing does not establish opcode legality, especially for unallocated NPU words.
 [[nodiscard]] constexpr std::expected<instruction_frame, fetch_error> fetch(
@@ -112,5 +115,34 @@ struct scalar_instruction {
 }
 
 [[nodiscard]] std::string disassemble(const scalar_instruction& instruction);
+
+struct vector_register_tag; struct predicate_register_tag; struct tile_register_tag;
+struct tile_view_tag; struct displacement_tag; struct index_scale_tag;
+using vector_register = strong_value<std::uint8_t, vector_register_tag>;
+using predicate_register = strong_value<std::uint8_t, predicate_register_tag>;
+using tile_register = strong_value<std::uint8_t, tile_register_tag>;
+using tile_view = strong_value<std::uint8_t, tile_view_tag>;
+using displacement = strong_value<std::int32_t, displacement_tag>;
+using index_scale = strong_value<std::uint8_t, index_scale_tag>;
+using npu_operand = std::variant<scalar_register, vector_register, predicate_register,
+    tile_register, tile_view, npu_type, mask_policy, rounding_mode, displacement, index_scale, resource_capacity>;
+struct named_operand { npu_role role; npu_operand value; };
+struct npu_instruction {
+    npu_pattern pattern;
+    std::array<named_operand, npu_max_operands> operands{};
+    [[nodiscard]] std::span<const named_operand> arguments() const { return std::span{operands}.first(pattern.count); }
+    [[nodiscard]] const npu_operand* find(npu_role role) const {
+        for (const auto& arg : arguments()) if (arg.role == role) return &arg.value;
+        return nullptr;
+    }
+};
+enum class encode_error { unknown_opcode, operand_set, operand_type, operand_range };
+[[nodiscard]] std::expected<npu_instruction, decode_error> decode_holon(holon_word word);
+[[nodiscard]] std::expected<holon_word, encode_error> encode_holon(npu_opcode opcode, std::span<const named_operand> operands);
+[[nodiscard]] inline std::expected<holon_word, encode_error> encode_holon(
+    npu_opcode opcode, std::initializer_list<named_operand> operands) {
+    return encode_holon(opcode, std::span{operands.begin(), operands.size()});
+}
+[[nodiscard]] std::string disassemble(const npu_instruction& instruction);
 
 } // namespace holon_npu::semantic::instruction

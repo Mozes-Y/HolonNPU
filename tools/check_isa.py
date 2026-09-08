@@ -162,8 +162,74 @@ def check_semantic_frontend(schema: dict[str, Any]) -> list[str]:
     return failures
 
 
+def check_semantic_npu(schema: dict[str, Any]) -> list[str]:
+    failures = []
+    widths = {"scalar": 5, "vector": 5, "predicate": 5, "tile": 3, "view": 4,
+              "element": 4, "policy": 1, "rounding": 2, "displacement": 20,
+              "scale": 2, "capability": 2}
+    try:
+        npu = schema["semantic_npu"]
+        for key, expected in {
+            "stage": "operand_contract", "families": {"vector": 0, "matrix": 1, "system": 2},
+            "opcode_shift": 2, "opcode_bits": 10,
+            "register_counts": {"scalar": 32, "vector": 32, "predicate": 32, "tile": 8, "view": 16},
+            "types": {"i8": 0, "u8": 1, "i16": 2, "u16": 3, "i32": 4, "u32": 5, "f32": 6},
+            "policies": {"merge": 0, "zero": 1}, "roundings": {"rne": 0, "rtz": 1, "rdn": 2, "rup": 3},
+            "capacities": {"vector_bytes": 0, "matrix_rows": 1, "matrix_cols": 2, "tile_bytes": 3},
+            "traps": {"invalid_operand": 24},
+        }.items():
+            if npu.get(key) != expected:
+                failures.append(f"semantic_npu.{key}: unsupported contract")
+        roles, formats = npu["roles"], npu["formats"]
+        used_roles = set()
+        for role, kind in roles.items():
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", role) or kind not in widths:
+                failures.append("invalid NPU operand role/kind")
+        for name, fields in formats.items():
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or len(fields) > 10:
+                failures.append("invalid NPU operand format")
+            mask, seen = 0xfff, set()
+            for role, shift, width in fields:
+                used_roles.add(role)
+                if role not in roles or role in seen or width != widths.get(roles.get(role)):
+                    failures.append(f"{name}: duplicate/invalid field domain")
+                    continue
+                seen.add(role)
+                if not 12 <= shift < 64 or shift + width > 64:
+                    failures.append(f"{name}: field exceeds instruction")
+                    continue
+                bits = ((1 << width) - 1) << shift
+                if mask & bits:
+                    failures.append(f"{name}: overlapping operand fields")
+                mask |= bits
+        if used_roles != set(roles):
+            failures.append("unused or unknown NPU roles")
+        names, codes, used_formats, families = set(), set(), set(), set()
+        for entry in npu["instructions"]:
+            name, family, opcode, form = entry["name"], entry["family"], entry["opcode"], entry["format"]
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]*", name) or name in names:
+                failures.append("duplicate/invalid NPU instruction name")
+            names.add(name)
+            if family not in npu["families"] or not 0 <= opcode < 1024 or (family, opcode) in codes:
+                failures.append(f"{name}: overlapping/invalid NPU opcode")
+            if family == "vector" and opcode == 0:
+                failures.append(f"{name}: all-zero instruction must remain illegal")
+            codes.add((family, opcode)); families.add(family); used_formats.add(form)
+            if form not in formats or not re.fullmatch(r"[a-z][a-z0-9_]*", entry["semantics"]):
+                failures.append(f"{name}: missing operand/semantic contract")
+            if "types" in entry and (not entry["types"] or len(entry["types"]) != len(set(entry["types"]))
+                    or not set(entry["types"]) <= set(npu["types"])
+                    or not any(field[0] == "type" for field in formats.get(form, []))):
+                failures.append(f"{name}: invalid operation type domain")
+        if used_formats != set(formats) or families != set(npu["families"]):
+            failures.append("unused NPU formats or prefix families")
+    except (KeyError, TypeError, ValueError):
+        failures.append("malformed semantic_npu metadata")
+    return failures
+
+
 def check_schema(schema: dict[str, Any]) -> list[str]:
-    failures = check_semantic_frontend(schema)
+    failures = check_semantic_frontend(schema) + check_semantic_npu(schema)
     isa = schema.get("isa", {})
     if isa.get("instruction_bits") != 32:
         failures.append("isa.instruction_bits must be 32")

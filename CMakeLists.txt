@@ -314,6 +314,7 @@ target_sources(
       sim/semantic/holon_npu_memory.hpp
       sim/semantic/holon_npu_elf.hpp
       sim/semantic/holon_npu_scalar_metadata.hpp
+      sim/semantic/holon_npu_operand_metadata.hpp
 )
 target_compile_features(holon_npu_semantic PUBLIC cxx_std_26)
 target_link_libraries(holon_npu_semantic PUBLIC holon_npu_runtime)
@@ -999,7 +1000,7 @@ target_link_libraries(holon_npu_execution_test PRIVATE holon_npu_semantic)
 holon_npu_add_ctest(TEST holon_npu_execution TARGET holon_npu_execution_test LABELS fast)
 
 add_executable(holon_npu_instruction_test)
-target_sources(holon_npu_instruction_test PRIVATE tests/instruction_test.cpp)
+target_sources(holon_npu_instruction_test PRIVATE tests/instruction_test.cpp tests/npu_instruction_test.cpp)
 holon_npu_target_options(holon_npu_instruction_test)
 target_link_libraries(holon_npu_instruction_test PRIVATE holon_npu_semantic)
 holon_npu_add_ctest(TEST holon_npu_instruction TARGET holon_npu_instruction_test LABELS fast)

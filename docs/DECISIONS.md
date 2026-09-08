@@ -502,3 +502,39 @@ shared by direct and future autonomous gem5 boot.
 
 **Authority:** [ELF program headers](https://www.sco.com/developers/gabi/2003-12-17/ch5.pheader.html)
 and [RISC-V psABI](https://riscv-non-isa.github.io/riscv-elf-psabi-doc/).
+
+## ADR-0065: Explicit NPU Operand Contracts
+
+**Status:** Accepted for metadata/semantic implementation, not RTL authorization.
+
+**Decision:** Use the three reclaimed prefixes for vector/predicate, matrix,
+and DMA/system families, each with a ten-bit opcode and class-specific 64-bit
+operands. Thirty-two vector and predicate names, eight matrix registers and
+sixteen matrix views are independent namespaces. Register capacity and physical
+lane/array geometry are separate implementation parameters. Scalar registers
+supply vector lengths and full physical addresses; element types are explicit
+in each operation, without global VTYPE, implicit mask or LMUL grouping.
+
+VSETL returns a capacity-bounded length without changing hidden vector state.
+Matrix views capture base, two signed byte strides, rows, columns and type from
+registers; load, clear, dot/accumulate and store are separate. Initial operations
+retire only at completion. External DMA store faults may leave an accepted
+prefix visible; no rollback guarantee is invented. STOP is explicit successful
+program termination with a program-supplied status, unlike WFI or ECALL.
+Invalid dynamic operands use custom machine trap 24; illegal encoding uses
+standard trap 2, and memory faults retain standard load/store causes. Neither
+an operation fault nor a failed completion retires its instruction.
+
+**Rationale:** Transformer QKV/attention/FFN need matrix views and independent
+accumulators; normalization/softmax/activation need VLA arithmetic, reductions,
+broadcast, predicates and addressing. Transcendentals remain guest algorithms,
+not Host services or whole-operator instructions. Numeric/alias/fault rules are
+defined in ISA_REDESIGN before execution. Metadata recognition is not evidence
+that these new operations execute, and does not advertise new RTL support.
+
+**Alternatives:** Extending the former three-register/immediate format retains
+its constraints. Implicit global type/length state couples unrelated operations.
+Full tensor-operator instructions hide traversal and numerical choices. Instead,
+schema-generated typed operands keep encoding, tooling and the next semantic
+engine consistent. Current RTL ISA 1.0 remains the migration baseline, not a
+second permanent semantic ISA mode.

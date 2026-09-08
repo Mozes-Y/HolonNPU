@@ -106,6 +106,18 @@ Implementation order and acceptance:
    Replaced raw-section extraction in the compiled scalar fixture. Bad images
    fail before memory mutation. Directed, sanitizer and deterministic mutation
    checks pass; production machine cutover remains separate.
+   Implemented slice (ADR-0065): expressive 64-bit NPU operand metadata and typed
+   encode/decode. Freeze explicit vector length/predication, register-addressed
+   matrix views and ordered DMA/stop contracts before implementing their
+   execution. Check all reserved fields, operand domains, round trips and
+   upstream raw-byte link preservation. No RTL capability changes in this slice.
+   Next feature is the canonical execution cutover, not another detached codec:
+   replace the former decoder/program builder and migrate program tests to the
+   RV32/Holon instruction stream. The machine must consume the shared decoder,
+   retire 4/8-byte instructions precisely and implement the new vector/matrix
+   state. No alternate bootable ISA, fallback or legacy translation facade is
+   permitted. Old RTL tests cannot substitute for new semantic execution
+   evidence, nor authorize unreviewed RTL changes.
 3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
    execution object and timing memory request port. Reuse the semantic core and
    run the identical boot image without a RISC-V CPU or MMIO launch sequence.

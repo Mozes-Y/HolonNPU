@@ -4,6 +4,11 @@ All notable project-level release changes are recorded here.
 
 ## Unreleased
 
+- Defined 54 expressive Holon 64-bit NPU operand forms with generated typed
+  encoding/decoding, independent predicates, explicit VL, matrix views and
+  ordered DMA/STOP contracts. Verified reserved fields, typed domains and
+  upstream mixed-width raw-link preservation. This is a codec checkpoint;
+  the canonical executor still uses the former ISA and must be replaced.
 - Added owning ELF32 load plans, schema-derived RV32 profile validation and
   all-or-nothing PT_LOAD/BSS initialization. C23/C++26 probes now execute actual
   ELF files; canonical mixed-width Holon execution remains subsequent work.

@@ -185,7 +185,7 @@ The target frontend requires RV32IM + Zicsr scalar control, ILP32, and no C
 extension for toolchain reuse. Standard scalar instructions remain 32-bit;
 independently redesigned Holon vector/matrix/DMA instructions use a 64-bit
 envelope in reclaimed non-RVC space. VLA and explicit predication remain
-invariants. See `docs/ISA_REDESIGN.md` and ADR-0059 for the remaining operand,
+invariants. See `docs/ISA_REDESIGN.md` and ADR-0065 for the selected operand,
 encoding, and execution review.
 
 The execution environment is selected as single-hart M-mode bare metal,
@@ -195,7 +195,9 @@ document's current RTL capability or make the existing program machine fully
 RV32-compatible. ADR-0063 adds checked physical routing and scalar memory
 servicing. ADR-0064 adds validated ELF32 PT_LOAD/BSS initialization against that
 map, without changing permissions or owning system storage. Canonical mixed-width
-execution and the redesigned NPU operands remain next.
+execution remains next. ADR-0065 adds schema-generated 64-bit operand contracts
+and a typed codec, without implementing new vector/matrix execution or changing
+the current hardware interface.
 The target scalar memory contract is a unified 32-bit physical address space
 with direct scalar scratchpad/system access and explicit DMA for tensor bulk
 movement. The current accelerator's scratchpad-only scalar path is unchanged.

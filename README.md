@@ -51,8 +51,8 @@ statistics. This is the existing accelerator baseline, not the self-hosted
 destination. Active work is autonomous functional boot/execution, a complete
 minimal Transformer, then a no-Host gem5 execution and performance model.
 The next ISA design adopts RV32IM + Zicsr scalar control, ILP32, and no C extension
-with 32-bit scalar and 64-bit Holon NPU instructions. Vector/matrix operands are
-being redesigned without changing VLA/predication principles; see the
+with 32-bit scalar and 64-bit Holon NPU instructions. ADR-0065 defines explicit
+vector length/predication and register-addressed matrix views; see the
 [ISA Redesign](docs/ISA_REDESIGN.md).
 The model-stage frontend has typed framing, RV32 effects and shared M-mode
 hart state with CSR/trap/MRET/WFI and delayed memory completion. The existing
@@ -60,6 +60,8 @@ machine owns this scalar state. Checked physical regions and synchronous memory
 servicing run compiled RV32 C23/C++26 ELF probes through the shared hart.
 Validated ELF32 segment loading and BSS initialization are implemented; canonical
 mixed-width boot and redesigned NPU instruction execution remain next.
+The schema-driven 54-opcode NPU codec is implemented, not yet its new execution
+semantics. [Operand Reference](docs/NPU_OPERAND_REFERENCE.md) documents its fields.
 See the [Simulation Contract](docs/SIMULATION.md) for ownership and acceptance.
 
 ## Architecture Roadmap

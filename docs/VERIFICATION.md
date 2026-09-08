@@ -167,9 +167,9 @@ precise DMA faults, 64 deterministic vector-loop programs (seed `0x48504e55`),
 and `1x1x1`, `16x16x16`, `17x19x23`, `64x64x64` tiled GEMM. Program results are
 observed in caller-owned memory after program-issued DMA STORE. It uses the
 same memory service as accelerator direct tests, not another arithmetic model.
-These programs still use the implemented ISA 1.0 encoding. A successful
-cross-compile/link probe does not establish RV32 execution or ELF-loader
-correctness; those need new semantic execution tests under ADR-0059.
+These programs still use the former ISA 1.0 encoding. They are not evidence
+of the redesigned ISA executing. Scalar ELF component integration is checked
+separately below; the canonical mixed-width machine still needs replacement.
 
 `holon_npu_instruction` gates mixed 32/64-bit framing, all 56 standard scalar
 and machine instruction patterns, 57,344 deterministic operand samples, and
@@ -180,7 +180,17 @@ The gem5 preset adds `scalar_toolchain_check`: upstream RISC-V assembly/linking
 is an independent encoding oracle, and real C23/C++26 compiler output must decode.
 The cross-toolchain dependency stays in that preset, not ordinary Debug builds.
 Artifacts in `build/gem5/scalar-toolchain/` retain input assembly, ELF attributes,
-decoded instructions, and compiler identity. These checks do not execute RV32.
+decoded instructions, and compiler identity. Encoding checks alone do not
+execute instructions; the same gate also runs the ELF probes described below.
+
+The instruction test additionally checks 54 Holon NPU operand forms with
+55,296 deterministic round trips (seed `0x4e505536`), independent directed bit
+allocations, every reserved bit, all element-type codes and typed register
+domains. The toolchain oracle links all 54 forms interleaved with scalar words,
+compares exact bytes at both 0/4 modulo-8 starts, and checks disassembly. These
+checks validate metadata and the codec, not vector/matrix arithmetic, program
+retirement or Transformer execution. The next execution path must consume
+this decoder and remove the old one, not add an independently bootable mode.
 
 `holon_npu_scalar` verifies all 56 scalar instruction effects: independent
 arithmetic scoreboards (including signed-magnitude division and partial-product

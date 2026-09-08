@@ -4,8 +4,9 @@ Status: active architecture review under ADR-0059. This records the accepted
 direction and remaining contract work, not features of the current decoder.
 `docs/ISA.md` and generated metadata still describe the verified ISA 1.0
 migration baseline. Scalar scope, M-mode execution, and instruction widths are
-confirmed. ADR-0062 defines machine CSR/trap behavior; NPU operand allocation,
-program startup and the integrated execution contract remain.
+confirmed. ADR-0062 defines machine CSR/trap behavior; ADR-0065 selects the
+NPU operand/state contract below. Its execution and integration remain work,
+not capabilities implied by successful metadata decoding.
 
 ## Invariants
 
@@ -70,8 +71,9 @@ before accepting ELF programs. See the
 The execution environment is confirmed as single-hart M-mode bare metal, with
 standard traps, CSRs, MRET, and WFI; no U/S mode, MMU, or OS is introduced.
 Machine-mode CSR inventory, reset values, interrupt sources and trap priority
-are defined below under ADR-0062. Program termination still requires a contract. WFI is not a
-program-exit instruction. Decode recognition alone does not implement traps.
+are defined below under ADR-0062. ADR-0065 selects explicit STOP for program
+termination. WFI is not program exit. Decode recognition alone does not
+implement traps or program termination.
 
 Upstream GCC/LLVM are the intended scalar toolchains. A freestanding ILP32 runtime
 must define startup, stack/global-pointer initialization, code/rodata/data/BSS
@@ -140,8 +142,8 @@ not mutate a machine, retire an instruction, perform I/O or account for cycles.
 
 The existing machine consumes shared scalar arithmetic during migration.
 Shared 32-register state and trap entry/return are implemented by ADR-0062.
-ADR-0063 implements physical routing; integrated ELF startup and new Holon
-operand formats remain subsequent steps. Tests
+ADR-0063/0064 implement physical routing and ELF loading; integrated startup
+and execution of the ADR-0065 operand contracts remain subsequent steps. Tests
 must distinguish an evaluated request from its successful architectural commit.
 The behavior follows the [RV32I specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html),
 [M extension](https://docs.riscv.org/reference/isa/v20260120/unpriv/m-st-ext.html), and
@@ -157,54 +159,160 @@ of ELF attributes. Actual C23/C++26 images execute through the shared hart in
 component tests; full mixed-width program-machine boot remains an integration
 step, not a second permanent execution mode.
 
-## Vector Contract To Freeze
+## Selected NPU Contract (ADR-0065)
 
-1. Register/state model: independently addressable vector and predicate banks;
-   defined bit capacity, element views, alias behavior, and discoverable limits.
-   Register capacity and physical execution lanes are different concepts.
-2. VLA control: set/request length and return the actual length to scalar code.
-   Define zero length, tail iteration, narrowing/widening capacity, and how
-   multi-width instructions choose a legal active length. Do not reproduce RVV
-   register-group restrictions merely to fit the current encoding.
-3. Predication: predicate construction/comparison/Boolean operations, predicate
-   memory representation, merge versus zero policy, and reduction identities.
-   Inactive lanes must not access memory or generate numeric exceptions.
-4. Operand formats: sufficient register and predicate fields; independent
-   immediates; scalar base/displacement, stride, and indexed addressing. Do not
-   make every instruction fit one overloaded three-register format.
-5. Arithmetic: signed/unsigned integer operations, widening/narrowing, explicit
-   saturation, shifts, conversion/quantization, FP32 operations, and reductions.
-   Define rounding, overflow, NaNs, signed zero, subnormals, reduction order, and
-   aliasing before implementing numerical helpers.
-6. Data movement: contiguous/strided/indexed loads/stores, gather/scatter,
-   broadcast, select, slide, transpose and packing primitives. Fault and partial
-   write rules must be explicit for masked and overlapping accesses.
-7. Dependency rules: specify when vector results become visible, what scalar
-   code can observe, and which fences/events are required. Physical latency
-   cannot become part of program correctness.
+This is the semantic target, not an advertised capability of current RTL.
+`semantic_npu` in the canonical ISA schema owns opcode/operand allocation;
+generated metadata drives typed encoding, decoding and disassembly. Low bits
+`00` select vector/predicate, `01` matrix, and `10` DMA/system. Bits 11:2 are
+the ten-bit family opcode. Each opcode uses its own operand fields above bit 11;
+every unused bit is reserved-zero. Undefined opcodes, modes and types are illegal.
+The all-zero instruction is unallocated and illegal, not an implicit no-op.
+The schema is authoritative for exact bit positions; register domains are not
+interchangeable despite equal field widths. Initial emitted custom words use
+two little-endian `.word` directives with relaxation and RVC disabled.
 
-These are contract work items. Opcode count, register count, bit layout, and
-which helpers are initial versus deferred must be selected using the full
-Transformer program, not frozen by this checklist.
+### Vector And Predicate State
 
-## Matrix Contract To Freeze
+- There are 32 vector registers and 32 predicate registers, none special.
+  Each vector contains implementation-selected VBYTES bytes; each predicate
+  contains VBYTES lane-ordinal bits. VBYTES is a positive multiple of 16,
+  independent of physical execution lanes. Reset clears all bits.
+- VSETL writes `min(unsigned(xAVL), VBYTES/max(sizeof(type),sizeof(peer_type)))`
+  to xRD. It changes no hidden VL/type state. Every subsequent operation names
+  its xVL register explicitly. VL=0 performs no memory/numeric accesses;
+  VL exceeding any operand's capacity faults before effects. Indexed accesses
+  include their u32 index vector in the capacity bound.
+- Element views are i8/u8/i16/u16/i32/u32/f32, explicitly encoded. Predicates
+  address element ordinals, not byte positions, across width conversions.
+  PTRUE/WHILELT construct masks; logic, count, first and packed load/store make
+  every predicate accessible. WHILELT uses nonwrapping unsigned start+i<end.
+  PFIRST returns 0xffffffff when no selected bit exists.
+- Vector destinations select merging or zeroing of inactive lanes below VL.
+  Bytes beyond VL*destination_width are zero. Predicate-producing instructions
+  zero all unselected and tail bits. Sources and masks are captured before any
+  destination write, including source/destination aliasing. No inactive lane
+  performs arithmetic, accesses memory or faults.
+- Unit-stride, signed scalar-stride and u32 indexed addressing use a full scalar
+  base plus signed 20-bit displacement. Index scale is 1/2/4/8 bytes. Effective
+  addresses are calculated without wrapping, must be element-aligned and within
+  the mapped scratchpad. All active addresses are checked before local effects.
+  Repeated store addresses resolve in increasing lane order, last lane wins.
+  Packed predicate memory is LSB-first, ceil(VL/8) bytes; unused final bits are
+  zero. Scalar accesses and explicit DMA provide system-memory interaction.
 
-- Separate tile views/configuration, loaded operands, and accumulator state.
-  Use scalar-register addresses and explicit strides/shapes rather than a
-  mandatory immediate-addressed command record.
-- Expose load, matrix multiply-accumulate, accumulator clear/accumulate,
-  conversion, and store as independently schedulable operations.
-- Define logical M/N/K, transpose/layout, input and accumulation types, valid
-  edge extents, and accumulator ownership. Physical ARRAY_K/N and weight-load
-  wavefront timing remain implementation details.
-- Define interactions with vector/local-memory results, including safe
-  vector post-processing of accumulators without a Host round trip.
-- Define synchronous completion and any asynchronous event/fault semantics
-  together. Event lifetime, issuer PC, wait/fence visibility, resource hazards,
-  reset drain, and errors cannot be left to implementation accident.
-- INT8/INT32 behavior is retained as reusable semantics, not as a restriction
-  on the new matrix operand contract. FP32 is the initial numerical reference
-  for Transformer correctness; future BF16/FP8 require separate evidence.
+### Numeric And Data Movement Rules
+
+- Integer add/sub/mul/shift wrap at destination width. Signedness comes from
+  the type. Shift counts are masked by element_bits-1. Min/max and comparisons
+  respect signedness. Bitwise operations act on exact element bits.
+  VASHR requires a signed integer type; VSHR shifts zeros into the high bits.
+  VMULH gives the high element-width half of the full double-width product,
+  respecting signedness, and pairs with VMUL for fixed-point arithmetic.
+  Integer widening uses CONVERT before arithmetic, without register groups.
+- F32 add/sub/mul/div/sqrt/FMA use IEEE binary32, round-to-nearest ties-even,
+  gradual underflow and canonical quiet NaN 0x7fc00000. FMA rounds once. No
+  floating traps, sticky flags or implicit dependence on Host rounding state
+  are architectural. MIN/MAX return the numeric operand for one NaN and the
+  canonical NaN for two; min(-0,+0)=-0, max(-0,+0)=+0. Comparisons with NaN are
+  false except NE. Integer-only bitwise/shifts reject f32.
+- CONVERT explicitly names source/destination types and RNE/RTZ/RDN/RUP. Integer
+  narrowing saturates; float-to-integer rounds then clamps, with NaN becoming
+  zero. Integer-to-float and float-to-float round according to the selected mode.
+  Integer-to-integer conversion ignores rounding but never reinterprets sign.
+- Reductions start from an explicit scalar seed and visit active lanes in
+  increasing order, returning scalar result bits. Integer sums extend lane
+  values and wrap to 32 bits. Floating sums round at each binary32 addition.
+  Empty reductions return the seed. Carrying the previous seed across chunks
+  preserves numeric order independently of vector capacity.
+- Broadcast/extract transfer scalar register bits without scalar F registers;
+  integer extraction sign/zero extends. SELECT uses an explicit selection
+  predicate (true selects va, false vb); EXTRACT requires index<VL and faults
+  otherwise. Other vector operations have a governing
+  predicate. PERMUTE uses u32 lane indices, zero for
+  indices outside VL, and captures aliased sources before writes.
+- Softmax/normalization/GELU or other activation approximations are guest
+  programs built from these primitives, including arithmetic/conversion and
+  permutation; no whole-operator or transcendental Host callbacks are added.
+  The Transformer workload must state its approximation/error contract before
+  numerical acceptance. BF16/FP8 remain separate exploration.
+
+### Matrix State And Ordering
+
+- Sixteen views hold a physical base, signed row/column byte strides, logical
+  rows/columns and type captured from scalar registers. Eight matrix registers
+  hold typed dense logical tiles, independently of those views. Changing a view
+  never changes a loaded tile. A tile's rows, columns and element count are
+  checked against discoverable implementation capacities, not ARRAY_K/N.
+- VIEW, LOAD, CLEAR, DOT, MACC and STORE are independently schedulable commands.
+  LOAD snapshots a view; STORE requires matching shape/type and writes a view.
+  CLEAR creates a typed zero tile. DOT sets C=A*B; MACC adds to matching C.
+  Transposition/subviews are expressed by strides and dimensions, not a command
+  record in memory. Zero extents are legal; zero K gives zero for DOT and leaves
+  C unchanged for MACC. All source tiles are captured, so destination aliasing
+  is defined. Views themselves need no memory access until LOAD/STORE.
+- Integer inputs of any supported integer type accumulate modulo 2^32 into
+  i32/u32. F32 inputs accumulate into f32 with increasing-K binary32 FMA,
+  seeded by +0 (DOT) or C (MACC). Mixed integer/f32 input pairs are illegal;
+  conversions use vector/local-memory operations. LOAD/STORE validate all
+  active local addresses before effects, and repeated stores use row-major
+  order. Vector post-processing consumes stored accumulators in SPM, no Host.
+- CAPS returns VBYTES, matrix row/column limits or tile-byte capacity. These
+  parameters must be supplied by the implementation and tested across sizes;
+  they are not performance promises or frozen physical resource dimensions.
+- DMA LOAD/STORE use captured full physical source/destination and byte count
+  registers, one SPM and one external endpoint. Zero length has no access.
+  Commands, vector/matrix operations and fences are architecturally blocking:
+  retire at successful completion, faults retain issuing PC. No asynchronous
+  architected event tokens are introduced by the first implementation. The
+  internal two-phase token protocol remains essential for gem5 timing.
+- Validate local ranges before DMA issue. A bus fault may leave accepted store
+  bytes externally visible, but an unsuccessful load never commits partial SPM
+  data. Standard RV32 FENCE waits for prior effects; there is no redundant Holon
+  FENCE opcode in this blocking baseline. Reset drains accepted work. STOP retires
+  once, then returns its scalar status to the environment; nonzero status is
+  a program result, not a substituted trap. WFI remains only architectural wait.
+
+Decode errors raise standard illegal-instruction trap 2. Invalid VL, extract
+index, tile/view capacity, undefined tile state or incompatible loaded shapes
+raise Holon invalid-operand trap 24. Both report the low 32 instruction bits in
+MTVAL and preserve the issuing MEPC. This uses the RISC-V custom exception
+range, not a reassignment of a standard cause; see the
+[machine specification](https://docs.riscv.org/reference/isa/priv/machine.html).
+Local/data address alignment/access faults use standard load/store causes
+4/5/6/7; MTVAL is the offending address (low 32 bits for arithmetic overflow).
+Legality precedes dynamic operand checks, which precede addresses in lane or
+row-major order. Memory response errors occur only after issue. No NPU fault
+retires the instruction or silently completes STOP. Trap handling, rather than
+a Host callback, determines whether guest code recovers or stops.
+
+### Workload Mapping And Acceptance
+
+QKV, attention scores/value aggregation and FFN use VIEW/LOAD/DOT/MACC/STORE.
+Residuals and normalization use arithmetic/reductions/broadcast; causal masks
+use comparisons and predicate operations. Guest softmax/activation uses those
+same primitives. Tile traversal and VLA loops use RV32 scalar code. Instruction
+metadata/codec tests must cover every opcode/domain/reserved bit and raw link
+integrity. Subsequent semantic tests must prove these arithmetic and ordering
+rules before any Transformer or gem5 performance claim.
+
+The design adopts explicit predication/VLA lessons from
+[Arm SVE](https://developer.arm.com/community/arm-research/b/articles/posts/the-arm-scalable-vector-extension-sve)
+and independent mask operands from
+[Intel AVX-512](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-avx-512-instructions.html),
+without claiming binary compatibility or their exact numerical contracts.
+
+## Execution Evidence Still Required
+
+| Domain | Acceptance beyond encoding |
+| --- | --- |
+| Vector/predicate | Multiple capacities, mixed widths, independent masks/tails, alias snapshots, no inactive accesses, all numeric boundaries and rounding modes. |
+| Memory | Contiguous/strided/indexed and packed predicates, overflow/alignment, repeated stores, all-or-nothing local validation, precise bus faults. |
+| Matrix | View/register independence, zero/edge shapes, transposition, aliasing, integer wrap and ordered f32 FMA, local vector post-processing. |
+| Program | Guest VLA/tile loops, trap recovery, explicit stop and complete Transformer numerical comparisons without Host arithmetic. |
+
+Encoding tests alone do not satisfy these execution gates. BF16/FP8 remain
+separate exploration, and no physical lane/PE timing becomes a binary contract.
 
 ## Encoding Review
 
@@ -222,8 +330,8 @@ The selection compares two approaches:
 | Not selected: 32-bit scalar/NPU base with explicit extension words | Smaller common instructions and larger optional operands | More decode/length cases, register/immediate restrictions, tooling and fault complexity |
 
 Fixed 64-bit NPU forms are selected for expressive, predictable operand formats,
-not as a claim of measured performance superiority. NPU opcode/operand
-allocations and relocation behavior must still be frozen before execution.
+not as a claim of measured performance superiority. ADR-0065 selects the
+opcode/operand allocation; raw-byte link integrity is tested independently.
 Holon needs length-aware decoding/disassembly; upstream tools remain responsible
 for the standard scalar portion and carrying explicitly emitted custom bytes.
 

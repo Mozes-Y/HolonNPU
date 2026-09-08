@@ -235,6 +235,12 @@ Holon vector/matrix 先通过显式 intrinsic 或汇编接入，保留 VLA 与�
 物理地址路由和同步访存服务也已实现；完整 ELF 启动和新的 NPU 指令执行仍待接入。迁移边界见
 [ISA Redesign](ISA_REDESIGN.md)。
 
+ADR-0065 的 54 条 NPU 指令已具备 schema 驱动的强类型编解码，覆盖显式长度、
+独立 predicate、标量寄存器地址和 matrix tile view。字段见
+[Operand Reference](NPU_OPERAND_REFERENCE.md)。这些是编码合同，不代表新算术已实现。
+`holon_npu_instruction_test --mixed-words <binary>` 可观察混合指令反汇编；
+工具链测试还会检查 `.word` 发出的完整 64-bit 字节经过链接后保持不变。
+
 ```bash
 cmake --build --preset debug --target holon_npu_instruction_test holon_npu_scalar_test holon_npu_hart_test holon_npu_memory_test holon_npu_elf_test --parallel 2
 ctest --preset debug -R '^(holon_npu_instruction|holon_npu_scalar|holon_npu_hart|holon_npu_memory|holon_npu_elf|isa_schema_tests)$' --verbose

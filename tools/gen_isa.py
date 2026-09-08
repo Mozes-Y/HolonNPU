@@ -360,12 +360,78 @@ def generated_scalar_metadata(schema: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def generated_npu_metadata(schema: dict[str, Any]) -> str:
+    npu = schema["semantic_npu"]
+    lines = ["// Generated from spec/holon_npu_isa.json; do not edit.", "#pragma once", "",
+             "#include <array>", "#include <cstdint>", "#include <string_view>", "",
+             "namespace holon_npu::semantic::instruction {", ""]
+    enums = {"npu_type": npu["types"], "mask_policy": npu["policies"], "rounding_mode": npu["roundings"],
+             "resource_capacity": npu["capacities"],
+             "npu_trap": npu["traps"],
+             "npu_kind": dict.fromkeys(npu["roles"].values()),
+             "npu_role": dict.fromkeys(npu["roles"])}
+    for name, values in enums.items():
+        lines.append(f"enum class {name} : std::uint8_t {{")
+        lines.extend(f"    {key}" + (f" = {value}" if value is not None else "") + "," for key, value in values.items())
+        lines.append("};")
+        if name in {"npu_type", "mask_policy", "rounding_mode", "resource_capacity"}:
+            lines.append(f"inline constexpr std::array {name}_names{{")
+            lines.extend(f"    std::string_view{{\"{key}\"}}," for key in sorted(values, key=values.get))
+            lines.append("};")
+    for name, count in npu["register_counts"].items():
+        lines.append(f"inline constexpr unsigned npu_{name}_count = {count};")
+    lines.extend(["inline constexpr unsigned npu_max_operands = 10;", "enum class npu_opcode : std::uint16_t {"])
+    for entry in npu["instructions"]:
+        code = (entry["opcode"] << npu["opcode_shift"]) | npu["families"][entry["family"]]
+        lines.append(f"    {entry['name']} = 0x{code:03x},")
+    lines.extend(["};", "struct npu_field {", "    npu_role role; npu_kind kind;",
+                  "    unsigned shift, width; std::string_view name;", "};", "struct npu_pattern {",
+                  "    npu_opcode opcode; std::string_view name;", "    std::uint64_t variable_mask; unsigned type_mask;",
+                  "    unsigned count; std::array<npu_field, npu_max_operands> fields;", "};",
+                  "inline constexpr std::array npu_patterns{"])
+    for entry in npu["instructions"]:
+        fields = npu["formats"][entry["format"]]
+        mask = sum(((1 << width) - 1) << shift for _, shift, width in fields)
+        type_mask = sum(1 << npu["types"][t] for t in entry.get("types", npu["types"]))
+        lines.append(f"    npu_pattern{{npu_opcode::{entry['name']}, \"{entry['name'].lower()}\", 0x{mask:016x}ull, 0x{type_mask:x}, {len(fields)}, {{{{")
+        lines.extend(f"        {{npu_role::{role}, npu_kind::{npu['roles'][role]}, {shift}, {width}, \"{role}\"}}," for role, shift, width in fields)
+        lines.append("    }}},")
+    lines.extend(["};", "", "} // namespace holon_npu::semantic::instruction", ""])
+    return "\n".join(lines)
+
+
+def generated_npu_reference(schema: dict[str, Any]) -> str:
+    npu = schema["semantic_npu"]
+    lines = ["<!-- Generated from spec/holon_npu_isa.json; do not edit. -->",
+             "# Holon NPU Operand Reference", "", "Semantic-stage allocation under ADR-0065, not current RTL capability.",
+             "State, arithmetic and fault authority: [ISA Redesign](ISA_REDESIGN.md).", "",
+             "Low bits: vector/predicate=00, matrix=01, DMA/system=10. Opcode is bits 11:2.",
+             "Unused fields and unlisted opcodes are illegal. Format fields below are role:lsb:width.", "",
+             "| Format | Fields |", "| --- | --- |"]
+    for name, fields in npu["formats"].items():
+        lines.append(f"| `{name}` | " + ", ".join(f"`{r}:{s}:{w}`" for r, s, w in fields) + " |")
+    lines.extend(["", "| Instruction | Family | Opcode | Format | Type domain | Semantic contract |", "| --- | --- | --- | --- | --- | --- |"])
+    for e in npu["instructions"]:
+        types = ", ".join(e.get("types", npu["types"])) if any(f[0] == "type" for f in npu["formats"][e["format"]]) else "-"
+        lines.append(f"| `{e['name']}` | {e['family']} | {e['opcode']} | `{e['format']}` | "
+                     + types + f" | `{e['semantics']}` |")
+    lines.extend(["", "| Role | Domain |", "| --- | --- |"])
+    lines.extend(f"| `{role}` | {kind} |" for role, kind in npu["roles"].items())
+    lines.extend(["", "| Domain | Values |", "| --- | --- |"])
+    for key in ("types", "policies", "roundings", "capacities", "register_counts", "traps"):
+        lines.append(f"| {key} | " + ", ".join(f"`{name}`={code}" for name, code in npu[key].items()) + " |")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_all(schema: dict[str, Any]) -> dict[str, str]:
     return {
         "include/holon_npu_isa.h": generated_header(schema),
         "rtl/common/npu_isa_pkg.sv": generated_sv_pkg(schema),
         "docs/ISA_REFERENCE.md": generated_reference_md(schema),
         "sim/semantic/holon_npu_scalar_metadata.hpp": generated_scalar_metadata(schema),
+        "sim/semantic/holon_npu_operand_metadata.hpp": generated_npu_metadata(schema),
+        "docs/NPU_OPERAND_REFERENCE.md": generated_npu_reference(schema),
     }
 
 

@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <vector>
 
+void npu_operand_tests();
+
 namespace {
 using namespace holon_npu::semantic::instruction;
 using holon_npu::semantic::instruction_address;
@@ -125,32 +127,42 @@ void immediates() {
     std::cout << "operands: exhaustive I/S/B/J immediates and CSR addresses PASS\n";
 }
 
-void disassemble_file(const char* path) {
+void disassemble_file(const char* path, bool mixed) {
     std::ifstream file{path, std::ios::binary};
     require(file.is_open(), "open scalar instruction stream");
     const std::vector<char> chars{std::istreambuf_iterator<char>{file}, {}};
     std::vector<std::byte> bytes;
     for (char value : chars) bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(value)));
     require(!bytes.empty() && bytes.size() % 4 == 0, "whole scalar stream");
-    for (std::size_t offset = 0; offset < bytes.size(); offset += 4) {
+    for (std::size_t offset = 0; offset < bytes.size();) {
         const auto frame = fetch(bytes, instruction_address{static_cast<std::uint32_t>(offset)});
-        require(frame && std::holds_alternative<scalar_word>(*frame), "upstream stream contains no RVC/Holon words");
-        const auto decoded = decode_scalar(std::get<scalar_word>(*frame));
-        require(decoded.has_value(), "upstream encoding is supported");
-        std::cout << disassemble(*decoded) << '\n';
+        require(frame.has_value(), "complete linked instruction frame");
+        if (const auto scalar = std::get_if<scalar_word>(&*frame)) {
+            const auto decoded = decode_scalar(*scalar);
+            require(decoded.has_value(), "upstream scalar encoding is supported");
+            std::cout << disassemble(*decoded) << '\n';
+            offset += 4;
+        } else {
+            require(mixed, "upstream scalar stream contains no RVC/Holon words");
+            const auto decoded = decode_holon(std::get<holon_word>(*frame));
+            require(decoded.has_value(), "linked Holon encoding is supported");
+            std::cout << disassemble(*decoded) << '\n';
+            offset += 8;
+        }
     }
 }
 } // namespace
 
 int main(int argc, char** argv) {
     try {
-        if (argc == 3 && std::string_view{argv[1]} == "--scalar-words") {
-            disassemble_file(argv[2]);
+        if (argc == 3 && (std::string_view{argv[1]} == "--scalar-words" || std::string_view{argv[1]} == "--mixed-words")) {
+            disassemble_file(argv[2], std::string_view{argv[1]} == "--mixed-words");
         } else {
-            require(argc == 1, "usage: instruction_test [--scalar-words file]");
+            require(argc == 1, "usage: instruction_test [--scalar-words|--mixed-words file]");
             framing();
             patterns();
             immediates();
+            npu_operand_tests();
         }
         return 0;
     } catch (const std::exception& error) {
