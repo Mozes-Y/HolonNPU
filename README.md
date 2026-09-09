@@ -1,15 +1,20 @@
 # HolonNPU
 
-HolonNPU is a programmable integer and quantized NPU tile implemented in
-SystemVerilog. The current mainline executes the Holon program ISA through a
-replaceable frontend implementation and exposes vector, matrix, DMA, local
-memory, lifecycle, debug, and completion facilities through ABI 3.0.
+HolonNPU is evolving into a self-hosted programmable NPU. Its canonical C++26
+machine executes RV32IM/Zicsr scalar control and 64-bit Holon vector, predicate,
+matrix and DMA instructions without a Host CPU or launch driver. A complete
+minimal Transformer runs through this model; autonomous gem5 timing is under
+validation, not yet a completed performance model.
+
+SystemVerilog still implements the released integer/quant accelerator contract
+below. It has not yet been migrated to the redesigned ISA. New hardware behavior
+requires semantic, gem5 and architecture-review evidence first.
 
 The repository follows one product line. The former descriptor-driven GEMM
 accelerator is preserved by the `v1.5` Git tag and is not built or maintained in
 the current tree.
 
-## Current Architecture
+## Released RTL Baseline
 
 - Holon ISA 1.0 with fixed 32-bit instructions.
 - ABI 3.0 program descriptors and AXI-Lite lifecycle control.
@@ -22,7 +27,7 @@ the current tree.
 - Safe software reset through observable `RESETTING` and transaction drain.
 - Interface-native product RTL; flattened wrappers exist only under `sim/rtl/`.
 
-The execution path is:
+The released RTL execution path, not the self-hosted model's boot path, is:
 
 1. Software creates a program image, argument block, and program descriptor.
 2. Software writes the descriptor address and rings the AXI-Lite doorbell.
@@ -43,25 +48,35 @@ SimObject, and approved by an architecture ADR before RTL work begins. The fast
 runner and gem5 use the same semantics; gem5 is the only performance and
 full-system model.
 
-The simulation foundation uses the upstream `stable` branch, builds the
-complete simulator and Holon EXTRAS in audited C++26 mode, and runs a RISC-V
-bare-metal system through the same semantic core used by fast tests. gem5 owns
-cycle accounting, memory latency, DMA integration, IRQ delivery, and structured
-statistics. This is the existing accelerator baseline, not the self-hosted
-destination. Active work is autonomous functional boot/execution, a complete
-minimal Transformer, then a no-Host gem5 execution and performance model.
-The next ISA design adopts RV32IM + Zicsr scalar control, ILP32, and no C extension
+gem5 integration follows upstream `stable` and requires an audited C++26 build.
+The previous Host/DmaDevice adapter has been removed. The autonomous
+ClockedObject and timing-port replacement runs the full Transformer with verified
+memory effects and timing sensitivity; detailed modeling and calibration remain
+unfinished, as recorded in Progress. Previous accelerator results are
+historical, not evidence of autonomous execution or performance.
+The self-hosted execution ISA uses RV32IM + Zicsr scalar control, ILP32, and no C extension
 with 32-bit scalar and 64-bit Holon NPU instructions. ADR-0065 defines explicit
 vector length/predication and register-addressed matrix views; see the
 [ISA Redesign](docs/ISA_REDESIGN.md).
-The model-stage frontend has typed framing, RV32 effects and shared M-mode
-hart state with CSR/trap/MRET/WFI and delayed memory completion. The existing
-machine owns this scalar state. Checked physical regions and synchronous memory
-servicing run compiled RV32 C23/C++26 ELF probes through the shared hart.
-Validated ELF32 segment loading and BSS initialization are implemented; canonical
-mixed-width boot and redesigned NPU instruction execution remain next.
-The schema-driven 54-opcode NPU codec is implemented, not yet its new execution
-semantics. [Operand Reference](docs/NPU_OPERAND_REFERENCE.md) documents its fields.
+The canonical mixed-width machine now executes RV32 and redesigned NPU
+instructions through one shared M-mode hart and typed completion protocol.
+ELF32 loading/BSS, scalar C23/C++26 programs, vector/predicate/matrix arithmetic
+and DMA writeback have directed/random tests. There is no old interpreter mode.
+[Operand Reference](docs/NPU_OPERAND_REFERENCE.md) documents the new fields;
+released RTL still uses its preceding contract and independent scoreboards.
+
+A [minimal Transformer workload](docs/TRANSFORMER_WORKLOAD.md) now runs embedding
+through logits as one guest program, with all 16 stages compared against an
+independent double-precision reference. This is a fixed-shape functional
+specialization, not a dynamic compiler, trained-model result or calibrated hardware
+performance prediction. Run its functional acceptance test with:
+
+```sh
+cmake --preset debug
+cmake --build --preset debug --target holon_npu_transformer_test --parallel 2
+ctest --preset debug -R '^holon_npu_transformer$' --verbose
+```
+
 See the [Simulation Contract](docs/SIMULATION.md) for ownership and acceptance.
 
 ## Architecture Roadmap
@@ -132,17 +147,12 @@ ctest --preset gem5 --output-on-failure
 ```
 
 The fast gem5 gate audits every effective C++ translation unit, records the
-exact upstream `stable` SHA and overlay hash, and runs timing plus RISC-V
-bare-metal vector, matrix, DMA, completion, IRQ, fault, reset, and
-separate-process idle-checkpoint scenarios.
-Linux full-system support is a separate nightly/release gate and requires the
-locked resource set and a matching guest kernel/module bundle. The preparation
-tools verify every downloaded artifact and build the matching Linux 6.8.12
-kernel with up to 16 workers; the simulation itself never queries the online
-gem5 resource catalog. A passing Ubuntu 24.04/Linux 6.8.12 baseline is recorded
-in [Progress](docs/PROGRESS.md). See the
-[Simulation Contract](docs/SIMULATION.md#linux-full-system-gate) for the
-complete commands.
+exact upstream `stable` SHA and overlay hash, and runs timing, RV32 toolchain
+and autonomous Transformer tests. The Transformer executes without a Host CPU
+or device driver; memory-latency and vector-throughput sensitivity runs must
+preserve its complete architectural results. See [Progress](docs/PROGRESS.md)
+for verified results and remaining work, and the
+[Simulation Contract](docs/SIMULATION.md#autonomous-gem5-model) for model limits.
 
 Build or run one test without adding presets:
 

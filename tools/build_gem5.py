@@ -18,13 +18,11 @@ def gem5_recognized_compiler(compiler: str) -> str:
     version = subprocess.run(
         [str(path), "-dumpfullversion"], check=True, text=True, capture_output=True
     ).stdout.strip()
-    if path.name in {"c++", "ccache"}:
-        candidate = path.parent / f"g++-{version.split('.')[0]}"
-        if candidate.is_file():
-            return str(candidate)
-        candidate = path.parent / "g++"
-        if candidate.is_file():
-            return str(candidate)
+    # SCons hashes command spellings. Prefer the public GCC launcher only when
+    # it names the exact same binary, preserving custom compiler selections.
+    candidate = path.parent / f"g++-{version.split('.')[0]}"
+    if candidate.is_file() and candidate.samefile(path):
+        return str(candidate)
     return str(path)
 
 
@@ -99,40 +97,6 @@ def main() -> int:
             str(args.jobs),
             "--output",
             str(args.metadata),
-        ],
-        check=True,
-    )
-    subprocess.run(
-        [
-            sys.executable,
-            str(repo / "tools/build_gem5_baremetal.py"),
-            "--compiler",
-            args.riscv_compiler,
-            "--source-dir",
-            str(repo / "sim/gem5/baremetal"),
-            "--include-dir",
-            str(repo / "include"),
-            "--workload",
-            str(repo / "sim/gem5/baremetal/holon_smoke.c"),
-            "--output",
-            str(args.metadata.parent / "guest/holon_smoke.elf"),
-        ],
-        check=True,
-    )
-    subprocess.run(
-        [
-            sys.executable,
-            str(repo / "tools/build_gem5_baremetal.py"),
-            "--compiler",
-            args.riscv_compiler,
-            "--source-dir",
-            str(repo / "sim/gem5/baremetal"),
-            "--include-dir",
-            str(repo / "include"),
-            "--workload",
-            str(repo / "sim/gem5/baremetal/holon_checkpoint.c"),
-            "--output",
-            str(args.metadata.parent / "guest/holon_checkpoint.elf"),
         ],
         check=True,
     )

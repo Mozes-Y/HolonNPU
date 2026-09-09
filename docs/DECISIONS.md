@@ -538,3 +538,81 @@ Full tensor-operator instructions hide traversal and numerical choices. Instead,
 schema-generated typed operands keep encoding, tooling and the next semantic
 engine consistent. Current RTL ISA 1.0 remains the migration baseline, not a
 second permanent semantic ISA mode.
+
+## ADR-0066: Canonical Mixed-Width Execution Cutover
+
+**Status:** Canonical semantic/runtime execution verified; public ISA/RTL
+contract convergence remains outstanding. No RTL authorization.
+
+**Decision:** Replace `program_machine` in place with the shared RV32 hart and
+ADR-0065 Holon decoder. Delete its former decoder, instruction switch and
+descriptor/device ownership rather than add an ISA selector or compatibility
+facade. The model owns local program/SPM and NPU architectural state. The
+environment owns system memory. Fetch, scalar memory, NPU execution and DMA
+use one non-recycled token stream; completion commits effects and retirement.
+
+Boot initializes an ELF or raw program transactionally through an explicit
+physical map. STOP, WFI, traps and simulator budget exhaustion remain distinct.
+An unknown encoding traps; an allocated operation not yet implemented during
+the cutover reports a simulator implementation error, never a fake guest fault
+or successful no-op. It is an incomplete feature and fails the execution gate.
+
+**Migration:** Old runtime/program consumers and Host/DmaDevice integration
+cannot keep an independent copy of the removed interpreter. They are replaced
+or removed as part of this cutover. Released RTL is not silently upgraded;
+tests for its former ISA must use explicit independent scoreboards and cannot
+be counted as differential evidence for the new semantic ISA. The execution
+checkpoint migrates the semantic/runtime consumers; it does not declare the
+remaining public-header/schema/RTL authority split resolved.
+
+**Acceptance:** Actual mixed RV32/Holon execution, precise 4/8-byte retirement,
+scalar ELF boot, trap recovery, transactional completion, all selected NPU
+operations, multiple vector/tile capacities, and memory effects checked by
+independent scoreboards. Follow with one complete guest Transformer and the
+autonomous gem5 timing system. Metadata-only tests are insufficient.
+
+**Alternatives rejected:** A second machine or ISA-mode switch perpetuates dual
+semantics. Translating old instructions into new ones preserves the wrong
+program contract. Updating RTL first violates simulator-first review.
+
+## ADR-0067: Autonomous gem5 Execution Boundary
+
+**Status:** Blocking autonomous execution and sensitivity verified; detailed
+pipeline, fault/interrupt/checkpoint and calibration work remains. No RTL
+authorization or calibrated timing claim.
+
+**Decision:** Replace the old Host/DmaDevice SimObject with `HolonNpu`, a
+`ClockedObject` owning one canonical program machine and one timing request port.
+It boots local program bytes directly, fetches autonomously and completes typed
+operations from gem5 events/responses. No MMIO, descriptor, PLIC or Linux driver
+participates in this execution path. External memory remains owned by gem5.
+
+Semantic NPU requests capture operation footprint (VL, active lanes, operand
+width, local traffic and matrix dimensions) at issue. These are architectural
+facts, not cycles, physical bank assignments or pipeline configuration. Timing
+logic consumes that snapshot rather than duplicating tile/predicate semantics.
+One pending operation and one outstanding memory packet are the first blocking
+implementation; latency parameters are exploratory until calibrated. Requests
+split at transaction, cache-line and 4 KiB boundaries, retain packets across
+retry, and retire only after the entire semantic request completes successfully.
+Already accepted external STORE bytes are not rolled back on a later bus error;
+instruction retirement is not a promise of atomic external writes.
+
+Memory-error completions may identify the failed physical byte within the
+captured request. An omitted address means its start; an out-of-range address
+is a completion API error, not a guest trap. The hart records the accepted
+address in MTVAL while preserving the issuing PC and retirement count. The
+gem5 adapter forwards the failing packet address rather than the bulk request
+start, and a failed bulk read cannot partially modify scratchpad state.
+
+Functional memory transactions are allowed only for initial image placement
+and final test observation, never to execute guest memory operations. STOP,
+trap and budget outcomes remain distinguishable. Unsupported checkpoint/WFI
+integration must fail explicitly rather than silently save or terminate a
+partially executed machine. The initial acceptance program is the same complete
+Transformer used by direct tests, compared at every tensor and architectural
+retirement boundary before any performance claim.
+
+**Alternatives rejected:** Wrapping `run_program` in one timed event hides
+memory backpressure and stalls. Keeping a Host driver preserves the wrong
+execution model. Reconstructing engine state in gem5 creates duplicate semantics.

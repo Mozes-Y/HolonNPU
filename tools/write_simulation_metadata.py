@@ -40,6 +40,14 @@ def main() -> int:
         text=True,
         capture_output=True,
     ).stdout.splitlines()[0]
+    repo = Path(__file__).resolve().parents[1]
+    inputs = sorted({
+        *repo.glob("sim/semantic/*.cpp"), *repo.glob("sim/semantic/*.hpp"),
+        *repo.glob("sim/gem5/*.cc"), *repo.glob("sim/gem5/*.hh"),
+        *repo.glob("sim/gem5/*.cpp"), *repo.glob("sim/gem5/*.hpp"),
+        repo / "sim/gem5/HolonNpu.py", repo / "sim/gem5/SConscript",
+    } - {repo / "sim/semantic/holon_npu_execution.cpp", repo / "sim/semantic/holon_npu_execution.hpp"})
+    sources = {str(path.relative_to(repo)): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     metadata = {
         "gem5": {"branch": "stable", "commit": commit},
         "overlay_sha256": hashlib.sha256(args.patch.read_bytes()).hexdigest(),
@@ -53,27 +61,14 @@ def main() -> int:
             "release": platform.release(),
             "machine": platform.machine(),
         },
-        "model_defaults": {
-            "device_clock_hz": 1000000000,
-            "vector_lanes": 16,
-            "matrix_m": 16,
-            "matrix_k": 16,
-            "matrix_n": 16,
-            "maximum_dma_bytes": 256,
-            "dma_page_bytes": 4096,
-            "frontend_cycles": 1,
-            "scalar_local_cycles": 2,
-            "vector_issue_cycles": 1,
-            "quant_parameter_words": 6,
-            "matrix_descriptor_words": 8,
-            "matrix_validate_cycles": 1,
-            "matrix_clear_cycles": 1,
-            "matrix_drain_cycles": 1,
-            "dma_setup_cycles": 4,
-            "sync_cycles": 1,
-            "scratchpad_read_cycles": 2,
-            "scratchpad_write_cycles": 2,
+        "model": {
+            "type": "HolonNpu",
+            "parameters": "per-run config.json and source fingerprints",
+            "source_sha256": sources,
         },
+        "compile_commands_sha256": hashlib.sha256(
+            (args.source / "build/RISCV/compile_commands.json").read_bytes()
+        ).hexdigest(),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")

@@ -234,9 +234,16 @@ void pending_protocol() {
     require(!hart.complete(store.token, load_data{bytes}), "store rejects read payload");
     const auto fault_pc = hart.pc();
     const auto fault_count = hart.retired();
-    const auto failed = event<trap_taken>(hart.complete(store.token, access_fault{}));
-    require(failed.cause == 7 && failed.pc == fault_pc && failed.value == 0x80001000
+    expect_error(hart.complete(store.token, access_fault{physical_address{0x80001004}}),
+        hart_error::invalid_result);
+    expect_error(hart.complete(store.token, access_fault{physical_address{0x80000fff}}),
+        hart_error::invalid_result);
+    require(hart.pending() && hart.pc() == fault_pc && hart.retired() == fault_count,
+        "out-of-range fault address preserves pending store");
+    const auto failed = event<trap_taken>(hart.complete(store.token, access_fault{physical_address{0x80001002}}));
+    require(failed.cause == 7 && failed.pc == fault_pc && failed.value == 0x80001002
         && hart.retired() == fault_count, "store access fault precise");
+    require(read(hart, 0x343) == 0x80001002, "MTVAL identifies failing byte within request");
     const auto fence = event<pending_effect>(hart.issue({0x0ff0000f}));
     require(!hart.complete(fence.token, access_fault{}), "fence cannot invent memory fault");
     event<committed>(hart.complete(fence.token, acknowledged{}));

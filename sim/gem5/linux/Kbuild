@@ -1,1 +1,0 @@
-obj-m += holon_npu_sim.o

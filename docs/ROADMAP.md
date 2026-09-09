@@ -68,7 +68,10 @@ Implementation order and acceptance:
    images without mutation; no descriptor or `semantic::device` on this path.
 2. Complete minimal Transformer: define the numeric contract before extending
    ISA metadata; execute attention, normalization, residuals, feed-forward,
-   activation, and output computation as Holon program instructions. Compare
+   activation, and output computation as Holon program instructions. The initial
+   fixed-shape execution acceptance is specified in `docs/TRANSFORMER_WORKLOAD.md`.
+   It uses existing instructions and is part of the active execution cutover,
+   not a separate ISA feature or authorization to skip consumer migration. Compare
    every stage with an independent mathematical reference, including random and
    numeric-edge inputs. Host-side orchestration/arithmetic between kernels is
    not evidence of self-hosted execution. BF16/FP8 are not prerequisites.
@@ -94,79 +97,48 @@ Implementation order and acceptance:
    The current machine's scalar register/PC/retirement storage uses
    this state. Tests cover CSR WARL/read-only behavior, precise fault
    PC, counter writes/inhibition, interrupt boundaries and stale completions;
-   physical routing is verified below; mixed-width program execution follows.
+   physical routing and mixed-width execution are now verified below.
    Completed slice (ADR-0063): checked physical regions for local program memory,
    data scratchpad and environment-owned system memory, instruction fetch and
    synchronous servicing of the hart's captured memory/fence requests. Verified
    permissions, overflow, region/backing boundaries and compiled RV32 C23/C++26
-   control code through the shared hart. Integrated mixed-width execution
-   remains next; routing does not add another interpreter.
+   control code through the shared hart. Routing is integrated into the
+   canonical machine and does not add another interpreter.
    Completed slice (ADR-0064): validated ELF32 executable loading by PT_LOAD,
    including RISC-V profile attributes, permissions, initialized bytes and BSS.
    Replaced raw-section extraction in the compiled scalar fixture. Bad images
    fail before memory mutation. Directed, sanitizer and deterministic mutation
-   checks pass; production machine cutover remains separate.
+   checks pass; the canonical machine now consumes the same load plans.
    Implemented slice (ADR-0065): expressive 64-bit NPU operand metadata and typed
    encode/decode. Freeze explicit vector length/predication, register-addressed
-   matrix views and ordered DMA/stop contracts before implementing their
-   execution. Check all reserved fields, operand domains, round trips and
+   matrix views and ordered DMA/stop contracts before their execution cutover.
+   Check all reserved fields, operand domains, round trips and
    upstream raw-byte link preservation. No RTL capability changes in this slice.
-   Next feature is the canonical execution cutover, not another detached codec:
-   replace the former decoder/program builder and migrate program tests to the
-   RV32/Holon instruction stream. The machine must consume the shared decoder,
-   retire 4/8-byte instructions precisely and implement the new vector/matrix
-   state. No alternate bootable ISA, fallback or legacy translation facade is
+   Verified execution checkpoint (ADR-0066): replaced the former decoder/program
+   builder and migrated semantic program tests to the RV32/Holon instruction
+   stream. The machine consumes the shared decoder, retires 4/8-byte instructions
+   precisely and implements the new vector/matrix state. Public ISA/schema/RTL
+   contract convergence remains open. No alternate bootable ISA, fallback or legacy translation facade is
    permitted. Old RTL tests cannot substitute for new semantic execution
    evidence, nor authorize unreviewed RTL changes.
-3. Autonomous gem5 system: replace the Host/DmaDevice path with a clocked Holon
-   execution object and timing memory request port. Reuse the semantic core and
-   run the identical boot image without a RISC-V CPU or MMIO launch sequence.
+3. Verified autonomous gem5 bring-up (ADR-0067): replaced the Host/DmaDevice path
+   with a clocked Holon execution object and timing memory request port. The
+   identical Transformer image runs without a Host CPU or MMIO launch sequence.
 4. Performance acceptance: account for frontend, local memory, vector, matrix,
    memory transfers, and synchronization on the actual event timeline. Report
-   complete-program statistics and sensitivity; calibrate existing operations
-   against RTL. Remove superseded Host-only sources, tests, and CI paths when
-   this replacement is validated. Do not maintain two product mainlines.
+   complete-program statistics and sensitivity (initial blocking model verified);
+   complete detailed resource modeling and calibration before hardware predictions.
+   Superseded Host-only sources, tests and CI paths have been removed. Do not
+   maintain two product mainlines.
 
 Each step is implemented, tested, documented, and committed separately. RTL and
 released ABI 3.0/ISA 1.0 remain unchanged during the initial boot/runner step.
 New numerical behavior requires schema/docs and semantic evidence before gem5;
 no corresponding RTL is authorized by this roadmap alone.
 
-Existing accelerator foundation (migration input, not self-hosted completion):
-
-- one deterministic C++26 Holon semantic core under `sim/semantic/`;
-- expose typed issue/effect/completion contracts without gem5 or RTL coupling;
-- retain a fast direct runner for semantic and constrained-random tests;
-- integrate the same core into a gem5 external SimObject with MMIO, DMA, IRQ,
-  engine timing, local-memory resources, and statistics;
-- provide a RISC-V device/bare-metal configuration for normal development;
-- execute a locked Ubuntu 24.04/Linux 6.8.12 full-system configuration with a
-  matching C23 driver workload and retained evidence;
-- build the complete gem5 simulator and Holon extension in verified C++26 mode;
-- gate idle/quiescent checkpoint capture and separate-process restore, including
-  sticky IRQ and post-restore program submission;
-- calibrate zero-stall vector/matrix engine timing against RTL module tests and
-  record the exact gem5 `stable` commit, C++26 toolchain, model parameters, and
-  workloads.
-
-Existing calibration follow-up:
-
-- broaden RTL calibration beyond current vector/matrix issue-to-event latency;
-- add representative sensitivity workloads.
-
-Implementation sequence:
-
-1. completed: replace `holon_npu::model` with the C++26
-   `holon_npu::semantic` core and direct runner;
-2. completed: add the reproducible upstream `stable` gem5 build and C++26 audit;
-3. completed: integrate functional MMIO/DMA/IRQ behavior and cycle accounting;
-4. completed: add RISC-V bare-metal tests to the fast gem5 gate;
-5. completed: run locked-resource Linux full-system tests and retain their
-   resource, kernel, guest, terminal, and simulator evidence;
-6. completed: gate an idle/quiescent gem5 checkpoint capture and restore round
-   trip in separate simulator processes;
-7. superseded next step: extend current vector/matrix zero-stall calibration
-   through the autonomous workload sequence above.
+The former accelerator's Host/MMIO/Linux/checkpoint evidence is historical and
+retained in Git. It does not satisfy autonomous interrupt, checkpoint or timing
+calibration acceptance. Current evidence and remaining gates are in Progress.
 
 The semantic protocol is two-phase. `advance()` may retire internal work, emit
 one typed pending operation, or report a terminal event. External work changes
@@ -180,7 +152,9 @@ Acceptance:
 - gem5 contains the only performance and full-system model;
 - complete Transformer functional execution is independently checked;
 - autonomous gem5 timing and memory-system tests are reproducible;
-- result, fault, and ordering behavior matches current RTL;
+- result, fault and ordering have architectural scoreboards; RTL differential
+  comparison/calibration applies only where contracts match, not between old
+  accelerator encodings and the redesigned execution ISA;
 - timing statistics identify frontend, DMA, scratchpad, vector, matrix, and
   synchronization costs separately;
 - no future architecture phase begins before this foundation is accepted.

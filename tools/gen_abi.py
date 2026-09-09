@@ -435,110 +435,11 @@ def generated_reference_md(schema: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def generated_linux_internal_header(schema: dict[str, Any]) -> str:
-    """Generate the simulation-only Linux driver's ABI view.
-
-    Linux kernel code cannot consume the public C23 ``static constexpr``
-    header with the kernel's current C dialect.  This generated enum-only
-    view preserves the schema as the sole source of register constants
-    without creating a second hand-maintained ABI definition.
-    """
-
-    register_constants = [
-        (f"HOLON_NPU_REG_{register['name']}", register["offset"])
-        for register in schema["registers"]
-    ]
-    reset_constants = [
-        (f"HOLON_NPU_RESET_{register['name']}", register["reset"])
-        for register in schema["registers"]
-    ]
-    lifecycle_constants = [
-        (f"HOLON_NPU_STATUS_{state['name']}", state["value"])
-        for state in schema["lifecycle_states"]
-    ]
-    control_constants = [
-        (f"HOLON_NPU_CONTROL_{entry['name']}", entry["value"])
-        for entry in schema["control_bits"]
-    ]
-    doorbell_constants = [
-        (f"HOLON_NPU_DOORBELL_{entry['name']}", entry["value"])
-        for entry in schema["doorbell_bits"]
-    ]
-    irq_constants = [
-        (f"HOLON_NPU_IRQ_{entry['name']}", entry["value"])
-        for entry in schema["irq_bits"]
-    ]
-    flag_constants = [
-        (f"HOLON_NPU_PROGRAM_FLAG_{entry['name']}", entry["value"])
-        for entry in schema["flags"]
-    ]
-    descriptor = schema["descriptor"]
-    kernel_types = {
-        "uint8_t": "__u8",
-        "uint16_t": "__u16",
-        "uint32_t": "__u32",
-        "uint64_t": "__u64",
-    }
-
-    lines = [
-        f"/* {BANNER} */",
-        "#pragma once",
-        "",
-        "#include <linux/build_bug.h>",
-        "#include <linux/stddef.h>",
-        "#include <linux/types.h>",
-        "",
-    ]
-    for enum_name, constants in (
-        ("holon_npu_register_offset", register_constants),
-        ("holon_npu_register_reset", reset_constants),
-        ("holon_npu_lifecycle_status", lifecycle_constants),
-        ("holon_npu_control_value", control_constants),
-        ("holon_npu_doorbell_value", doorbell_constants),
-        ("holon_npu_irq_value", irq_constants),
-        ("holon_npu_program_flag", flag_constants),
-    ):
-        lines.append(f"enum {enum_name} {{")
-        for index, (name, value) in enumerate(constants):
-            comma = "," if index + 1 != len(constants) else ""
-            lines.append(f"    {name} = {c_hex(value)}{comma}")
-        lines.extend(["};", ""])
-
-    lines.extend(
-        [
-            "enum holon_npu_program_layout {",
-            f"    HOLON_NPU_ABI_MAJOR = {as_int(schema['abi']['major'])},",
-            f"    HOLON_NPU_PROGRAM_DESC_SIZE = {as_int(schema['constants']['program_desc_size'])},",
-            f"    HOLON_NPU_PROGRAM_DESC_ALIGN = {as_int(schema['constants']['program_desc_align'])},",
-            f"    HOLON_NPU_PROGRAM_FORMAT_HOLON = {as_int(schema['constants']['program_format_holon'])},",
-            f"    HOLON_NPU_PROGRAM_IMAGE_ALIGN = {as_int(schema['constants']['program_image_align'])},",
-            f"    HOLON_NPU_PROGRAM_ARGUMENT_ALIGN = {as_int(schema['constants']['argument_align'])},",
-            f"    HOLON_NPU_PROGRAM_COMPLETION_ALIGN = {as_int(schema['constants']['completion_align'])}",
-            "};",
-            "",
-            "struct holon_npu_program_desc_kernel {",
-        ]
-    )
-    for field in descriptor["fields"]:
-        lines.append(f"    {kernel_types[field['ctype']]} {field['name']};")
-    lines.extend(
-        [
-            "};",
-            "",
-            "static_assert(sizeof(struct holon_npu_program_desc_kernel) == HOLON_NPU_PROGRAM_DESC_SIZE);",
-            "",
-        ]
-    )
-
-    return "\n".join(lines)
-
-
 def render_all(schema: dict[str, Any]) -> dict[str, str]:
     return {
         "rtl/common/npu_pkg.sv": generated_sv_package(schema),
         "include/holon_npu_program.h": generated_header(schema),
         "docs/INTERFACE_REFERENCE.md": generated_reference_md(schema),
-        "sim/gem5/linux/holon_npu_abi_internal.h": generated_linux_internal_header(schema),
     }
 
 

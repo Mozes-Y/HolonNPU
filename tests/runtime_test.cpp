@@ -1,311 +1,140 @@
+#include "holon_npu_execution.hpp"
 #include "holon_npu_runtime.hpp"
-#include "holon_npu_semantic.hpp"
 
-#include <algorithm>
-#include <array>
-#include <bit>
-#include <cstdint>
-#include <cstddef>
 #include <iostream>
-#include <span>
+#include <random>
+#include <source_location>
 #include <stdexcept>
-#include <string_view>
-#include <vector>
 
 namespace {
+using namespace holon_npu::semantic;
+using namespace holon_npu::semantic::instruction;
+using holon_npu::runtime::program_builder;
 
-namespace runtime = holon_npu::runtime;
-using holon_npu::semantic::lifecycle_state;
-using holon_npu::semantic::direct_runner;
-using holon_npu::semantic::local_address;
+constexpr auto entry = instruction_address{0x1000};
+constexpr scalar_register x0{0}, x1{1}, x2{2}, x31{31};
 
-constexpr local_address local_at(std::uint32_t address) {
-    return local_address{address};
+void require(bool value, std::string_view message,
+             std::source_location at = std::source_location::current()) {
+    if (!value) throw std::runtime_error(std::string{message} + " at line " + std::to_string(at.line()));
 }
 
-bool expect(bool condition, std::string_view name) {
-    if (!condition) {
-        std::cerr << "FAIL: " << name << '\n';
-    }
-    return condition;
+program_machine machine() {
+    auto map = memory::physical_map::create(std::array{
+        memory::region{physical_address{entry.value()}, 4096, memory::storage::program, {true, false, true}},
+        memory::region{physical_address{0x10000}, 4096, memory::storage::scratchpad, {true, true, false}}});
+    require(map.has_value(), "fixture physical map");
+    return program_machine{*map, {.program_bytes = 4096, .scratchpad_bytes = 4096}};
 }
 
-template <typename T, std::size_t N>
-bool expect_values(
-    std::span<const T> actual,
-    const std::array<T, N>& expected,
-    std::string_view name
-) {
-    return expect(actual.size() == expected.size() &&
-                      std::equal(actual.begin(), actual.end(), expected.begin()),
-                  name);
+void execute(program_machine& dut, const program_builder& code, std::uint32_t status,
+             std::uint64_t retired) {
+    require(dut.boot(code.bytes(), physical_address{entry.value()}, entry).has_value(), "boot constructed bytes");
+    const auto report = run_program(dut, {}, 10000);
+    require(report && report->reason == run_reason::stopped && !report->traps, "constructed program terminates without traps");
+    require(report->status == status && dut.hart().retired() == retired, "status and retirement scoreboard");
+    require(dut.hart().pc().value() == entry.value() + code.offset(), "byte-addressed STOP continuation");
 }
 
-bool run_vector_add() {
-    direct_runner model(128, 16);
-    const std::array<std::int32_t, 4> lhs{1, 2, 3, 4};
-    const std::array<std::int32_t, 4> rhs{5, 6, 7, 8};
-    const std::array<std::int32_t, 4> expected{6, 8, 10, 12};
-    const auto image = runtime::examples::vector_add(4, 0, 16, 32);
-
-    bool ok = true;
-    ok &= expect(model.write_i32(local_at(0), lhs), "vector add lhs write");
-    ok &= expect(model.write_i32(local_at(16), rhs), "vector add rhs write");
-    model.load_program(image.span());
-    ok &= expect(model.run(16).state == lifecycle_state::done, "vector add completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(local_at(32), 4), expected, "vector add result");
-    ok &= expect((image.required_caps & HOLON_NPU_CAP_INTEGER_VECTOR_BASE) != 0,
-                 "vector add capability metadata");
-    return ok;
-}
-
-bool run_relu() {
-    direct_runner model(128, 16);
-    const std::array<std::int32_t, 4> source{-7, 0, 4, -1};
-    const std::array<std::int32_t, 4> zeros{};
-    const std::array<std::int32_t, 4> expected{0, 0, 4, 0};
-    const auto image = runtime::examples::relu(4, 0, 16, 32);
-
-    bool ok = true;
-    ok &= expect(model.write_i32(local_at(0), source), "relu source write");
-    ok &= expect(model.write_i32(local_at(16), zeros), "relu zero write");
-    model.load_program(image.span());
-    ok &= expect(model.run(16).state == lifecycle_state::done, "relu completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(local_at(32), 4), expected, "relu result");
-    return ok;
-}
-
-bool run_reduce_sum() {
-    direct_runner model(128, 16);
-    const std::array<std::int32_t, 4> source{10, -3, 7, 2};
-    const auto image = runtime::examples::reduce_sum(4, 0, 32);
-
-    bool ok = true;
-    ok &= expect(model.write_i32(local_at(0), source), "reduce source write");
-    model.load_program(image.span());
-    ok &= expect(model.run(16).state == lifecycle_state::done, "reduce completion");
-    ok &= expect(model.read_i32(local_at(32), 1).at(0) == 16, "reduce sum result");
-    return ok;
-}
-
-bool run_requant() {
-    direct_runner model(160, 16);
-    const std::array<std::int32_t, 4> source{3, 5, -3, 100};
-    const std::array<std::int32_t, 6> command{1, 1, 0, -2, 3, 0};
-    const std::array<std::int32_t, 4> expected{2, 2, -2, 3};
-    const auto image = runtime::examples::requant(4, 0, 32, 64);
-
-    bool ok = true;
-    ok &= expect(model.write_i32(local_at(0), source), "requant source write");
-    ok &= expect(model.write_i32(local_at(64), command), "requant command write");
-    model.load_program(image.span());
-    ok &= expect(model.run(16).state == lifecycle_state::done, "requant completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(local_at(32), 4), expected, "requant result");
-    ok &= expect((image.required_caps & HOLON_NPU_CAP_QUANT_VECTOR) != 0,
-                 "requant capability metadata");
-    return ok;
-}
-
-bool run_transpose4() {
-    direct_runner model(256, 16);
-    const std::array<std::int32_t, 16> source{
-        0, 1, 2, 3,
-        4, 5, 6, 7,
-        8, 9, 10, 11,
-        12, 13, 14, 15,
-    };
-    const std::array<std::int32_t, 16> expected{
-        0, 4, 8, 12,
-        1, 5, 9, 13,
-        2, 6, 10, 14,
-        3, 7, 11, 15,
-    };
-    const auto image = runtime::examples::transpose4(0, 128);
-
-    bool ok = true;
-    ok &= expect(model.write_i32(local_at(0), source), "transpose source write");
-    model.load_program(image.span());
-    ok &= expect(model.run(16).state == lifecycle_state::done, "transpose completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(local_at(128), 16), expected, "transpose result");
-    return ok;
-}
-
-bool run_int8_gemm() {
-    direct_runner model(256, 16);
-    const std::array<std::int8_t, 4> a{1, 2, 3, 4};
-    const std::array<std::int8_t, 4> b{5, 6, 7, 8};
-    const std::array<std::int32_t, 4> expected{19, 22, 43, 50};
-    const auto shape = std::uint32_t{2} |
-        (std::uint32_t{2} << HOLON_NPU_ISA_MATRIX_SHAPE_N_SHIFT) |
-        (std::uint32_t{2} << HOLON_NPU_ISA_MATRIX_SHAPE_K_SHIFT) |
-        ((HOLON_NPU_ISA_MATRIX_FLAG_CLEAR | HOLON_NPU_ISA_MATRIX_FLAG_STORE)
-         << HOLON_NPU_ISA_MATRIX_SHAPE_FLAGS_SHIFT);
-    const std::array<std::int32_t, 8> command{
-        0, 32, 64, 2, 2, 8, std::bit_cast<std::int32_t>(shape), 0,
-    };
-    const auto image = runtime::examples::int8_gemm(0, 160);
-
-    bool ok = true;
-    ok &= expect(model.write_i8(local_at(0), a), "gemm A write");
-    ok &= expect(model.write_i8(local_at(32), b), "gemm B write");
-    ok &= expect(model.write_i32(local_at(160), command), "gemm command write");
-    model.load_program(image.span());
-    ok &= expect(model.run(8).state == lifecycle_state::done, "gemm completion");
-    ok &= expect_values<std::int32_t>(model.read_i32(local_at(64), 4), expected, "gemm result");
-    ok &= expect((image.required_caps & HOLON_NPU_CAP_MATRIX_MICRO_OP) != 0,
-                 "gemm capability metadata");
-    return ok;
-}
-
-bool run_tiled_int8_gemm_shape(std::uint32_t m, std::uint32_t n, std::uint32_t k) {
-    constexpr std::uint32_t command_offset = 0;
-    constexpr std::uint32_t a_offset = 4096;
-    constexpr std::uint32_t b_offset = 8192;
-    constexpr std::uint32_t c_offset = 12288;
-    constexpr std::uint32_t local_mem_bytes = 32768;
-    const runtime::matrix_gemm_config config{
-        .m = m,
-        .n = n,
-        .k = k,
-        .a_offset = a_offset,
-        .b_offset = b_offset,
-        .c_offset = c_offset,
-        .a_row_stride_bytes = k,
-        .b_row_stride_bytes = n,
-        .c_row_stride_bytes = n * static_cast<std::uint32_t>(sizeof(std::int32_t)),
-        .local_mem_bytes = local_mem_bytes,
-        .command_offset = command_offset,
-    };
-    const auto planned = runtime::examples::tiled_int8_gemm(config);
-    if (!expect(planned.has_value(), "tiled GEMM program construction")) {
-        return false;
-    }
-
-    std::vector<std::byte> local(local_mem_bytes);
-    bool ok = expect(planned->write_commands(local), "tiled GEMM command materialization");
-    std::vector<std::int8_t> a(static_cast<std::size_t>(m) * k);
-    std::vector<std::int8_t> b(static_cast<std::size_t>(k) * n);
-    for (std::size_t index = 0; index < a.size(); ++index) {
-        a[index] = static_cast<std::int8_t>(static_cast<int>(index % 13U) - 6);
-        local[a_offset + index] = std::byte{static_cast<std::uint8_t>(a[index])};
-    }
-    for (std::size_t index = 0; index < b.size(); ++index) {
-        b[index] = static_cast<std::int8_t>(static_cast<int>((index * 3U) % 11U) - 5);
-        local[b_offset + index] = std::byte{static_cast<std::uint8_t>(b[index])};
-    }
-
-    std::vector<std::int32_t> expected(static_cast<std::size_t>(m) * n);
-    for (std::uint32_t row = 0; row < m; ++row) {
-        for (std::uint32_t col = 0; col < n; ++col) {
-            std::uint32_t accumulator = 0;
-            for (std::uint32_t inner = 0; inner < k; ++inner) {
-                const auto product = static_cast<std::int32_t>(a[row * k + inner]) *
-                                     static_cast<std::int32_t>(b[inner * n + col]);
-                accumulator += static_cast<std::uint32_t>(product);
-            }
-            expected[row * n + col] = std::bit_cast<std::int32_t>(accumulator);
+void literal_construction() {
+    auto dut = machine();
+    std::vector<std::uint32_t> values{0, 1, 0x7ff, 0x800, 0xfff, 0x1000,
+        0x7ffff7ff, 0x7ffff800, 0x7fffffff, 0x80000000, 0xfffff7ff,
+        0xfffff800, 0xfffffffe, 0xffffffff};
+    constexpr std::uint32_t seed = 0x484f4c4e;
+    std::mt19937 random(seed);
+    for (unsigned i = 0; i < 1024; ++i) values.push_back(random());
+    for (const auto rd : {x1, x31}) {
+        for (const auto value : values) {
+            program_builder code;
+            code.li(rd, value).npu(npu_opcode::STOP, {{npu_role::status, rd}});
+            require(code.offset() == 16, "LI is two scalar words followed by one Holon word");
+            execute(dut, code, value, 3);
+            require(dut.hart().reg(rd) == value && dut.hart().reg(x0) == 0, "full-width LI value and x0");
         }
     }
-
-    direct_runner model(local_mem_bytes, 16);
-    model.load_program(planned->image.span());
-    ok &= expect(
-        model.load_arguments(local, local_at(0)), "tiled GEMM local image load"
-    );
-    ok &= expect(
-        model.run(planned->image.words.size() + 1U).state == lifecycle_state::done,
-        "tiled GEMM completion"
-    );
-    const auto actual = model.read_i32(local_at(c_offset), expected.size());
-    ok &= expect(
-        actual.size() == expected.size() && std::equal(actual.begin(), actual.end(), expected.begin()),
-        "tiled GEMM result"
-    );
-
-    const auto tile_count = [](std::uint32_t dimension) {
-        return (dimension + HOLON_NPU_ISA_MATRIX_MAX_DIMENSION - 1U) /
-               HOLON_NPU_ISA_MATRIX_MAX_DIMENSION;
-    };
-    ok &= expect(
-        planned->commands.size() ==
-            static_cast<std::size_t>(tile_count(m) * tile_count(n) * tile_count(k)),
-        "tiled GEMM command count"
-    );
-    return ok;
+    program_builder discard;
+    discard.li(x0, 0xffffffff).npu(npu_opcode::STOP, {{npu_role::status, x0}});
+    execute(dut, discard, 0, 3);
+    std::cout << "LI: " << values.size() * 2 + 1 << " programs, seed=" << seed << '\n';
 }
 
-bool test_tiled_int8_gemm_validation() {
-    auto config = runtime::matrix_gemm_config{
-        .m = 1,
-        .n = 1,
-        .k = 1,
-        .a_offset = 4096,
-        .b_offset = 8192,
-        .c_offset = 12288,
-        .a_row_stride_bytes = 1,
-        .b_row_stride_bytes = 1,
-        .c_row_stride_bytes = 4,
-        .local_mem_bytes = 16384,
-        .command_offset = 0,
-    };
-    bool ok = true;
-    auto invalid = config;
-    invalid.m = 0;
-    auto result = runtime::examples::tiled_int8_gemm(invalid);
-    ok &= expect(
-        !result && result.error() == runtime::matrix_program_error::invalid_dimension,
-        "tiled GEMM zero dimension"
-    );
-    invalid = config;
-    invalid.command_offset = 4096;
-    result = runtime::examples::tiled_int8_gemm(invalid);
-    ok &= expect(
-        !result && result.error() == runtime::matrix_program_error::command_encoding_space,
-        "tiled GEMM command encoding space"
-    );
-    invalid = config;
-    invalid.a_offset = 16;
-    result = runtime::examples::tiled_int8_gemm(invalid);
-    ok &= expect(
-        !result && result.error() == runtime::matrix_program_error::overlapping_local_regions,
-        "tiled GEMM command overlap"
-    );
-    return ok;
-}
-
-bool test_dma_encoding_contract() {
-    const auto maximum = holon_npu::semantic::decode(
-        runtime::encode_dma_load(1, 2, 3, HOLON_NPU_ISA_DMA_MAX_WORDS)
-    );
-    bool ok = expect(
-        maximum.rd == 1 && maximum.rs1 == 2 && maximum.rs2 == 3 &&
-            maximum.imm == HOLON_NPU_ISA_IMM_MASK,
-        "DMA register and maximum count encoding"
-    );
-    try {
-        static_cast<void>(runtime::encode_dma_store(1, 2, 3, 0));
-        ok &= expect(false, "DMA zero count rejected");
-    } catch (const std::invalid_argument&) {
-        ok &= expect(true, "DMA zero count rejected");
+void scalar_immediates() {
+    auto dut = machine();
+    for (std::int32_t immediate = -2048; immediate <= 2047; ++immediate) {
+        program_builder code;
+        code.addi(x31, x0, immediate).npu(npu_opcode::STOP, {{npu_role::status, x31}});
+        require(code.offset() == 12, "ADDI/STOP size");
+        const auto frame = fetch(code.bytes(), entry, entry);
+        require(frame && std::holds_alternative<scalar_word>(*frame), "first parcel is scalar");
+        const auto decoded = decode_scalar(std::get<scalar_word>(*frame));
+        require(decoded && decoded->pattern.opcode == scalar_opcode::ADDI
+            && decoded->rd == x31 && decoded->rs1 == x0 && decoded->immediate == immediate,
+            "every signed imm12 and register field round trips");
+        execute(dut, code, static_cast<std::uint32_t>(immediate), 2);
     }
-    return ok;
+    std::cout << "ADDI: all 4096 signed immediates execute\n";
 }
 
-}  // namespace
+template<class Append>
+void rejected_append(program_builder& code, Append append) {
+    const std::vector before(code.bytes().begin(), code.bytes().end());
+    bool rejected = false;
+    try { append(); } catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "invalid typed construction rejects input");
+    require(std::ranges::equal(code.bytes(), before), "rejected append preserves complete existing image");
+}
+
+void validation() {
+    program_builder code;
+    code.addi(x1, x0, 17);
+    rejected_append(code, [&] { code.li(scalar_register{32}, 0); });
+    rejected_append(code, [&] { code.addi(x1, scalar_register{255}, 0); });
+    rejected_append(code, [&] { code.addi(scalar_register{32}, x1, 0); });
+    rejected_append(code, [&] { code.addi(x1, x0, -2049); });
+    rejected_append(code, [&] { code.addi(x1, x0, 2048); });
+    rejected_append(code, [&] { code.npu(npu_opcode::STOP, {}); });
+    rejected_append(code, [&] { code.npu(npu_opcode::STOP, {{npu_role::status, vector_register{1}}}); });
+    rejected_append(code, [&] { code.npu(npu_opcode::STOP, {{npu_role::status, x1}, {npu_role::status, x2}}); });
+    rejected_append(code, [&] { code.npu(npu_opcode::STOP, {{npu_role::status, scalar_register{32}}}); });
+    rejected_append(code, [&] { code.npu(static_cast<npu_opcode>(0xffff), {}); });
+
+    // Raw words deliberately bypass semantic validation for assembler and fault tests.
+    program_builder raw;
+    raw.emit(scalar_word{0x1234567b}).emit(holon_word{0x89abcdef01234560ull});
+    const std::array expected{std::byte{0x7b}, std::byte{0x56}, std::byte{0x34}, std::byte{0x12},
+        std::byte{0x60}, std::byte{0x45}, std::byte{0x23}, std::byte{0x01},
+        std::byte{0xef}, std::byte{0xcd}, std::byte{0xab}, std::byte{0x89}};
+    require(std::ranges::equal(raw.bytes(), expected), "raw words serialize little endian, including upper Holon parcel");
+    std::cout << "Validation: bad operands leave image unchanged; raw emission preserves all bits\n";
+}
+
+void mixed_width_control_flow() {
+    program_builder code;
+    code.addi(x1, x0, 5).addi(x2, x0, 0);
+    const auto loop = code.offset();
+    code.npu(npu_opcode::CAPS, {{npu_role::rd, x31}, {npu_role::selector, resource_capacity::vector_bytes}})
+        .addi(x2, x2, 3).addi(x1, x1, -1);
+    const auto displacement = static_cast<std::uint32_t>(static_cast<std::int32_t>(loop) - static_cast<std::int32_t>(code.offset()));
+    // Standard BNE x1,x0,byte-displacement; independent of encoder metadata.
+    code.emit(scalar_word{0x1063u | ((displacement >> 12 & 1) << 31)
+        | ((displacement >> 5 & 63) << 25) | (1u << 15)
+        | ((displacement >> 1 & 15) << 8) | ((displacement >> 11 & 1) << 7)});
+    code.npu(npu_opcode::STOP, {{npu_role::status, x2}});
+    auto dut = machine();
+    execute(dut, code, 15, 23);
+    require(dut.hart().reg(x31) == dut.config().vector_bytes, "guest capability query result");
+    require(loop == 8 && code.offset() == 36, "loop uses byte offsets across four/eight-byte instructions");
+    std::cout << "Control flow: guest loop over mixed scalar/Holon instruction widths\n";
+}
+} // namespace
 
 int main() {
-    bool ok = true;
-    ok &= run_vector_add();
-    ok &= run_relu();
-    ok &= run_reduce_sum();
-    ok &= run_requant();
-    ok &= run_transpose4();
-    ok &= run_int8_gemm();
-    ok &= run_tiled_int8_gemm_shape(1, 1, 1);
-    ok &= run_tiled_int8_gemm_shape(16, 16, 16);
-    ok &= run_tiled_int8_gemm_shape(17, 19, 23);
-    ok &= run_tiled_int8_gemm_shape(64, 64, 64);
-    ok &= test_tiled_int8_gemm_validation();
-    ok &= test_dma_encoding_contract();
-    return ok ? 0 : 1;
+    try {
+        literal_construction(); scalar_immediates(); validation(); mixed_width_control_flow();
+    } catch (const std::exception& error) {
+        std::cerr << "FAIL: " << error.what() << '\n';
+        return 1;
+    }
+    std::cout << "PASS: canonical mixed-width runtime construction and execution\n";
 }

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -19,7 +20,7 @@ def main() -> int:
     metadata = json.loads(args.metadata.read_text(encoding="utf-8"))
     required = {
         "gem5", "overlay_sha256", "compiler", "riscv_compiler",
-        "cxx_standard", "build_type", "build_jobs", "host", "model_defaults",
+        "cxx_standard", "build_type", "build_jobs", "host", "model", "compile_commands_sha256",
     }
     missing = sorted(required - metadata.keys())
     if missing:
@@ -30,6 +31,15 @@ def main() -> int:
         raise SystemExit("simulation metadata does not record C++26")
     if not isinstance(metadata["build_jobs"], int) or metadata["build_jobs"] < 1:
         raise SystemExit("simulation metadata does not record a valid build parallelism")
+    if metadata["model"].get("type") != "HolonNpu" or not metadata["model"].get("source_sha256"):
+        raise SystemExit("simulation metadata does not identify the autonomous model and sources")
+    repo = Path(__file__).resolve().parents[1]
+    for source, expected in metadata["model"]["source_sha256"].items():
+        path = (repo / source).resolve()
+        if not path.is_relative_to(repo) or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise SystemExit(f"simulation metadata source drift: {source}")
+    if hashlib.sha256(args.compile_commands.read_bytes()).hexdigest() != metadata["compile_commands_sha256"]:
+        raise SystemExit("simulation metadata compilation database drift")
     subprocess.run(
         [sys.executable, str(Path(__file__).with_name("check_gem5_cxx_standard.py")),
          str(args.compile_commands)],

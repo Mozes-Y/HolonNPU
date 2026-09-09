@@ -7,28 +7,6 @@
 #include <type_traits>
 
 namespace holon_npu::semantic {
-namespace {
-
-operation_result read_memory(system_memory_view memory, system_address address, std::size_t size) {
-    if (const auto range = memory.range(address, size)) {
-        return read_payload{{range->begin(), range->end()}};
-    }
-    return operation_failure{architectural_fault::axi_read};
-}
-
-operation_result write_memory(
-    system_memory_view memory,
-    system_address address,
-    std::span<const std::byte> bytes
-) {
-    if (const auto range = memory.range(address, bytes.size())) {
-        std::ranges::copy(bytes, range->begin());
-        return operation_success{};
-    }
-    return operation_failure{architectural_fault::axi_write};
-}
-
-}  // namespace
 
 std::expected<instruction::instruction_frame, scalar::trap> fetch_instruction(
     const memory::physical_map& map, memory::bindings memory, instruction_address pc) {
@@ -73,60 +51,31 @@ std::expected<scalar::hart_event, scalar::hart_error> service_scalar(
     }, pending->request);
 }
 
-operation_result service_operation(const operation& request, system_memory_view memory) {
-    return std::visit([memory]<typename Request>(const Request& value) -> operation_result {
-        if constexpr (std::same_as<Request, descriptor_fetch> ||
-                      std::same_as<Request, code_fetch> ||
-                      std::same_as<Request, argument_fetch>) {
-            return read_memory(memory, value.address, value.byte_count);
-        } else if constexpr (std::same_as<Request, completion_record_write>) {
-            return write_memory(memory, value.address, value.payload);
-        } else if constexpr (std::same_as<Request, program_dma_operation>) {
-            if (value.direction == dma_direction::system_to_local) {
-                return read_memory(memory, value.system, value.byte_count);
-            }
-            if (value.store_payload.size() != value.byte_count) {
-                return operation_failure{architectural_fault::dma_request};
-            }
-            return write_memory(memory, value.system, value.store_payload);
-        } else {
-            // Local/engine effects are committed by program_machine, never
-            // reinterpreted by this synchronous environment.
-            static_assert(std::same_as<Request, scalar_local_operation> ||
-                          std::same_as<Request, vector_operation> ||
-                          std::same_as<Request, matrix_operation> ||
-                          std::same_as<Request, sync_operation>);
-            return operation_success{};
-        }
-    }, request);
+std::expected<execution_event, api_error> service_operation(program_machine& machine, system_memory_view memory) {
+    const auto pending = machine.pending();
+    if (!pending) return std::unexpected(api_error::no_pending);
+    const auto* request = std::get_if<memory_request>(&pending->value);
+    if (!request || request->storage != memory::storage::system) return machine.complete(pending->token, operation_success{});
+    const auto range = memory.range(system_address{request->address.value()}, request->size);
+    if (!range) return machine.complete(pending->token, bus_fault{});
+    if (request->access == memory::access::write) {
+        std::ranges::copy(request->payload, range->begin());
+        return machine.complete(pending->token, operation_success{});
+    }
+    return machine.complete(pending->token, read_payload{{range->begin(), range->end()}});
 }
 
-std::expected<run_result, execution_error> run_program(
-    program_machine& machine,
-    system_memory_view memory,
-    std::uint64_t instruction_budget
-) {
-    if (machine.state() != lifecycle_state::running &&
-        machine.state() != lifecycle_state::done && machine.state() != lifecycle_state::fault) {
-        return std::unexpected(execution_error{api_error::invalid_state});
+std::expected<run_report, api_error> run_program(program_machine& machine, system_memory_view memory, std::uint64_t budget) {
+    const auto initial = machine.hart().retired();
+    std::uint64_t traps{};
+    for (;;) {
+        if (machine.done()) return run_report{run_reason::stopped, machine.hart().retired() - initial, traps, *machine.exit_status()};
+        if (machine.hart().retired() - initial + traps >= budget) return run_report{run_reason::budget, machine.hart().retired() - initial, traps};
+        auto event = machine.pending() ? service_operation(machine, memory) : machine.advance();
+        if (!event) return std::unexpected(event.error());
+        if (std::holds_alternative<scalar::trap_taken>(*event)) ++traps;
+        if (std::holds_alternative<scalar::sleeping>(*event)) return run_report{run_reason::waiting, machine.hart().retired() - initial, traps};
     }
-    const auto initial_retirement = machine.retired();
-    while (machine.state() != lifecycle_state::done && machine.state() != lifecycle_state::fault) {
-        if (machine.retired() - initial_retirement >= instruction_budget) {
-            return std::unexpected(execution_error{instruction_budget_exhausted{}});
-        }
-        auto event = machine.advance();
-        if (!event) {
-            return std::unexpected(execution_error{event.error()});
-        }
-        if (const auto* request = std::get_if<pending_operation>(&*event)) {
-            event = machine.complete(request->token, service_operation(request->value, memory));
-            if (!event) {
-                return std::unexpected(execution_error{event.error()});
-            }
-        }
-    }
-    return machine.snapshot();
 }
 
 }  // namespace holon_npu::semantic

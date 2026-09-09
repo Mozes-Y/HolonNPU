@@ -4,14 +4,37 @@ All notable project-level release changes are recorded here.
 
 ## Unreleased
 
+- Canonical execution cutover: replaced the former interpreter and
+  runtime builder with mixed RV32/Holon execution, shared hart state and typed
+  fetch/memory/NPU completion. Runtime and semantic scoreboards now execute the
+  redesigned ISA; frontend RTL tests use test-only encoders and independent
+  mathematical results. The Host/DmaDevice and Linux paths have been removed;
+  their autonomous ClockedObject/timing-port replacement passes complete
+  Transformer differential and timing sensitivity tests. Full performance
+  calibration and public ISA/RTL contract convergence remain outstanding.
+- gem5 links only the autonomous adapter and required core sources, not the
+  synchronous test runner or program builder. Build audits enforce that boundary
+  and exact compiler identity; CI retains the full workload fixture and output.
+- Bounded semantic operation footprints now share vector/matrix capacity checks
+  with execution, preventing invalid dimensions from scheduling enormous delays
+  before their precise fault. Added issue-time footprint and fault tests.
+- Memory-error completion carries the failing physical byte address with
+  transactional range validation, precise MTVAL/PC and failed-load atomicity.
+  The autonomous gem5 adapter forwards packet error addresses to this contract.
+- Added a fixed-shape self-hosted Transformer acceptance program: embedding,
+  causal attention, guest arithmetic softmax, affine LayerNorm, ReLU FFN and
+  logits. Thirty executions compare all 16 stages with an independent double
+  reference, including near-constant and large-score cases. No Host arithmetic
+  callbacks, new ISA instruction, or RTL capability are introduced.
 - Defined 54 expressive Holon 64-bit NPU operand forms with generated typed
   encoding/decoding, independent predicates, explicit VL, matrix views and
   ordered DMA/STOP contracts. Verified reserved fields, typed domains and
-  upstream mixed-width raw-link preservation. This is a codec checkpoint;
-  the canonical executor still uses the former ISA and must be replaced.
+  upstream mixed-width raw-link preservation. The subsequent canonical
+  semantic execution cutover is verified as described above; public exports
+  and released RTL still require convergence.
 - Added owning ELF32 load plans, schema-derived RV32 profile validation and
   all-or-nothing PT_LOAD/BSS initialization. C23/C++26 probes now execute actual
-  ELF files; canonical mixed-width Holon execution remains subsequent work.
+  ELF files through the canonical machine.
 - Added checked unified physical regions, executable-parcel fetch and typed
   scalar memory servicing. Compiled C23/C++26 RV32 probes execute through the
   shared hart with real SPM stack and system-memory globals.

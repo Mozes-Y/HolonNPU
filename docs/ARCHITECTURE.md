@@ -1,9 +1,15 @@
 # HolonNPU Architecture
 
-This document is the current product architecture contract. HolonNPU is a
-programmable NPU tile: software submits a program, a replaceable frontend
-implementation executes the Holon ISA, and interface-native engines perform
-DMA, vector, and matrix work.
+This document describes the released RTL architecture baseline. The active
+self-hosted execution contract is in `docs/SIMULATION.md` and the redesigned
+ISA contract is in `docs/ISA_REDESIGN.md`. The canonical semantic machine now
+implements that mixed-width ISA; the RTL below has not been migrated and is
+not evidence of the autonomous architecture's implementation.
+
+In this RTL baseline, software submits a program, a replaceable frontend
+executes the released Holon encoding, and interface-native engines perform
+DMA, vector, and matrix work. The descriptor/Host path is not the destination
+for further simulation development.
 
 The `v1.5` tag preserves the former descriptor-driven GEMM product. It is not a
 second architecture inside the current source tree.

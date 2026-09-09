@@ -1,58 +1,35 @@
 #include "holon_npu_timing.hpp"
-
-#include <cstdint>
 #include <iostream>
+#include <stdexcept>
 
 int main() {
     using namespace holon_npu;
-    const gem5_model::timing_model timing;
-
-    const semantic::vector_operation vector{
-        .instruction = {.isa_class = HOLON_NPU_ISA_ENUM_VECTOR_ALU},
-        .vl = 4,
-        .active_lanes = 4,
-        .element_bytes = 4,
+    using namespace semantic::instruction;
+    const auto request=[](npu_opcode opcode,semantic::npu_footprint footprint) {
+        const auto pattern=std::ranges::find(npu_patterns,opcode,&npu_pattern::opcode);
+        if(pattern==npu_patterns.end())throw std::logic_error("test opcode");
+        return semantic::npu_request{npu_instruction{*pattern,{}},footprint};
     };
-    const auto vector_result = timing.estimate(vector);
-    if (vector_result.cycles != 1 || vector_result.active_lanes != 4 ||
-        vector_result.available_lanes != 16) {
-        std::cerr << "vector timing mismatch\n";
-        return 1;
-    }
-
-    auto vector_memory = vector;
-    vector_memory.instruction.isa_class = HOLON_NPU_ISA_ENUM_VECTOR_MEMORY;
-    vector_memory.instruction.opcode = static_cast<std::uint8_t>(
-        semantic::instruction_opcode::vector_memory_load
-    );
-    const auto vector_load = timing.estimate(vector_memory);
-    if (vector_load.cycles != 9 || vector_load.scratchpad_reads != 4 ||
-        vector_load.scratchpad_writes != 0) {
-        std::cerr << "vector load accounting mismatch\n";
-        return 1;
-    }
-    vector_memory.instruction.opcode = static_cast<std::uint8_t>(
-        semantic::instruction_opcode::vector_memory_store
-    );
-    const auto vector_store = timing.estimate(vector_memory);
-    if (vector_store.cycles != 9 || vector_store.scratchpad_reads != 0 ||
-        vector_store.scratchpad_writes != 4) {
-        std::cerr << "vector store accounting mismatch\n";
-        return 1;
-    }
-
-    const semantic::matrix_operation matrix{
-        .command = {
-            .m = 16,
-            .n = 16,
-            .k = 16,
-            .store_result = true,
-        },
-    };
-    const auto matrix_result = timing.estimate(matrix);
-    if (matrix_result.matrix_macs != 4096 || matrix_result.cycles != 1619) {
-        std::cerr << "matrix timing mismatch: " << matrix_result.cycles << '\n';
-        return 1;
-    }
-    return 0;
+    const auto check=[](bool ok){if(!ok)throw std::runtime_error("timing scoreboard mismatch");};
+    try {
+        gem5_model::timing_model timing;
+        for (const auto opcode : {npu_opcode::STOP, npu_opcode::CAPS, npu_opcode::VSETL}) {
+            const auto control = timing.estimate(request(opcode, {}));
+            check(control.unit == gem5_model::resource::frontend && control.cycles == 1 && !control.lane_slots);
+        }
+        const auto vector=request(npu_opcode::VADD,{.lanes=17,.active_lanes=9,.element_bytes=4});
+        auto result=timing.estimate(vector);check(result.cycles==3&&result.active_lanes==9&&result.lane_slots==32);
+        check(timing.estimate(request(npu_opcode::VDIV,vector.footprint)).cycles==25);
+        check(timing.estimate(request(npu_opcode::VSQRT,vector.footprint)).cycles==33);
+        check(timing.estimate(request(npu_opcode::VREDSUM,vector.footprint)).cycles==12);
+        check(timing.estimate(request(npu_opcode::VLD,{.lanes=4,.active_lanes=4,.element_bytes=4,.local_read_bytes=16})).cycles==6);
+        result=timing.estimate(request(npu_opcode::MDOT,{.matrix_m=3,.matrix_n=4,.matrix_k=4}));
+        check(result.cycles==11&&result.matrix_macs==48);
+        check(timing.estimate(request(npu_opcode::MDOT,{.matrix_m=17,.matrix_n=19,.matrix_k=23})).cycles==161);
+        auto narrow=gem5_model::timing_model({.vector_lanes=4});
+        check(narrow.estimate(vector).cycles==6);
+        bool rejected=false;try{gem5_model::timing_model bad({.vector_lanes=0});}catch(const std::invalid_argument&){rejected=true;}
+        check(rejected);
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+    std::cout<<"Autonomous timing: captured footprints, resource accounting and parameter sensitivity PASS\n";
 }

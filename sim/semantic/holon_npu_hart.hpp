@@ -18,7 +18,7 @@ struct sleeping {};
 using hart_event = std::variant<committed, pending_effect, trap_taken, sleeping>;
 struct load_data { std::span<const std::byte> bytes; };
 struct acknowledged {};
-struct access_fault {};
+struct access_fault { std::optional<physical_address> address; };
 using external_result = std::variant<load_data, acknowledged, access_fault>;
 struct interrupt_lines { bool software{}, timer{}, external{}; };
 enum class hart_error {

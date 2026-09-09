@@ -167,30 +167,27 @@ void compiled_program(const char* path) {
     const auto map = mapped({{physical_address{0x1000}, code.size(), storage::program, rx},
         {physical_address{0x10000000}, spm.size(), storage::scratchpad, rw},
         {physical_address{0x80000000}, ram.size(), storage::system, rw}});
-    bindings memory{code, spm, {system_address{0x80000000}, ram}};
-    require(image->load(map, {code, spm, memory.system}).has_value(), "complete ELF load");
+    program_machine machine(map, {.program_bytes = code.size(), .scratchpad_bytes = spm.size()});
+    const system_memory_view system{system_address{0x80000000}, ram};
+    require(machine.boot(*image, system).has_value(), "canonical machine ELF boot");
     require(std::ranges::all_of(std::span{ram}.subspan(0x800, 72), [](auto b) { return b == std::byte{}; }),
         "ELF BSS zeroed before execution");
-    require(ram.back() == std::byte{0xa5} && spm.front() == std::byte{0xa5}, "unloaded storage preserved");
-    hart_state hart;
-    require(hart.start(image->entry()).has_value(), "compiled program entry");
+    require(ram.back() == std::byte{0xa5} && machine.local_bytes().front() == std::byte{}, "external storage preserved and local state cold-reset");
+    const auto& hart = machine.hart();
     unsigned stack_accesses = 0, system_accesses = 0;
-    // Test harness supplies memory and instruction bytes; all execution is in the shared hart.
+    // The canonical machine fetches and executes; the fixture services live bus requests only.
     for (unsigned attempt = 0; attempt < 100000 && !hart.waiting(); ++attempt) {
-        const auto frame = fetch_instruction(map, memory, hart.pc());
-        require(frame && std::holds_alternative<instruction::scalar_word>(*frame), "compiled scalar fetch");
-        auto result = hart.issue(std::get<instruction::scalar_word>(*frame));
-        require(result.has_value(), "compiled instruction issue");
-        if (const auto pending = hart.pending_request()) {
-            std::visit([&](const auto& request) {
-                if constexpr (requires { request.address; }) {
-                    if (request.address.value() >= 0x80000000) ++system_accesses;
-                    else if (request.address.value() >= 0x10000000) ++stack_accesses;
-                }
-            }, pending->request);
-            result = service_scalar(hart, map, memory);
+        auto result = machine.advance();
+        require(result.has_value(), "canonical instruction issue");
+        if (const auto pending = machine.pending()) {
+            if (const auto* request = std::get_if<memory_request>(&pending->value);
+                request && request->access != access::execute) {
+                if (request->storage == storage::system) ++system_accesses;
+                else if (request->storage == storage::scratchpad) ++stack_accesses;
+            }
+            result = service_operation(machine, system);
         }
-        event<committed>(result);
+        require(result && !std::holds_alternative<trap_taken>(*result), "compiled program has no unexpected trap");
     }
     require(hart.waiting(), "program reached WFI after publishing results, not a simulated exit");
     const auto word = [&](unsigned offset) {

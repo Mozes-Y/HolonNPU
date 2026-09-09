@@ -17,7 +17,6 @@ option(HOLON_NPU_BUILD_RTL "Build Verilator RTL targets and tests" ON)
 option(HOLON_NPU_ENABLE_ASSERTIONS "Enable RTL assertions in Verilator builds" ON)
 option(HOLON_NPU_ENABLE_COVERAGE "Enable Verilator coverage instrumentation" OFF)
 option(HOLON_NPU_BUILD_GEM5 "Build the upstream stable gem5 simulation environment" OFF)
-option(HOLON_NPU_ENABLE_GEM5_LINUX "Register the long-running gem5 Linux full-system test" OFF)
 set(
   HOLON_NPU_GEM5_BUILD_JOBS
   16
@@ -28,13 +27,6 @@ set(
 if(HOLON_NPU_BUILD_RTL)
   find_package(verilator REQUIRED)
 endif()
-set(HOLON_NPU_GEM5_LINUX_BUNDLE "" CACHE FILEPATH "Built Linux guest readfile bundle")
-set(
-  HOLON_NPU_GEM5_RESOURCE_DIRECTORY
-  "${CMAKE_BINARY_DIR}/gem5-resources"
-  CACHE PATH
-  "Prepared immutable resources used by Linux full-system tests"
-)
 
 set(
   HOLON_NPU_VERILATOR_ARGS
@@ -287,13 +279,14 @@ target_sources(
     FILES include/holon_npu_runtime.hpp
 )
 target_compile_features(holon_npu_runtime PUBLIC cxx_std_26)
-target_link_libraries(holon_npu_runtime PUBLIC holon_npu_public_headers)
+target_link_libraries(holon_npu_runtime PUBLIC holon_npu_semantic)
 
 add_library(holon_npu_semantic)
 target_sources(
   holon_npu_semantic
   PRIVATE
     sim/semantic/holon_npu_semantic.cpp
+    sim/semantic/holon_npu_npu.cpp
     sim/semantic/holon_npu_execution.cpp
     sim/semantic/holon_npu_instruction.cpp
     sim/semantic/holon_npu_scalar.cpp
@@ -317,7 +310,7 @@ target_sources(
       sim/semantic/holon_npu_operand_metadata.hpp
 )
 target_compile_features(holon_npu_semantic PUBLIC cxx_std_26)
-target_link_libraries(holon_npu_semantic PUBLIC holon_npu_runtime)
+target_compile_options(holon_npu_semantic PRIVATE -frounding-math -ffp-contract=off)
 
 add_library(holon_npu_gem5_timing)
 target_sources(
@@ -342,6 +335,13 @@ holon_npu_add_ctest(
   LABELS fast gem5-fast
 )
 
+holon_npu_add_python_check(
+  TARGET gem5_build_tools_check
+  TEST gem5_build_tools
+  SCRIPT tests/gem5_build_tools_test.py
+  LABELS fast static gem5-fast
+)
+
 if(HOLON_NPU_BUILD_GEM5)
   include(ExternalProject)
 
@@ -364,8 +364,6 @@ if(HOLON_NPU_BUILD_GEM5)
   set(gem5_compile_commands ${gem5_source_dir}/build/RISCV/compile_commands.json)
   set(gem5_overlay ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/patches/cxx26.patch)
   set(gem5_metadata ${CMAKE_BINARY_DIR}/simulation-metadata.json)
-  set(gem5_baremetal_binary ${CMAKE_BINARY_DIR}/guest/holon_smoke.elf)
-  set(gem5_checkpoint_binary ${CMAKE_BINARY_DIR}/guest/holon_checkpoint.elf)
 
   ExternalProject_Add(
     holon_npu_gem5_external
@@ -400,8 +398,6 @@ if(HOLON_NPU_BUILD_GEM5)
       ${gem5_binary}
       ${gem5_compile_commands}
       ${gem5_metadata}
-      ${gem5_baremetal_binary}
-      ${gem5_checkpoint_binary}
     BUILD_ALWAYS TRUE
     EXCLUDE_FROM_ALL TRUE
     USES_TERMINAL_DOWNLOAD TRUE
@@ -409,7 +405,7 @@ if(HOLON_NPU_BUILD_GEM5)
     USES_TERMINAL_BUILD TRUE
   )
 
-  add_custom_target(gem5 DEPENDS holon_npu_gem5_external holon_npu_gem5_timing_test)
+  add_custom_target(gem5 DEPENDS holon_npu_gem5_external holon_npu_gem5_timing_test holon_npu_transformer_test)
   add_test(
     NAME gem5_build_metadata
     COMMAND
@@ -422,80 +418,15 @@ if(HOLON_NPU_BUILD_GEM5)
   holon_npu_test_labels(gem5_build_metadata gem5-fast)
   add_test(NAME gem5_binary_smoke COMMAND ${gem5_binary} --build-info)
   holon_npu_test_labels(gem5_binary_smoke gem5-fast)
-  add_test(
-    NAME gem5_resource_lock
-    COMMAND
-      ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
-      ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_gem5_resources.py
-      ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/resources.lock.json
-  )
-  holon_npu_test_labels(gem5_resource_lock gem5-fast)
-  add_test(
-    NAME gem5_riscv_baremetal
-    COMMAND
-      ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
-      ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_gem5_baremetal.py
+  add_test(NAME gem5_autonomous
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_gem5.py
       --gem5 ${gem5_binary}
-      --output ${CMAKE_BINARY_DIR}/gem5-tests/baremetal
-      --config
-      ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/configs/holon_baremetal.py
-      --binary ${gem5_baremetal_binary}
+      --exporter $<TARGET_FILE:holon_npu_transformer_test>
+      --config ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/configs/holon.py
+      --output ${CMAKE_BINARY_DIR}/gem5-tests/autonomous
   )
-  holon_npu_test_labels(gem5_riscv_baremetal gem5-fast)
-  add_test(
-    NAME gem5_idle_checkpoint
-    COMMAND
-      ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
-      ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_gem5_checkpoint.py
-      --gem5 ${gem5_binary}
-      --output ${CMAKE_BINARY_DIR}/gem5-tests/checkpoint
-      --config
-      ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/configs/holon_baremetal.py
-      --binary ${gem5_checkpoint_binary}
-  )
-  holon_npu_test_labels(gem5_idle_checkpoint gem5-fast)
-
-  if(HOLON_NPU_ENABLE_GEM5_LINUX)
-    if(NOT EXISTS "${HOLON_NPU_GEM5_LINUX_BUNDLE}")
-      message(
-        FATAL_ERROR
-        "HOLON_NPU_ENABLE_GEM5_LINUX requires a bundle produced by "
-        "tools/build_gem5_linux_guest.py"
-      )
-    endif()
-    find_program(
-      HOLON_NPU_GEM5_DTC
-      NAMES dtc
-      HINTS ${CMAKE_BINARY_DIR}/linux-kernel/build/scripts/dtc
-      REQUIRED
-    )
-    find_program(
-      HOLON_NPU_GEM5_FDTOVERLAY
-      NAMES fdtoverlay
-      HINTS ${CMAKE_BINARY_DIR}/linux-kernel/build/scripts/dtc
-      REQUIRED
-    )
-    add_test(
-      NAME gem5_riscv_linux
-      COMMAND
-        ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
-        ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_gem5_linux.py
-        --gem5 ${gem5_binary}
-        --config ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/configs/holon_linux.py
-        --resource-lock ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/resources.lock.json
-        --guest-bundle ${HOLON_NPU_GEM5_LINUX_BUNDLE}
-        --resource-directory ${HOLON_NPU_GEM5_RESOURCE_DIRECTORY}
-        --dtc ${HOLON_NPU_GEM5_DTC}
-        --fdtoverlay ${HOLON_NPU_GEM5_FDTOVERLAY}
-        --output ${CMAKE_BINARY_DIR}/gem5-tests/linux
-    )
-    holon_npu_test_labels(gem5_riscv_linux gem5-linux)
-    set_tests_properties(gem5_riscv_linux PROPERTIES TIMEOUT 14400)
-  endif()
+  holon_npu_test_labels(gem5_autonomous gem5-fast)
+  set_tests_properties(gem5_autonomous PROPERTIES TIMEOUT 600)
 endif()
 
 if(HOLON_NPU_BUILD_RTL)
@@ -912,13 +843,21 @@ holon_npu_add_lint_target(
 )
 holon_npu_add_lint_test(TEST control_plane_rtl_lint TARGET control_plane_rtl_lint LABELS lint)
 
+add_library(holon_npu_rtl_test_program)
+target_sources(holon_npu_rtl_test_program
+  PRIVATE sim/rtl_program.cpp
+  PUBLIC FILE_SET HEADERS BASE_DIRS sim FILES sim/rtl_program.hpp
+)
+target_compile_features(holon_npu_rtl_test_program PUBLIC cxx_std_26)
+target_link_libraries(holon_npu_rtl_test_program PRIVATE holon_npu_public_headers)
+
 holon_npu_add_verilated_executable(
   TARGET npu_frontend_tile_tb
   CPP sim/frontend_tile_tb.cpp
   RTL_TARGETS holon_npu_sim_frontend_tile
   TOP npu_frontend_tile_test_wrapper
   PREFIX Vnpu_frontend_tile
-  LIBRARIES holon_npu_semantic
+  LIBRARIES holon_npu_rtl_test_program
 )
 holon_npu_add_ctest(TEST npu_frontend_tile TARGET npu_frontend_tile_tb VERILATED LABELS fast)
 
@@ -951,7 +890,6 @@ holon_npu_add_verilated_executable(
   RTL_TARGETS holon_npu_sim_vector
   TOP npu_vector_engine_test_wrapper
   PREFIX Vnpu_vector_engine
-  LIBRARIES holon_npu_gem5_timing
 )
 holon_npu_add_ctest(TEST npu_vector_engine TARGET npu_vector_engine_tb VERILATED LABELS fast)
 
@@ -968,7 +906,6 @@ holon_npu_add_verilated_executable(
   RTL_TARGETS holon_npu_sim_matrix
   TOP npu_matrix_engine_test_wrapper
   PREFIX Vnpu_matrix_engine
-  LIBRARIES holon_npu_gem5_timing
 )
 holon_npu_add_ctest(TEST npu_matrix_engine TARGET npu_matrix_engine_tb VERILATED LABELS fast)
 
@@ -988,15 +925,15 @@ target_link_libraries(holon_npu_driver_test PRIVATE holon_npu_driver)
 holon_npu_add_ctest(TEST holon_npu_driver TARGET holon_npu_driver_test LABELS fast)
 
 add_executable(holon_npu_semantic_test)
-target_sources(holon_npu_semantic_test PRIVATE tests/model_test.cpp)
+target_sources(holon_npu_semantic_test PRIVATE tests/semantic_test.cpp)
 holon_npu_target_options(holon_npu_semantic_test)
-target_link_libraries(holon_npu_semantic_test PRIVATE holon_npu_semantic)
+target_link_libraries(holon_npu_semantic_test PRIVATE holon_npu_runtime)
 holon_npu_add_ctest(TEST holon_npu_semantic TARGET holon_npu_semantic_test LABELS fast)
 
 add_executable(holon_npu_execution_test)
 target_sources(holon_npu_execution_test PRIVATE tests/execution_test.cpp)
 holon_npu_target_options(holon_npu_execution_test)
-target_link_libraries(holon_npu_execution_test PRIVATE holon_npu_semantic)
+target_link_libraries(holon_npu_execution_test PRIVATE holon_npu_runtime)
 holon_npu_add_ctest(TEST holon_npu_execution TARGET holon_npu_execution_test LABELS fast)
 
 add_executable(holon_npu_instruction_test)
@@ -1049,6 +986,12 @@ target_sources(holon_npu_runtime_test PRIVATE tests/runtime_test.cpp)
 holon_npu_target_options(holon_npu_runtime_test)
 target_link_libraries(holon_npu_runtime_test PRIVATE holon_npu_runtime holon_npu_semantic)
 holon_npu_add_ctest(TEST holon_npu_runtime TARGET holon_npu_runtime_test LABELS fast)
+
+add_executable(holon_npu_transformer_test)
+target_sources(holon_npu_transformer_test PRIVATE tests/transformer_test.cpp)
+holon_npu_target_options(holon_npu_transformer_test)
+target_link_libraries(holon_npu_transformer_test PRIVATE holon_npu_runtime)
+holon_npu_add_ctest(TEST holon_npu_transformer TARGET holon_npu_transformer_test LABELS fast)
 
 if(HOLON_NPU_BUILD_RTL AND HOLON_NPU_ENABLE_COVERAGE)
   get_property(coverage_tests GLOBAL PROPERTY HOLON_NPU_COVERAGE_TESTS)

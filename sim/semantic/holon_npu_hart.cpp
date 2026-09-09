@@ -186,13 +186,18 @@ std::expected<hart_event, hart_error> hart_state::complete(hart_token token, ext
     if (!pending_) return std::unexpected(hart_error::no_pending);
     if (pending_->event.token != token) return std::unexpected(hart_error::wrong_token);
     const auto& request = pending_->event.request;
-    if (std::holds_alternative<access_fault>(result)) {
+    if (const auto* failure = std::get_if<access_fault>(&result)) {
         if (std::holds_alternative<fence_request>(request)) return std::unexpected(hart_error::invalid_result);
         const auto load = std::get_if<load_request>(&request);
         const auto address = load ? load->address : std::get<store_request>(request).address;
+        const auto width = static_cast<unsigned>(load ? load->width : std::get<store_request>(request).width);
+        const auto failed_address = failure->address.value_or(address);
+        if (failed_address.value() < address.value()
+            || std::uint64_t{failed_address.value()} >= std::uint64_t{address.value()} + width)
+            return std::unexpected(hart_error::invalid_result);
         const auto exception = load ? scalar_trap_cause::load_access_fault : scalar_trap_cause::store_access_fault;
         pending_.reset();
-        return enter_trap(cause(exception), address.value());
+        return enter_trap(cause(exception), failed_address.value());
     }
     register_result write;
     if (const auto* load = std::get_if<load_request>(&request)) {

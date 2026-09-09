@@ -130,15 +130,22 @@ Program-level results are never read through a product test probe. Programs
 issue DMA STORE and the scoreboard compares simulated system memory. Module-only
 local-memory wrappers may use hierarchical observation under `sim/rtl/`.
 
-The architectural model is the semantic oracle for decode, PC/retirement,
-faults, scalar and vector state, local memory, and engine effects. RTL-visible
-execution must match it.
+The canonical architectural model defines the redesigned mixed-width ISA.
+Released RTL still implements the preceding instruction contract; it cannot
+currently be differential-tested by executing those words in the new model.
+`sim/rtl_program.*` is test-only encoding/planning for that RTL, with no
+interpreter or execution mode. Only the frontend RTL test target links it;
+independent mathematical scoreboards check its DMA-visible results. This is
+hardware baseline evidence, not redesigned-ISA implementation evidence.
 
 ## Simulator-First Architecture Verification
 
-The v2.x simulation foundation has one C++26 semantic core used by both the fast
-direct runner and the Holon gem5 SimObject. No independent gem5 expected-result
-logic or separate performance model is permitted.
+The v2.x destination has one C++26 semantic core shared by the fast runner and
+autonomous Holon gem5 execution. The canonical interpreter replacement is
+active; the old Host/DmaDevice adapters have been removed and the autonomous
+ClockedObject replacement passes autonomous Transformer differential and timing
+sensitivity tests. Full performance calibration remains open. No independent gem5 semantic
+implementation is permitted.
 
 Future architecture behavior must pass these tiers before RTL:
 
@@ -146,30 +153,44 @@ Future architecture behavior must pass these tiers before RTL:
 | ---- | ---- |
 | Semantic core | Directed, property-based, and deterministic random behavior with all typed required events observed at verified invariants. |
 | Autonomous execution | Cold boot, token ownership, budget/resume, precise faults, and program-issued memory effects without descriptors. |
-| RV32/toolchain migration | RV32IM/Zicsr semantics, ILP32 calls/stack, C23/C++26 ELF execution, no compressed scalar code, mixed 32/64-bit decode/truncation, and custom-byte link integrity. Planned, not satisfied by current custom-ISA tests. |
+| RV32/toolchain migration | RV32IM/Zicsr semantics, ILP32 calls/stack, C23/C++26 ELF execution, no compressed scalar code, mixed 32/64-bit decode/truncation, and custom-byte link integrity. Verified through the canonical machine, not a fixture interpreter. |
 | Transformer | Complete Holon program compared stage-by-stage against an independent numeric reference. |
 | gem5 execution | Same boot image on a no-Host Holon execution object with timing memory requests. |
 | gem5 timing | Cycle-accounted queues, pipelines, banks, contention, and sensitivity. |
 
-The current accelerator gem5 preset remains a migration baseline, not evidence
-that the autonomous gem5 or Transformer tiers exist. It gates the
-timing unit test, RISC-V bare-metal workload, and an idle/quiescent checkpoint
-captured and restored by separate gem5 processes. The checkpoint test preserves
-descriptor, IRQ, and cycle state and submits a second program after restore.
-Linux full-system remains a separate resource-heavy nightly/release gate; its
-locked kernel, disk image, matching module, workload, and unique guest PASS
-sentinel have a passing local baseline recorded in `docs/PROGRESS.md`.
+Prior accelerator gem5, bare-metal, Linux and checkpoint results are historical
+foundation evidence only; their adapters have been removed. Neither
+their previous results nor cached executables validate this cutover or the
+autonomous gem5/Transformer tiers. Current build/test gates pass, but the broader
+simulation-foundation release criteria remain incomplete; see Progress.
 
-`holon_npu_execution` directly boots `program_machine` without constructing
-`semantic::device`. It verifies invalid-image atomicity, cold state, stale tokens
-across boot/reset, resumable instruction budgets, mapped-memory bounds and
-precise DMA faults, 64 deterministic vector-loop programs (seed `0x48504e55`),
-and `1x1x1`, `16x16x16`, `17x19x23`, `64x64x64` tiled GEMM. Program results are
-observed in caller-owned memory after program-issued DMA STORE. It uses the
-same memory service as accelerator direct tests, not another arithmetic model.
-These programs still use the former ISA 1.0 encoding. They are not evidence
-of the redesigned ISA executing. Scalar ELF component integration is checked
-separately below; the canonical mixed-width machine still needs replacement.
+`holon_npu_execution` boots the canonical mixed-width machine. It checks token
+ownership, invalid boot, budget/resume, guest trap/MRET, vector/DMA programs,
+matrix dot/accumulate, a guest VLA loop across three capacities, FP32 exact-bit
+edges, conversion rounding, masked loads and failed-load atomicity. Scalar and
+DMA error completions validate the reported physical byte against the captured
+request, reject invalid addresses without consuming tokens, and preserve precise
+PC/retirement while exposing the accepted fault address in MTVAL.
+
+`holon_npu_semantic` runs independent scoreboards through guest DMA writeback:
+828 integer programs (six types, three capacities, seed `0x53454d49`), predicate
+logic/query/packed tails, signed/unsigned/FP32 comparisons and seeded reductions,
+negative stride, scaled gather/scatter, permutation, and captured matrix views.
+Source/destination aliases and repeated scatter addresses are exercised.
+
+`holon_npu_runtime` validates the current typed byte builder with 2,077 LI
+programs (seed `0x484f4c4e`), all 4,096 ADDI immediates, rejected-append atomicity,
+little-endian raw words and a guest loop spanning scalar/Holon instructions.
+These are current execution tests, not restored former-ISA compatibility tests.
+
+`holon_npu_transformer` executes one shape-specialized mixed-width program from
+embedding through logits, including causal softmax and two affine LayerNorms.
+It compares all 16 stage tensors against an independent double-precision
+reference after final guest DMA writeback. Ten directed/random fixtures run at
+three vector capacities; zero, constant, near-constant and large-score cases
+exercise normalization and exp boundaries. The numerical tolerance and limits
+are defined before execution in [TRANSFORMER_WORKLOAD.md](TRANSFORMER_WORKLOAD.md).
+This gate does not claim dynamic-shape compilation or gem5 timing.
 
 `holon_npu_instruction` gates mixed 32/64-bit framing, all 56 standard scalar
 and machine instruction patterns, 57,344 deterministic operand samples, and
@@ -214,24 +235,22 @@ attributes, entry validation, BSS, owning-image lifetime and transactional
 failure. It checks every truncation and 16384 deterministic byte mutations
 (seed `0x454c4632`); accepted loads must match exact initialized/zeroed bytes.
 The toolchain probes use this loader directly on C23/C++26 executables and
-verify BSS before execution. These tests do not establish the full redesigned
-Holon program machine; that requires the next integration steps.
+verify BSS before execution through the canonical program machine. This proves
+scalar compiled-program integration, not complete Transformer support.
 
 ```bash
 cmake --build --preset debug --target holon_npu_execution_test --parallel 2
 ctest --preset debug -R '^holon_npu_execution$' --verbose
 ```
 
-The semantic test registry currently requires 13 typed events covering decode,
-descriptor compatibility, precise completion, DMA visibility and payload
-stability, vector/predicate/quant behavior, matrix accumulation, fault PC,
-loader/completion ordering, and reset drain. Events are observed only after the
-associated invariant succeeds. gem5 tests independently gate typed SimObject
-statistics, minimum event counts, and unique bare-metal/Linux guest sentinels.
+The prior descriptor-oriented semantic coverage registry and gem5 statistics
+gates need migration. The new scoreboards do not claim those old events or a
+completed functional coverage gate. Required events must correspond to verified
+new execution effects, not test-tail declarations.
 
-Zero-stall vector and matrix issue-to-event cycles are measured in their
-Verilator module tests and compared directly with the gem5 timing calculator.
-gem5 memory-response latency is reported separately as DMA wait cycles.
+Released RTL module tests retain their existing zero-stall cycle expectations.
+They no longer link the obsolete gem5 timing calculator. Calibration of the
+autonomous timing model remains a separate acceptance requirement.
 
 An accepted ADR must review correctness, measured workload benefit, alternatives,
 software cost, RTL cost, and verification scope before implementation begins.

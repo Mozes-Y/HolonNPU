@@ -1,8 +1,6 @@
 #include "Vnpu_vector_engine.h"
 
 #include "holon_npu_isa.h"
-#include "holon_npu_semantic.hpp"
-#include "holon_npu_timing.hpp"
 #include "holon_npu_program.h"
 #include "tb_coverage.hpp"
 
@@ -344,33 +342,21 @@ bool test_vector_load_store_and_add(Vnpu_vector_engine& dut) {
         2
     );
     const auto store_instruction = vector_store(3, 32);
-    const holon_npu::gem5_model::timing_model timing;
-    const auto expected_cycles = [&timing](
-        std::uint32_t instruction,
-        std::uint32_t vl,
-        std::uint32_t active_lanes
-    ) {
-        return timing.estimate(holon_npu::semantic::vector_operation{
-            .instruction = holon_npu::semantic::decode(instruction),
-            .vl = vl,
-            .active_lanes = active_lanes,
-            .element_bytes = 4,
-        }).cycles;
-    };
 
     const auto config_event = issue(dut, config_instruction);
+    // Released RTL pipeline contracts; not calibration of the new semantic ISA.
     ok &= expect_ok_event("config i32", config_event);
     ok &= expect_eq(
         "config issue-to-event cycles",
         config_event.latency_cycles,
-        expected_cycles(config_instruction, 0, 0)
+        1
     );
     const auto load_event = issue(dut, load_instruction);
     ok &= expect_ok_event("load lhs", load_event);
     ok &= expect_eq(
         "load issue-to-event cycles",
         load_event.latency_cycles,
-        expected_cycles(load_instruction, 4, 4)
+        9
     );
     ok &= expect_ok_event("load rhs", issue(dut, vector_load(2, 16)));
     const auto add_event = issue(dut, add_instruction);
@@ -378,14 +364,14 @@ bool test_vector_load_store_and_add(Vnpu_vector_engine& dut) {
     ok &= expect_eq(
         "ALU issue-to-event cycles",
         add_event.latency_cycles,
-        expected_cycles(add_instruction, 4, 4)
+        1
     );
     const auto store_event = issue(dut, store_instruction);
     ok &= expect_ok_event("store add", store_event);
     ok &= expect_eq(
         "store issue-to-event cycles",
         store_event.latency_cycles,
-        expected_cycles(store_instruction, 4, 4)
+        9
     );
 
     ok &= expect_memory_word(dut, "add lane 0", 32, u32(3));

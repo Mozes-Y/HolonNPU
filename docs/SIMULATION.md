@@ -10,6 +10,11 @@ gem5 execution model, and system tests must preserve.
 
 ## Self-Hosted Direction
 
+ADR-0066 is the active canonical execution replacement. There is no compatibility
+ISA selector: local state, RV32 hart, Holon decode and typed completion belong
+to the same program machine. Older accelerator-adapter descriptions below are
+migration context, not permission to retain an independent old interpreter.
+
 The target is autonomous Holon program execution, not a Host-controlled NPU
 peripheral. Work proceeds in this order: functional boot/execution, a complete
 minimal Transformer program, then a standalone gem5 timing system. ADR-0058
@@ -20,9 +25,16 @@ Holon scalar path. This is execution on Holon itself, not reintroduction of a
 Host CPU. Vector/matrix instructions retain independent Holon encodings and
 VLA/predicate principles; their redesign and the ELF/runtime contract are
 reviewed in `docs/ISA_REDESIGN.md`. Standard scalar words are 32-bit and Holon
-NPU instructions are fixed 64-bit using reclaimed non-RVC prefixes. Current
-ISA 1.0 remains the implemented migration baseline until those semantics are
-replaced and verified.
+NPU instructions are fixed 64-bit using reclaimed non-RVC prefixes. ISA 1.0
+remains the released RTL baseline, not an alternate semantic execution mode.
+ADR-0066 replaces the canonical interpreter; consumer migration is incomplete.
+
+The new semantic/runtime tests execute only the mixed-width ISA. Released
+frontend RTL tests use `sim/rtl_program.*` as test-only encoding/planning, not
+an interpreter, and compare independent mathematical results after DMA store.
+The helper is linked only to that RTL test target; it does not define an
+alternate semantic mode or a product runtime. Old gem5 timing/device adapters
+still require replacement, so earlier complete-gate results are historical.
 
 The target executes in single-hart M-mode, without U/S mode, MMU, or OS.
 `holon_npu_instruction.hpp` separates typed frame recognition from standard
@@ -88,40 +100,40 @@ one `riscv` vendor/Tag_file record is accepted. Dynamic/TLS images, extended
 table numbering and unsupported mandatory attributes fail explicitly. No ELF
 loader invents ISA semantics, initializes sp/gp, or adds a syscall exit.
 
-The current accelerator adapter and Host tests remain useful for released RTL
-differential verification during migration. They are not the target execution
-path and must not become a second permanent product. Their replacement and
-removal are gated together after autonomous gem5 validation.
+The former accelerator adapter and Host tests have been removed. Their
+replacement is the autonomous clocked execution object described below, which
+uses the canonical machine instead of restoring an old interpreter. Its build
+and validation status is recorded separately from historical device results.
 
 ADR-0065 defines the next NPU instruction/state contract in ISA_REDESIGN. The
 canonical schema's `semantic_npu` generates a typed operand registry and
 [reference](NPU_OPERAND_REFERENCE.md). `encode_holon`/`decode_holon` enforce
 register domains, reserved fields and operation type restrictions; they do not
-execute those operations. Integration must consume this codec in the existing
-semantic machine, not introduce a second interpreter. Subsequent vector/matrix
-engines must preserve explicit length, predicate, numeric and precise-fault
-rules before the complete Transformer and autonomous gem5 gates.
+execute those operations on their own. The canonical machine now consumes the
+codec and commits vector/matrix effects after a matching engine completion.
+Full opcode verification and consumer migration must preserve explicit length,
+predicate, numeric and precise-fault rules before the complete Transformer and
+autonomous gem5 gates.
 
 ### Autonomous Boot And Execution Contract
 
-- A boot image supplies instruction words, an aligned in-range entry PC, active
-  word-aligned nonzero local-memory size, and optional initial local data with a
-  strong local address.
-  It is a simulation input, not a new binary format or public descriptor ABI.
-- Validate the entire image before changing machine state. Empty/oversized code,
-  invalid entry, invalid memory capacity, and overflowing data ranges return a
-  typed boot error. Boot with pending work is rejected; the environment must
-  finish that operation or explicitly reset first.
-- Successful cold boot clears scalar/vector/predicate/matrix state, scratchpad,
-  faults, events, and retirement before loading the image and entering RUNNING.
-  Predicate reset is all-active, vector length is zero. Tokens are not reused
-  across boot/reset within a machine instance.
-- `run_program` drives `program_machine` directly, using caller-owned system
-  memory and the same `advance`/`complete` protocol. It does not instantiate the
-  ABI device, fetch descriptors, require MMIO, or interpret arithmetic itself.
-- An instruction budget is a simulator limit, not an architectural fault.
-  Exhaustion returns a typed error without inventing a retired instruction or
-  fault; the caller may resume. Memory errors retain precise fault PC/instret.
+- An explicit physical map routes core-owned program/SPM storage and
+  environment-owned system memory. Boot loads a validated ELF or raw mixed-width
+  program, not a descriptor. Entire image validation precedes state mutation;
+  boot with pending work is rejected. Guest startup initializes sp/gp normally.
+- Cold boot clears hart, vectors, predicates, tile views/registers, local memory
+  and retirement. Predicate bits reset to zero; VL is an explicit operand, not
+  hidden state. Tokens are not reused across boot/reset within a machine.
+- `advance`/`complete` exposes fetch parcels, scalar memory, NPU execution and
+  DMA requests. Local effects commit inside the core; the environment only
+  services system memory and completion timing. Bad tokens/payloads do not
+  mutate architectural state. All selected operations block retirement until
+  successful completion; traps preserve the issuing PC and do not retire.
+- `run_program` is the synchronous environment for this same protocol. It
+  returns distinct stop, wait or budget reasons and never instantiates a Host
+  device or interprets arithmetic. Budgets count retired instructions and trap
+  entries so a guest fault loop cannot hang a bounded run; fetch parcels are not
+  retired instructions. WFI waits, STOP retires once and returns its status.
 - gem5 will use this same boot contract and program protocol, but schedule
   completion through its event queue and timing memory port. It must not call
   the synchronous runner as a performance shortcut.
@@ -131,6 +143,12 @@ scores/masking/softmax, value aggregation, output projection, residual paths,
 normalization, feed-forward activation, and output projection. A separate
 reference may calculate expected values but may not service missing semantic
 operations. Numeric and ISA contracts are reviewed before those extensions.
+The first executable specialization is defined in
+[TRANSFORMER_WORKLOAD.md](TRANSFORMER_WORKLOAD.md), including its guest exp
+approximation, fixed dimensions, independent stage reference and tolerance.
+It runs as one mixed-width program; it is not a Host sequence of kernel calls.
+Its current functional evidence does not satisfy autonomous gem5 timing or
+general dynamic-shape compilation gates.
 
 ## One Semantics, Two Entry Points
 
@@ -187,54 +205,59 @@ behavior macros and stringly typed protocol contracts are forbidden.
 - PC and `instret` advance only after successful completion, preserving the
   exact faulting instruction for engine and DMA failures.
 
-Typed operations cover descriptor/code/argument fetch, local scalar/vector
-work, matrix work, program DMA, synchronization, and completion writeback. DMA
-load data enters the core only in a completion payload. DMA store payload is
-captured when issued so it remains stable while the environment delays it.
+Typed operations cover instruction fetch, scalar local/system memory, vector
+and matrix execution, ordered tensor DMA, and scalar fences. DMA load data enters
+the core only in a completion payload; stores capture their payload at issue.
+Bus-error completions may identify the failed byte/packet address within the
+pending request. The core rejects an out-of-request address as an API error
+without consuming the token. A valid address supplies MTVAL while MEPC remains
+the issuing instruction; an unspecified address denotes the request start.
+The core owns code, scratchpad and register state, not system memory. A direct
+execution environment owns external bytes and services the same pending requests
+used by gem5. There is no descriptor loader, MMIO lifecycle device or second
+interpreter on this autonomous path.
 
-`holon_npu::semantic::device` owns ABI lifecycle, loader, completion, IRQ, and
-safe reset behavior. `direct_runner` owns a byte-addressed system-memory image
-and completes the same requests synchronously. Neither layer implements a
-second copy of ISA arithmetic or fault semantics.
+## Autonomous gem5 Model
 
-## Current Accelerator gem5 Adapter
+`HolonNpu` derives from `ClockedObject`, not `DmaDevice`. It boots the same
+mixed-width image as the direct runner and uses a timing `RequestPort` for
+external reads, writes and fetches. No Host CPU, doorbell, PLIC or driver launches
+the workload. Functional memory access is limited to initial image placement and
+terminal observation; guest memory traffic uses timing requests.
+The gem5 source set excludes the synchronous direct runner and test program
+builder; the compilation audit rejects either being linked into the simulator.
+The baseline board uses `NoncoherentXBar` (16-byte width, frontend/forward/response
+latencies of 3/4/2 cycles) and `SimpleMemory`. It has no snoop filter or coherent
+cache participants. These are explicit experiment parameters, not RTL claims.
 
-This section describes the implemented migration baseline, not the autonomous
-architecture destination. No new Host integration is required by ADR-0058.
+The blocking baseline has one pending operation and one accepted memory packet.
+Requests split at 256 bytes, 4 KiB pages and cache-line boundaries. A rejected
+packet is retained unchanged until retry. Read data commits only after the entire
+operation completes. The adapter schedules response header/payload delays before
+using data and advances architectural cycle counters from elapsed gem5 time.
 
-The Holon gem5 SimObject consumes the semantic core and adds system context. It
-is integrated as an external gem5 component through `EXTRAS` and provides:
+Timing uses semantic operand footprints, not a duplicate instruction evaluator.
+It accounts for frontend fetch, local traffic, vector groups, divide/sqrt latency,
+ordered reductions, matrix wavefronts and external memory service. Parameters
+describe an initial model, not approved RTL or calibrated performance claims.
+Statistics distinguish instruction retirement, traps, lane slots/active lanes,
+matrix MACs, local bytes, memory bytes/packets/retries and scheduled resource time.
+An exclusive tick ledger also accounts for frontend, local/vector/matrix service,
+memory setup, synchronization and memory response/retry time. Its sum must equal
+the entire execution interval; scheduled cycle estimates alone are insufficient.
 
-- ABI MMIO register behavior, DMA requestor access, and IRQ delivery;
-- frontend issue/retirement timing;
-- DMA queues, transaction latency, and memory-system contention;
-- vector and matrix pipeline occupancy and throughput;
-- current single-port scratchpad service and operation traffic accounting;
-- synchronization stalls and resource dependencies;
-- structured statistics for workload and sensitivity analysis.
+The autonomous gate runs the independently verified complete Transformer image
+at baseline, increased memory latency, reduced vector throughput and constrained
+memory bandwidth. The last case must exercise timing request rejection/retry.
+All cases
+must preserve PC, retirement and complete memory effects while the affected
+timing components change. Each run retains configuration, statistics and outcome
+artifacts. Current validation status belongs in `docs/PROGRESS.md`.
 
-The timing model is cycle-accounted and event-driven. It models architecturally
-relevant resources, queues, contention, and bandwidth, but not per-signal AXI
-handshakes. Signal-accurate protocol verification remains an RTL responsibility.
-
-Current defaults intentionally match the released single-command design: one
-frontend operation, one pending engine operation, one DMA transaction, 16
-vector lanes, a `16x16` matrix array, and two-phase scratchpad request/response
-service. Vector and matrix Verilator module tests measure issue-to-event cycles
-and compare them directly with the timing calculator. Bank conflicts and engine
-overlap are not fabricated for the current unbanked, non-overlapped baseline;
-they become model parameters only after a simulator-first architecture proposal.
-Checkpoints are accepted only when the device is both `IDLE` and quiescent;
-descriptor, IRQ enable/status, and software-visible cycle state are preserved.
-Any pending semantic operation, DMA, or scheduled device event rejects capture.
-The fast gem5 gate captures after a completed program with sticky IRQ state,
-restores in a separate gem5 process, verifies the restored MMIO state, and
-submits another program before reporting success.
-
-The default system uses a RISC-V Host. Device and bare-metal tests form the
-normal development gate; RISC-V Linux full-system workloads run in nightly and
-release evaluation. Arm and x86 Host configurations are not maintained without
-a separately approved requirement.
+Known unfinished work: detailed pipeline/resource calibration, broader timing
+and fault workloads, interrupt-driven WFI wakeup and checkpoint restore. The
+current adapter reports unsupported waiting/checkpoint operations explicitly;
+the retired Host-device tests do not establish these autonomous capabilities.
 
 ## gem5 And Toolchain Policy
 
@@ -258,18 +281,6 @@ SHA, overlay hash, compiler, effective standard, build type, and Host. A
 compile-command audit rejects any effective C++17, C++20, or C++23 translation
 unit. Overlay drift fails visibly when upstream `stable` changes.
 
-The canonical functional device is a `DmaDevice` with a 4 KiB MMIO aperture at
-`0x10010000`, RISC-V PLIC source `0x20`, one DMA requestor port, and a 1 GHz
-default device clock. These are model defaults, not new ABI fields. MMIO is
-aligned 32-bit little-endian and follows the generated ABI exactly. Device DMA
-uses at most 256-byte transactions and never crosses a 4 KiB boundary.
-
-The normal gem5 gate covers device and RISC-V bare-metal execution. Linux
-full-system tests use locked gem5 resource metadata and are reserved for
-nightly, release, or explicit manual jobs. The matching guest bundle is rebuilt
-from the locked kernel recipe; the Linux platform driver is simulation-only and
-does not establish a stable product userspace API.
-
 Canonical commands are:
 
 ```bash
@@ -285,83 +296,21 @@ so imported EXTRAS/configuration files cannot modify the source tree.
 Debug/regression RTL tool dependencies are not required by this gem5-only
 preset.
 
-## Linux Full-System Gate
-
-The Linux gate uses the reviewed Ubuntu 24.04 no-systemd workload, Linux
-6.8.12, OpenSBI 1.3.1, and root partition `1`. `resources.lock.json` records
-the exact URLs, final uncompressed sizes, and checksums. Resource preparation
-is the only networked step; `holon_linux.py` constructs local gem5 resource
-objects and never queries the online catalog.
-
-Prepare the immutable system resources:
-
-```bash
-python3 tools/prepare_gem5_linux_resources.py \
-  --resource-lock sim/gem5/resources.lock.json \
-  --resource-directory build/gem5/gem5-resources
-```
-
-Build the exact Ubuntu source package and matching guest artifacts with GCC 15
-and 16 workers:
-
-```bash
-python3 tools/prepare_gem5_linux_kernel.py \
-  --compiler riscv64-linux-gnu-gcc-15 \
-  --resource-lock sim/gem5/resources.lock.json \
-  --output-dir build/gem5/linux-kernel \
-  --jobs 16
-python3 tools/build_gem5_linux_guest.py \
-  --compiler riscv64-linux-gnu-gcc-15 \
-  --kernel-build-dir build/gem5/linux-kernel/build \
-  --kernel-metadata build/gem5/linux-kernel/kernel-metadata.json \
-  --source-root . \
-  --resource-lock sim/gem5/resources.lock.json \
-  --output-dir build/gem5/linux-guest
-```
-
-Register and run only the long Linux test:
-
-```bash
-cmake --preset gem5 \
-  -DHOLON_NPU_ENABLE_GEM5_LINUX=ON \
-  -DHOLON_NPU_GEM5_LINUX_BUNDLE=$PWD/build/gem5/linux-guest/guest-bundle.sh \
-  -DHOLON_NPU_GEM5_RESOURCE_DIRECTORY=$PWD/build/gem5/gem5-resources
-ctest --test-dir build/gem5 -R '^gem5_riscv_linux$' --output-on-failure
-```
-
-The Linux gate uses an Atomic RISC-V Host CPU to keep OS and platform-driver
-validation tractable and a deterministic 3 GiB simple-memory service model.
-It is a functional OS gate, not a DRAM performance workload. Holon device
-latency remains cycle-accounted by the SimObject and is independently gated by
-timing tests and RTL calibration. Each run emits resource, kernel, guest,
-configuration, statistics, terminal, and simulation metadata under
-`build/gem5/`.
-
 ## Verification Tiers
 
 | Tier | Required evidence |
 | ---- | ----------------- |
-| Semantic | Directed, property-based, and deterministic random tests of exact architecture behavior; all typed required events must be observed at successful invariants. |
-| gem5 device | MMIO, DMA, IRQ, lifecycle, fault, and completion behavior using the shared core. |
-| gem5 timing | Current resource occupancy, service latency, bandwidth, ordering, and sensitivity results. |
-| RISC-V bare-metal | Driver and end-to-end program execution in the normal development gate. |
-| RISC-V Linux full-system | OS, driver, memory-system, interrupt, and representative workload behavior. |
-| RTL differential | Architectural effects match the semantic core; measured timing calibrates gem5 parameters. |
+| Semantic | Directed and deterministic random opcode, numerical, trap, token and memory-ordering checks. |
+| Toolchain | Compiled RV32 C23/C++26 ELF execution and custom-instruction byte preservation. |
+| Complete workload | Guest embedding, attention, residual, normalization, feed-forward and logits compared stage-by-stage with independent mathematics. |
+| Autonomous gem5 | Identical program and memory effects without Host CPU/device launch; real timing-port traffic and retry/fault checks. |
+| gem5 performance | Component accounting, parameter sensitivity and documented calibration with configuration/SHA/toolchain evidence. |
+| RTL differential | Approved matching operations compare architecture effects and measured latency; unchanged old RTL is not evidence of the redesigned ISA. |
 
-The semantic, baseline timing, gem5 device, and bare-metal tiers are implemented
-in the normal `gem5` preset. The separate Linux gate passes with the locked
-Ubuntu 24.04 image, Linux 6.8.12 matching module, C23 workload, DMA/IRQ
-completion, and a unique guest sentinel. Queue-depth, bank-contention, and
-broader sensitivity studies remain follow-up work.
-
-The current semantic registry contains 13 required events. Each event is marked
-where its assertions or scoreboard comparison succeeds, never as a test-exit
-declaration. gem5 device and system gates separately require SimObject statistic
-minimums and unique guest PASS sentinels, so either integration layer can fail
-without being masked by semantic-core evidence.
-
-Functional correctness is necessary but does not authorize RTL. New behavior
-also needs a measured workload benefit and a reviewed implementation tradeoff.
+The Transformer contract is in `docs/TRANSFORMER_WORKLOAD.md`. A passing
+functional workload is necessary but does not prove a complete performance
+model. Previously collected Host-device/Linux statistics and coverage must not
+be counted as autonomous model evidence.
 
 ## Architecture-To-RTL Gate
 

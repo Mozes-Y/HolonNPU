@@ -13,12 +13,15 @@ on:
       - "sim/guest/**"
       - "tests/scalar_toolchain_test.py"
       - "tests/memory_test.cpp"
+      - "tests/transformer_test.cpp"
+      - "tests/gem5_*"
       - "tests/*instruction_test.cpp"
       - "tests/rv32_memory*"
       - "sim/semantic/**"
       - "spec/**"
       - "sw/holon_npu_runtime.*"
       - "tools/*gem5*"
+      - "tools/*simulation_metadata.py"
   pull_request:
     branches: ["master"]
     paths:
@@ -30,21 +33,18 @@ on:
       - "sim/guest/**"
       - "tests/scalar_toolchain_test.py"
       - "tests/memory_test.cpp"
+      - "tests/transformer_test.cpp"
+      - "tests/gem5_*"
       - "tests/*instruction_test.cpp"
       - "tests/rv32_memory*"
       - "sim/semantic/**"
       - "spec/**"
       - "sw/holon_npu_runtime.*"
       - "tools/*gem5*"
+      - "tools/*simulation_metadata.py"
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
-    inputs:
-      linux:
-        description: Run the locked Linux full-system gate
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -56,11 +56,10 @@ concurrency:
 env:
   CC: gcc-15
   CXX: g++-15
-  HOLON_NPU_RUN_LINUX: ${{ github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/v') || inputs.linux }}
 
 jobs:
   stable-fast-gate:
-    name: stable C++26 device and bare-metal
+    name: stable C++26 autonomous execution
     runs-on: ubuntu-26.04
     timeout-minutes: 360
 
@@ -119,59 +118,6 @@ jobs:
       - name: Run gem5 fast gate
         run: ctest --preset gem5 --output-on-failure
 
-      - name: Restore locked Linux resources
-        if: env.HOLON_NPU_RUN_LINUX == 'true'
-        uses: actions/cache@v4
-        with:
-          path: build/gem5/gem5-resources
-          key: gem5-linux-resources-${{ hashFiles('sim/gem5/resources.lock.json') }}
-
-      - name: Prepare locked Linux resources
-        if: env.HOLON_NPU_RUN_LINUX == 'true'
-        run: |
-          python3 tools/prepare_gem5_linux_resources.py \
-            --resource-lock sim/gem5/resources.lock.json \
-            --resource-directory build/gem5/gem5-resources
-
-      - name: Restore matching Linux build
-        if: env.HOLON_NPU_RUN_LINUX == 'true'
-        uses: actions/cache@v4
-        with:
-          path: build/gem5/linux-kernel
-          key: gem5-linux-kernel-${{ runner.os }}-${{ hashFiles('sim/gem5/resources.lock.json') }}
-
-      - name: Build matching Linux kernel
-        if: env.HOLON_NPU_RUN_LINUX == 'true'
-        run: |
-          python3 tools/prepare_gem5_linux_kernel.py \
-            --compiler riscv64-linux-gnu-gcc-15 \
-            --resource-lock sim/gem5/resources.lock.json \
-            --output-dir build/gem5/linux-kernel \
-            --jobs 16
-
-      - name: Build Linux guest
-        if: env.HOLON_NPU_RUN_LINUX == 'true'
-        run: |
-          python3 tools/build_gem5_linux_guest.py \
-            --compiler riscv64-linux-gnu-gcc-15 \
-            --kernel-build-dir build/gem5/linux-kernel/build \
-            --kernel-metadata build/gem5/linux-kernel/kernel-metadata.json \
-            --source-root . \
-            --resource-lock sim/gem5/resources.lock.json \
-            --output-dir build/gem5/linux-guest
-
-      - name: Configure Linux full-system gate
-        if: env.HOLON_NPU_RUN_LINUX == 'true'
-        run: |
-          cmake --preset gem5 \
-            -DHOLON_NPU_ENABLE_GEM5_LINUX=ON \
-            -DHOLON_NPU_GEM5_LINUX_BUNDLE=${{ github.workspace }}/build/gem5/linux-guest/guest-bundle.sh \
-            -DHOLON_NPU_GEM5_RESOURCE_DIRECTORY=${{ github.workspace }}/build/gem5/gem5-resources
-
-      - name: Run Linux full-system gate
-        if: env.HOLON_NPU_RUN_LINUX == 'true'
-        run: ctest --test-dir build/gem5 -R '^gem5_riscv_linux$' --output-on-failure
-
       - name: Upload simulation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -187,7 +133,7 @@ jobs:
             build/gem5/gem5-tests/**/simout
             build/gem5/gem5-tests/**/simerr
             build/gem5/scalar-toolchain/
-            build/gem5/gem5-tests/linux/board.platform.terminal
-            build/gem5/gem5-tests/linux/resources-metadata.json
-            build/gem5/linux-kernel/kernel-metadata.json
-            build/gem5/linux-guest/guest-metadata.json
+            build/gem5/gem5-tests/autonomous/**/execution.json
+            build/gem5/gem5-tests/autonomous/**/memory.bin
+            build/gem5/gem5-tests/autonomous/fixture/
+            build/gem5/gem5-tests/autonomous/sensitivity.json

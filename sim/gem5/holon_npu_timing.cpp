@@ -1,109 +1,47 @@
 #include "holon_npu_timing.hpp"
-
-#include <algorithm>
-#include <type_traits>
+#include <stdexcept>
 
 namespace holon_npu::gem5_model {
 namespace {
-
-std::uint64_t divide_ceil(std::uint64_t numerator, std::uint64_t denominator) {
-    return denominator == 0 ? 0 : (numerator + denominator - 1U) / denominator;
+std::uint64_t groups(std::uint64_t elements, unsigned lanes) { return elements/lanes + (elements%lanes != 0); }
 }
-
-}  // namespace
-
+timing_model::timing_model(timing_parameters p) : parameters_(p) {
+    if (!p.frontend_cycles || !p.vector_lanes || !p.vector_startup || !p.divide_cycles || !p.sqrt_cycles
+        || !p.matrix_rows || !p.matrix_cols || !p.scratchpad_bytes_per_cycle || !p.dma_setup_cycles)
+        throw std::invalid_argument("timing parameters must be positive");
+}
 operation_timing timing_model::estimate(const semantic::operation& operation) const {
-    return std::visit(
-        [this](const auto& request) -> operation_timing {
-            using request_type = std::remove_cvref_t<decltype(request)>;
-            if constexpr (
-                std::same_as<request_type, semantic::descriptor_fetch> ||
-                std::same_as<request_type, semantic::code_fetch> ||
-                std::same_as<request_type, semantic::argument_fetch> ||
-                std::same_as<request_type, semantic::completion_record_write>
-            ) {
-                return {.cycles = parameters_.dma_setup_cycles};
-            } else if constexpr (std::same_as<request_type, semantic::scalar_local_operation>) {
-                return {
-                    .cycles = parameters_.scalar_local_cycles,
-                    .scratchpad_reads = request.write ? 0U : 1U,
-                    .scratchpad_writes = request.write ? 1U : 0U,
-                };
-            } else if constexpr (std::same_as<request_type, semantic::vector_operation>) {
-                const auto groups = divide_ceil(request.vl, parameters_.vector_lanes);
-                const auto memory_class =
-                    request.instruction.isa_class == HOLON_NPU_ISA_ENUM_VECTOR_MEMORY;
-                const auto memory_opcode = static_cast<semantic::instruction_opcode>(
-                    request.instruction.opcode
-                );
-                const auto vector_load = memory_class &&
-                    memory_opcode == semantic::instruction_opcode::vector_memory_load;
-                const auto vector_store = memory_class &&
-                    memory_opcode == semantic::instruction_opcode::vector_memory_store;
-                const auto quant_class =
-                    request.instruction.isa_class == HOLON_NPU_ISA_ENUM_QUANTIZATION;
-                const auto predicate_load =
-                    request.instruction.isa_class == HOLON_NPU_ISA_ENUM_PREDICATE &&
-                    request.instruction.opcode == HOLON_NPU_ISA_OPCODE_PREDICATE_LOAD;
-                auto cycles = static_cast<std::uint64_t>(parameters_.vector_issue_cycles);
-                if (vector_load || vector_store) {
-                    const auto active_lanes = std::min(request.active_lanes, request.vl);
-                    cycles += active_lanes * (vector_load
-                        ? parameters_.scratchpad_read_cycles
-                        : parameters_.scratchpad_write_cycles);
-                    cycles += request.vl - active_lanes;
-                } else if (predicate_load) {
-                    cycles += parameters_.scratchpad_read_cycles;
-                } else if (quant_class) {
-                    cycles += static_cast<std::uint64_t>(parameters_.quant_parameter_words) *
-                        parameters_.scratchpad_read_cycles + 1U;
-                }
-                return {
-                    .cycles = cycles,
-                    .active_lanes = request.active_lanes,
-                    .available_lanes = groups * parameters_.vector_lanes,
-                    .scratchpad_reads = vector_load ? request.active_lanes
-                        : (predicate_load ? 1U
-                           : (quant_class ? parameters_.quant_parameter_words : 0U)),
-                    .scratchpad_writes = vector_store ? request.active_lanes : 0U,
-                };
-            } else if constexpr (std::same_as<request_type, semantic::matrix_operation>) {
-                const auto& command = request.command;
-                const auto wavefront = static_cast<std::uint64_t>(parameters_.matrix_tile_m) +
-                    parameters_.matrix_array_k + parameters_.matrix_array_n - 1U;
-                const auto operand_reads =
-                    static_cast<std::uint64_t>(command.m) * command.k +
-                    static_cast<std::uint64_t>(command.k) * command.n;
-                const auto stores = command.store_result
-                    ? static_cast<std::uint64_t>(command.m) * command.n
-                    : 0U;
-                return {
-                    .cycles = parameters_.vector_issue_cycles +
-                        static_cast<std::uint64_t>(parameters_.matrix_descriptor_words) *
-                            parameters_.scratchpad_read_cycles +
-                        parameters_.matrix_validate_cycles + parameters_.matrix_clear_cycles +
-                        operand_reads * parameters_.scratchpad_read_cycles + command.k +
-                        wavefront + parameters_.matrix_drain_cycles +
-                        stores * parameters_.scratchpad_write_cycles,
-                    .matrix_macs = static_cast<std::uint64_t>(command.m) * command.n * command.k,
-                    .scratchpad_reads = parameters_.matrix_descriptor_words + operand_reads,
-                    .scratchpad_writes = stores,
-                };
-            } else if constexpr (std::same_as<request_type, semantic::program_dma_operation>) {
-                return {
-                    .cycles = parameters_.dma_setup_cycles,
-                    .scratchpad_reads = request.direction == semantic::dma_direction::local_to_system
-                        ? divide_ceil(request.byte_count, HOLON_NPU_ISA_DMA_WORD_BYTES) : 0U,
-                    .scratchpad_writes = request.direction == semantic::dma_direction::system_to_local
-                        ? divide_ceil(request.byte_count, HOLON_NPU_ISA_DMA_WORD_BYTES) : 0U,
-                };
-            } else if constexpr (std::same_as<request_type, semantic::sync_operation>) {
-                return {.cycles = parameters_.sync_cycles};
-            }
-            return {.cycles = parameters_.frontend_cycles};
-        },
-        operation
-    );
+    const auto& p=parameters_;
+    if (const auto* m=std::get_if<semantic::memory_request>(&operation)) {
+        if(m->storage==semantic::memory::storage::system) return {.cycles=p.dma_setup_cycles,.unit=resource::memory};
+        if(m->access==semantic::memory::access::execute) return {.cycles=p.frontend_cycles,.unit=resource::frontend};
+        return {.cycles=std::max<std::uint64_t>(1,groups(m->size,p.scratchpad_bytes_per_cycle)),.local_bytes=m->size,.unit=resource::local_memory};
+    }
+    if(std::holds_alternative<semantic::scalar::fence_request>(operation))return {.cycles=1,.unit=resource::sync};
+    const auto& request=std::get<semantic::npu_request>(operation);
+    const auto& f=request.footprint;
+    const auto op=request.instruction.pattern.opcode;
+    using enum semantic::instruction::npu_opcode;
+    if(op==STOP||op==CAPS||op==VSETL)return {.cycles=p.frontend_cycles,.unit=resource::frontend};
+    const bool matrix=op==MVIEW||op==MLOAD||op==MSTORE||op==MCLEAR||op==MDOT||op==MMACC;
+    const auto local=f.local_read_bytes+f.local_write_bytes;
+    auto cycles=std::uint64_t{p.vector_startup}+groups(local,p.scratchpad_bytes_per_cycle);
+    std::uint64_t macs=0,slots=0;
+    if(op==MDOT||op==MMACC) {
+        macs=std::uint64_t{f.matrix_m}*f.matrix_n*f.matrix_k;
+        // Blocking tiled wavefront estimate; no overlap or undocumented concurrency.
+        for(std::uint32_t m=0;m<f.matrix_m;m+=p.matrix_rows)
+            for(std::uint32_t n=0;n<f.matrix_n;n+=p.matrix_cols)
+                if(f.matrix_k)cycles+=std::min(p.matrix_rows,f.matrix_m-m)+std::uint64_t{f.matrix_k}+std::min(p.matrix_cols,f.matrix_n-n)-1;
+    } else if(matrix) {
+        if(op==MCLEAR)cycles+=groups(std::uint64_t{f.matrix_m}*f.matrix_n,p.matrix_cols);
+    } else {
+        const auto g=groups(f.lanes,p.vector_lanes);
+        slots=g*p.vector_lanes;
+        const auto latency=op==VDIV?p.divide_cycles:(op==VSQRT?p.sqrt_cycles:1u);
+        cycles+=g*latency;
+        if(op==VREDSUM||op==VREDMIN||op==VREDMAX)cycles+=f.active_lanes;
+    }
+    return {cycles,f.active_lanes,slots,macs,local,matrix?resource::matrix:resource::vector};
 }
-
-}  // namespace holon_npu::gem5_model
+}

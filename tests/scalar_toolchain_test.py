@@ -155,7 +155,7 @@ unsigned probe(const unsigned* p, unsigned count) {
         (directory / "execution.txt").write_text(result)
         print(f"{standard}: {result.strip()}")
     print(f"upstream scalar oracle: {len(expected)}/{len(expected)} instructions, C23/C++26 decode PASS")
-    print("Compiled ELF probes exercise transactional loading, shared hart and physical routing; full Holon machine cutover remains separate.")
+    print("Compiled ELF probes execute through the canonical program machine; the fixture services memory requests only.")
 
 
 if __name__ == "__main__":
