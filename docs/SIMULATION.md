@@ -254,6 +254,17 @@ must preserve PC, retirement and complete memory effects while the affected
 timing components change. Each run retains configuration, statistics and outcome
 artifacts. Current validation status belongs in `docs/PROGRESS.md`.
 
+The same gate also executes three independently checked system-memory programs.
+The first Holon instruction is fetched across a 4 KiB boundary; 601-byte DMA
+loads/stores begin at page offsets `0xFF0`, `0xFF3` and `0xFFC`. Scalar system
+loads/stores and an illegal Holon instruction exercise guest trap/MRET recovery.
+Guest-written MEPC/MCAUSE/MTVAL, unaffected memory, final PC and an independent
+34-instruction retirement count are checked. Packet/byte counts and the elapsed
+ledger must match, and constrained bandwidth must cause request retries.
+Fixtures and `memory-boundaries.json` are retained with the timing artifacts.
+This tests successful memory responses and architectural decode traps, not bus
+error response injection.
+
 Known unfinished work: detailed pipeline/resource calibration, broader timing
 and fault workloads, interrupt-driven WFI wakeup and checkpoint restore. The
 current adapter reports unsupported waiting/checkpoint operations explicitly;

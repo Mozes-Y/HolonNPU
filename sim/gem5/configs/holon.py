@@ -36,11 +36,11 @@ m5.stats.dump()
 if event.getCause() != "Holon stopped" or event.getCode() != 0:
     raise RuntimeError(f"autonomous execution failed: {event.getCause()} / {event.getCode()}")
 actual = json.loads((args.output / "execution.json").read_text())
-if actual["reason"] != "stopped" or actual["status"] or actual["traps"]:
+if actual["reason"] != "stopped" or actual["status"] or actual["traps"] != reference.get("traps", 0):
     raise RuntimeError(f"bad execution outcome: {actual}")
 for field in ("pc", "retired"):
     if actual[field] != reference[field]:
         raise RuntimeError(f"architectural {field}: {actual[field]} != {reference[field]}")
 if (args.output / "memory.bin").read_bytes() != (args.fixture / "expected.bin").read_bytes():
-    raise RuntimeError("gem5 memory effects differ from verified direct Transformer execution")
-print(f"Holon autonomous Transformer PASS: {actual}")
+    raise RuntimeError("gem5 memory effects differ from verified guest execution")
+print(f"Holon autonomous guest PASS: {actual}")

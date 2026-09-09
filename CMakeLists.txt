@@ -422,6 +422,7 @@ if(HOLON_NPU_BUILD_GEM5)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_gem5.py
       --gem5 ${gem5_binary}
       --exporter $<TARGET_FILE:holon_npu_transformer_test>
+      --memory-exporter $<TARGET_FILE:holon_npu_system_memory_test>
       --config ${CMAKE_CURRENT_SOURCE_DIR}/sim/gem5/configs/holon.py
       --output ${CMAKE_BINARY_DIR}/gem5-tests/autonomous
   )
@@ -992,6 +993,15 @@ target_sources(holon_npu_transformer_test PRIVATE tests/transformer_test.cpp)
 holon_npu_target_options(holon_npu_transformer_test)
 target_link_libraries(holon_npu_transformer_test PRIVATE holon_npu_runtime)
 holon_npu_add_ctest(TEST holon_npu_transformer TARGET holon_npu_transformer_test LABELS fast)
+
+add_executable(holon_npu_system_memory_test)
+target_sources(holon_npu_system_memory_test PRIVATE tests/system_memory_test.cpp)
+holon_npu_target_options(holon_npu_system_memory_test)
+target_link_libraries(holon_npu_system_memory_test PRIVATE holon_npu_runtime)
+holon_npu_add_ctest(TEST holon_npu_system_memory TARGET holon_npu_system_memory_test LABELS fast)
+if(HOLON_NPU_BUILD_GEM5)
+  add_dependencies(gem5 holon_npu_system_memory_test)
+endif()
 
 if(HOLON_NPU_BUILD_RTL AND HOLON_NPU_ENABLE_COVERAGE)
   get_property(coverage_tests GLOBAL PROPERTY HOLON_NPU_COVERAGE_TESTS)

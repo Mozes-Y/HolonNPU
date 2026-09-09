@@ -4,6 +4,12 @@ All notable project-level release changes are recorded here.
 
 ## Unreleased
 
+- Added independently checked autonomous system-memory programs: cross-page
+  64-bit instruction fetch, 601-byte DMA tails, scalar system load/store and
+  precise guest trap/MRET recovery. The gem5 gate compares complete memory,
+  retirement, traffic and tick ledgers under request backpressure; CI retains
+  fixtures and per-case evidence. No ISA or RTL behavior changes.
+
 - Canonical execution cutover: replaced the former interpreter and
   runtime builder with mixed RV32/Holon execution, shared hart state and typed
   fetch/memory/NPU completion. Runtime and semantic scoreboards now execute the

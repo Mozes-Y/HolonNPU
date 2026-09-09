@@ -31,16 +31,17 @@ that evidence does not substitute for the autonomous tests below.
 
 | Gate | Latest evidence |
 | ---- | --------------- |
-| Debug build and full debug CTest | Passed; 32/32 tests |
+| Debug build and full debug CTest | Passed; 33/33 tests |
 | Lint CTest | Passed; 11/11 tests |
 | Execution/Transformer after footprint bounds fix | Passed; 2/2 tests |
 | ABI and ISA generated-source checks | Passed; 3 ABI outputs and 6 ISA outputs |
 | Macro policy and whitespace | Passed |
-| Optimized regression build and full CTest | Passed; 43/43 tests |
+| Optimized regression build and full CTest | Passed; 44/44 tests |
 | ASan/UBSan semantic, hart, execution and Transformer tests | Passed; 4/4; leak detection disabled under sandbox ptrace |
+| ASan/UBSan system-memory integration test | Passed; 1/1, three boundary fixtures |
 | Canonical compiled C23/C++26 ELF probes | Passed through gem5 preset's scalar toolchain gate |
-| Autonomous gem5 preset | Passed; 6/6 tests, including four Transformer timing scenarios |
-| Coverage build and full coverage CTest | Passed; 45/45 tests |
+| Autonomous gem5 preset | Passed; 6/6 tests, including four Transformer and three system-memory scenarios |
+| Coverage build and full coverage CTest | Passed; 46/46 tests |
 | RTL coverage checker | Passed; 12 raw files, 137 functional points, 56 cover properties |
 | gem5 provenance audit | Passed; 27,587 C++ compilation entries use C++26; strict numeric flags checked |
 
@@ -98,6 +99,17 @@ zero traps, 552 matrix MACs and 16,384 external bytes in 256 packets. Exclusive
 tick ledgers reconcile exactly; all four stderr files are empty. These results
 validate a blocking timing model and sensitivity, not calibrated RTL performance.
 
+The system-memory integration slice passes direct and gem5 execution. A Holon
+instruction at external page offset `0xFFC`, DMA source/destination offsets
+`0xFF0`/`0xFF3`/`0xFFC` with 601-byte tails, scalar memory and guest trap/MRET
+produce independently checked bytes and MEPC/MCAUSE/MTVAL. Each case retires 34
+instructions with one trap, 1,306 external bytes, 48 packets and 47 retries at
+64 MiB/s; each takes 19,475 exploratory cycles. Results and fixtures live in
+`build/gem5/gem5-tests/autonomous/memory-boundaries.json` and `memory-fixture/`.
+This is not injected bus-response fault or interrupt/checkpoint evidence.
+The earlier execution/autonomous bring-up checkpoint is committed as `8efb97c`;
+this boundary slice is tracked separately under the per-feature commit rule.
+
 ## ISA And RTL Boundary
 
 The repository has an unresolved authority split: the schema's top-level old
@@ -116,8 +128,8 @@ The earlier generation remains recoverable from the existing release tags.
 
 1. Converge the ISA schema, public exports and main documentation on the new
    contract without exposing old encodings as current ISA or bypassing RTL review.
-2. Expand packet-fault, boundary, external-fetch, trap/WFI/interrupt and checkpoint
-   integration evidence beyond the passing Transformer/retry scenarios.
+2. Add packet-response fault injection, interrupt/WFI and checkpoint integration;
+   extend the passing external-fetch, DMA boundary and guest trap/MRET scenarios.
 3. Complete detailed pipeline/resource modeling, timing calibration and a broader
    workload corpus. Establish required coverage events for the new path.
 4. Keep all applicable gates passing and commit each verified feature promptly.

@@ -1,5 +1,16 @@
 # HolonNPU Verification
 
+## Autonomous Memory Boundary Gate
+
+The next integration slice runs a guest program from executable system memory,
+including a 64-bit Holon instruction at page offset `0xFFC`. DMA copies of 601
+bytes begin at offsets `0xFF0`, `0xFF3` and `0xFFC`; scalar system load/store and
+an illegal-instruction trap/MRET execute in the same program. Independent byte
+and trap-register scoreboards must pass before exporting fixtures to gem5.
+The gem5 run must match complete memory, PC, retirement/trap counts and expected
+external bytes/packet counts, under constrained memory bandwidth. This does not
+substitute for injected bus-response errors or interrupt/WFI testing.
+
 Verification is part of the product contract. External scoreboards, internal
 native SVA, architectural differential testing, functional event coverage, and
 structural coverage must agree before release.

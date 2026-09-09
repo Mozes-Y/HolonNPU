@@ -13,6 +13,7 @@ on:
       - "sim/guest/**"
       - "tests/scalar_toolchain_test.py"
       - "tests/memory_test.cpp"
+      - "tests/system_memory_test.cpp"
       - "tests/transformer_test.cpp"
       - "tests/gem5_*"
       - "tests/*instruction_test.cpp"
@@ -33,6 +34,7 @@ on:
       - "sim/guest/**"
       - "tests/scalar_toolchain_test.py"
       - "tests/memory_test.cpp"
+      - "tests/system_memory_test.cpp"
       - "tests/transformer_test.cpp"
       - "tests/gem5_*"
       - "tests/*instruction_test.cpp"
@@ -136,4 +138,6 @@ jobs:
             build/gem5/gem5-tests/autonomous/**/execution.json
             build/gem5/gem5-tests/autonomous/**/memory.bin
             build/gem5/gem5-tests/autonomous/fixture/
+            build/gem5/gem5-tests/autonomous/memory-fixture/
+            build/gem5/gem5-tests/autonomous/memory-boundaries.json
             build/gem5/gem5-tests/autonomous/sensitivity.json

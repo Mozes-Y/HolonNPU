@@ -124,6 +124,9 @@ Implementation order and acceptance:
 3. Verified autonomous gem5 bring-up (ADR-0067): replaced the Host/DmaDevice path
    with a clocked Holon execution object and timing memory request port. The
    identical Transformer image runs without a Host CPU or MMIO launch sequence.
+   The integration gate also covers executable system-memory fetch across a
+   page boundary, non-aligned DMA tails, scalar memory and guest trap/MRET under
+   timing backpressure. Bus-error injection and interrupt/WFI remain open.
 4. Performance acceptance: account for frontend, local memory, vector, matrix,
    memory transfers, and synchronization on the actual event timeline. Report
    complete-program statistics and sensitivity (initial blocking model verified);
