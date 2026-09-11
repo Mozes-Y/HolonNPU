@@ -1,5 +1,29 @@
 # HolonNPU Decision Log
 
+## ADR-0068: HolonNPU 3.0 Research Mainline
+
+**Status:** Accepted; repository convergence in progress.
+
+**Decision:** Pause RTL and retire its sources, accelerator ABI/driver and tests
+from the mainline, along with gem5 integration and build dependencies. Preserve
+the current C++26 semantic execution and independent functional tests. Recover
+historical implementations from Git, not in-tree legacy copies. Project 3.0 is
+not ISA/ABI numbering or a claim of a completed performance simulator.
+
+**Rationale:** A frozen older accelerator and a newer executable ISA currently
+compete for schema, documentation and verification authority. Research needs
+one current functional baseline and explicit alternatives, not accidental
+product coexistence. Merely disabling RTL by default leaves those dependencies.
+
+**Method:** Independent deterministic parallel, mixed-fidelity, execution-driven
+modeling; Transformer prefill/decode and resource-constrained DSE. The original
+block/tile-dataflow proposal is a core candidate, not a predetermined winner.
+RTL requires a later explicit evidence-based admission decision.
+
+**Supersedes:** Mandatory gem5, current RTL product ownership and old accelerator
+interface requirements below. Still-applicable RV32/VLA/numerical rules remain.
+The remaining log is being condensed during the documented migration.
+
 This file retains only decisions that constrain the current product. Superseded
 implementation history is available from Git and release notes; it is not an
 alternative architecture contract.

@@ -2,7 +2,16 @@
 
 All notable project-level release changes are recorded here.
 
-## Unreleased
+## 3.0 (Unreleased)
+
+- Begin the research-mainline transition: pause RTL, retire legacy accelerator
+  and gem5 paths, retain autonomous semantic/workload assets, and adopt open
+  architecture exploration. Project version is independent of ISA/ABI versions.
+
+## Pre-3.0 Development Checkpoint
+
+Historical changes below are preserved at commit
+`9e70a99ef0f694cbd503f259aadf99317c76344b`; they are not current 3.0 capabilities.
 
 - Added independently checked autonomous system-memory programs: cross-page
   64-bit instruction fetch, 601-byte DMA tails, scalar system load/store and
