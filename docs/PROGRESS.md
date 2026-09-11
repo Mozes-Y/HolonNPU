@@ -5,7 +5,8 @@
 HolonNPU 3.0 mainline convergence is complete. The repository is an open
 architecture-research platform with one C++26 functional baseline. RTL work is
 paused; old RTL, accelerator ABI/driver and gem5 paths are retired. Project
-version is 3.0.0, independent of ISA/ABI numbering. No 3.0 tag has been published.
+version is 3.0.0, independent of ISA/ABI numbering. Release checkpoint: `v3.0`
+(2026-09-11), with the local verification evidence below.
 
 Recovery: `9e70a99ef0f694cbd503f259aadf99317c76344b` preserves the complete
 pre-transition implementation. Existing release tags remain unchanged.

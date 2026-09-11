@@ -2,7 +2,10 @@
 
 All notable project-level release changes are recorded here.
 
-## 3.0 (Unreleased)
+## 3.0 - 2026-09-11
+
+Research-mainline release checkpoint: `v3.0`. This release does not introduce
+a new hardware implementation, ISA/ABI version or parallel performance model.
 
 - Removed accelerator RTL/harnesses, MMIO/descriptor ABI and driver, old ISA
   exports, gem5 backend/build tooling and their exclusive tests. Current ISA

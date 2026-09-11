@@ -7,8 +7,8 @@ M-mode control with 64-bit Holon vector, predicate, matrix and DMA instructions.
 A complete small Transformer executes as guest instructions and is checked
 against an independent mathematical reference. A deterministic parallel
 performance simulator and compiler/task research are **planned, not implemented**.
-Version 3.0 is the repository transition, not a new ISA/ABI version or a
-published release tag.
+Release `v3.0` marks the repository transition, not a new ISA/ABI version or
+hardware implementation. See [Changelog](CHANGELOG.md) for the release scope.
 
 ## Build And Test
 
