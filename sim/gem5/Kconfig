@@ -1,7 +1,0 @@
-menu "HolonNPU external devices"
-
-config HOLON_NPU
-    bool "HolonNPU programmable NPU device"
-    default y
-
-endmenu

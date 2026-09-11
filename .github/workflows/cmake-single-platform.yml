@@ -16,18 +16,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CMAKE_DEBUG_PRESET: debug
-  CMAKE_REGRESSION_PRESET: regression
-  CMAKE_COVERAGE_PRESET: coverage
   CC: gcc-15
   CXX: g++-15
 
 jobs:
-  build-test-lint:
-    name: Build, test, lint
+  build-test:
+    name: Build and test research baseline
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
-
+    timeout-minutes: 30
     steps:
       - name: Check out sources
         uses: actions/checkout@v7
@@ -36,73 +32,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            gcc-15 \
-            g++-15 \
-            ninja-build \
-            python3 \
-            python3-pip \
-            cmake \
-            verilator
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Show tool versions
-        run: |
-          cmake --version
-          ninja --version
-          verilator --version
-          "${CC}" --version
-          "${CXX}" --version
-          python3 --version
+            gcc-15 g++-15 gcc-15-riscv64-linux-gnu g++-15-riscv64-linux-gnu \
+            ninja-build python3 cmake
 
       - name: Configure debug
-        run: cmake --preset "${CMAKE_DEBUG_PRESET}"
-
+        run: cmake --preset debug
       - name: Build debug
-        run: cmake --build --preset "${CMAKE_DEBUG_PRESET}" --parallel 2
-
-      - name: Test debug fast path
-        run: ctest --preset "${CMAKE_DEBUG_PRESET}" -j 2 --output-on-failure
-
-      - name: Test RTL lint
-        run: ctest --preset lint -j 2 --output-on-failure
+        run: cmake --build --preset debug --parallel 2
+      - name: Test debug
+        run: ctest --preset debug
 
       - name: Configure regression
-        run: cmake --preset "${CMAKE_REGRESSION_PRESET}"
-
+        run: cmake --preset regression -DHOLON_NPU_RISCV_GCC=riscv64-linux-gnu-gcc-15
       - name: Build regression
-        run: cmake --build --preset "${CMAKE_REGRESSION_PRESET}" --parallel 2
+        run: cmake --build --preset regression --parallel 2
+      - name: Test regression and RV32 toolchain
+        run: ctest --preset regression
 
-      - name: Regression test
-        run: ctest --preset "${CMAKE_REGRESSION_PRESET}" -j 2 --output-on-failure
-
-      - name: Configure coverage
-        run: cmake --preset "${CMAKE_COVERAGE_PRESET}"
-
-      - name: Build coverage
-        run: cmake --build --preset "${CMAKE_COVERAGE_PRESET}" --parallel 2
-
-      - name: Coverage test
-        run: ctest --preset "${CMAKE_COVERAGE_PRESET}" -j 2 --output-on-failure
-
-      - name: Upload CTest logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ctest-logs
-          if-no-files-found: ignore
-          path: |
-            build/debug/Testing/Temporary/LastTest.log
-            build/debug/CMakeFiles/CMakeConfigureLog.yaml
-            build/regression/Testing/Temporary/LastTest.log
-            build/regression/CMakeFiles/CMakeConfigureLog.yaml
-            build/coverage/Testing/Temporary/LastTest.log
-            build/coverage/CMakeFiles/CMakeConfigureLog.yaml
-
-      - name: Upload coverage artifacts
+      - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-artifacts
-          if-no-files-found: ignore
-          path: build/coverage/coverage/
+          name: test-evidence
+          if-no-files-found: error
+          path: |
+            build/debug/Testing/
+            build/regression/Testing/
+            build/regression/scalar-toolchain/

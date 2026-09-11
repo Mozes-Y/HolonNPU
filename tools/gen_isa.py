@@ -20,29 +20,10 @@ def c_hex(value: int | str, width: int = 8) -> str:
     return f"0x{as_int(value):0{width}X}u"
 
 
-def c_const(type_name: str, name: str, value: int | str, width: int = 8, pad: int = 0) -> str:
-    spacer = " " * max(pad - len(name), 1)
-    return f"static constexpr {type_name} {name}{spacer}= {c_hex(value, width)};"
-
-
-def sv_hex(value: int | str, width: int = 8) -> str:
-    return f"32'h{as_int(value):0{width}X}"
-
-
-def sv_param(type_name: str, name: str, value: int | str, width: int = 8, pad: int = 0) -> str:
-    spacer = " " * max(pad - len(name), 1)
-    return f"    localparam {type_name} {name}{spacer}= {sv_hex(value, width)};"
-
-
-def sv_opcode_param(name: str, value: int | str, pad: int = 0) -> str:
-    spacer = " " * max(pad - len(name), 1)
-    return f"    localparam logic [3:0] {name}{spacer}= 4'h{as_int(value):01X};"
-
-
 def load_schema(path: Path = ISA_SCHEMA_PATH) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         schema = json.load(f)
-    if schema.get("schema_version") != 1:
+    if schema.get("schema_version") != 2:
         raise ValueError("unsupported ISA schema_version")
     failures = check_schema(schema)
     if failures:
@@ -50,266 +31,37 @@ def load_schema(path: Path = ISA_SCHEMA_PATH) -> dict[str, Any]:
     return schema
 
 
-def generated_header(schema: dict[str, Any]) -> str:
-    isa = schema["isa"]
-    common_masks = schema["common_masks"]
-    field_layout = schema["field_layout"]
-    classes = schema["instruction_classes"]
-    reserved = schema["reserved_classes"]
-    instructions = schema["instructions"]
-    encoding_constants = schema["encoding_constants"]
-
-    class_names = [(f"HOLON_NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in classes]
-    masks = [(f"HOLON_NPU_ISA_CLASS_{entry['name']}_MASK", entry["mask"]) for entry in classes]
-    reserved_names = [(f"HOLON_NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in reserved]
-    opcode_names = [(f"HOLON_NPU_ISA_OPCODE_{entry['name']}", entry["opcode"]) for entry in instructions]
-    encoding_names = [(f"HOLON_NPU_ISA_{entry['name']}", entry["value"]) for entry in encoding_constants]
-    all_constants = class_names + masks + reserved_names + opcode_names + encoding_names
-    pad = max(len(name) for name, _ in all_constants)
-
-    lines = [
-        f"/* {BANNER} */",
-        "#pragma once",
-        "",
-        "#include <stdint.h>",
-        "",
-        c_const("uint8_t", "HOLON_NPU_ISA_MAJOR", isa["major"], width=2, pad=34),
-        c_const("uint8_t", "HOLON_NPU_ISA_MINOR", isa["minor"], width=2, pad=34),
-        c_const("uint8_t", "HOLON_NPU_ISA_INSTRUCTION_BYTES", isa["alignment_bytes"], width=2, pad=34),
-        c_const("uint8_t", "HOLON_NPU_ISA_INSTRUCTION_BITS", isa["instruction_bits"], width=2, pad=34),
-        c_const("uint8_t", "HOLON_NPU_ISA_OPCODE_SHIFT", field_layout["opcode_shift"], width=2, pad=34),
-        c_const("uint8_t", "HOLON_NPU_ISA_RD_SHIFT", field_layout["rd_shift"], width=2, pad=34),
-        c_const("uint8_t", "HOLON_NPU_ISA_RS1_SHIFT", field_layout["rs1_shift"], width=2, pad=34),
-        c_const("uint8_t", "HOLON_NPU_ISA_RS2_SHIFT", field_layout["rs2_shift"], width=2, pad=34),
-        c_const("uint32_t", "HOLON_NPU_ISA_CLASS_MASK", common_masks["class"], pad=34),
-        c_const("uint32_t", "HOLON_NPU_ISA_FIELD_MASK", field_layout["field_mask"], pad=34),
-        c_const("uint32_t", "HOLON_NPU_ISA_IMM_MASK", field_layout["imm_mask"], pad=34),
-        "",
-    ]
-
-    for name, value in class_names:
-        lines.append(c_const("uint32_t", name, value, pad=pad))
-    lines.append("")
-    for name, value in masks:
-        lines.append(c_const("uint32_t", name, value, pad=pad))
-    lines.append("")
-    for name, value in reserved_names:
-        lines.append(c_const("uint32_t", name, value, pad=pad))
-    lines.append("")
-    for name, value in opcode_names:
-        lines.append(c_const("uint8_t", name, value, width=2, pad=pad))
-    lines.append("")
-    for name, value in encoding_names:
-        lines.append(c_const("uint32_t", name, value, pad=pad))
-
-    lines.extend(
-        [
-            "",
-            "typedef enum holon_npu_isa_class {",
-        ]
-    )
-    for entry in classes:
-        lines.append(f"    HOLON_NPU_ISA_ENUM_{entry['name']} = {c_hex(entry['value'])},")
-    for index, entry in enumerate(reserved):
-        comma = "," if index + 1 < len(reserved) else ""
-        lines.append(f"    HOLON_NPU_ISA_ENUM_{entry['name']} = {c_hex(entry['value'])}{comma}")
-    lines.extend(["} holon_npu_isa_class_t;", ""])
-    return "\n".join(lines)
-
-
-def generated_sv_pkg(schema: dict[str, Any]) -> str:
-    isa = schema["isa"]
-    common_masks = schema["common_masks"]
-    field_layout = schema["field_layout"]
-    classes = schema["instruction_classes"]
-    reserved = schema["reserved_classes"]
-    instructions = schema["instructions"]
-    encoding_constants = schema["encoding_constants"]
-
-    class_names = [(f"NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in classes]
-    masks = [(f"NPU_ISA_CLASS_{entry['name']}_MASK", entry["mask"]) for entry in classes]
-    reserved_names = [(f"NPU_ISA_CLASS_{entry['name']}", entry["value"]) for entry in reserved]
-    opcode_names = [(f"NPU_ISA_OPCODE_{entry['name']}", entry["opcode"]) for entry in instructions]
-    encoding_names = [(f"NPU_ISA_{entry['name']}", entry["value"]) for entry in encoding_constants]
-    all_constants = class_names + masks + reserved_names + opcode_names + encoding_names
-    pad = max(len(name) for name, _ in all_constants)
-
-    lines = [
-        f"// {BANNER}",
-        "/* verilator lint_off UNUSEDPARAM */",
-        "package npu_isa_pkg;",
-        f"    localparam int unsigned NPU_ISA_MAJOR             = {as_int(isa['major'])};",
-        f"    localparam int unsigned NPU_ISA_MINOR             = {as_int(isa['minor'])};",
-        f"    localparam int unsigned NPU_ISA_INSTRUCTION_BYTES = {as_int(isa['alignment_bytes'])};",
-        f"    localparam int unsigned NPU_ISA_INSTRUCTION_BITS  = {as_int(isa['instruction_bits'])};",
-        f"    localparam int unsigned NPU_ISA_OPCODE_SHIFT      = {as_int(field_layout['opcode_shift'])};",
-        f"    localparam int unsigned NPU_ISA_RD_SHIFT          = {as_int(field_layout['rd_shift'])};",
-        f"    localparam int unsigned NPU_ISA_RS1_SHIFT         = {as_int(field_layout['rs1_shift'])};",
-        f"    localparam int unsigned NPU_ISA_RS2_SHIFT         = {as_int(field_layout['rs2_shift'])};",
-        f"    localparam logic [31:0] NPU_ISA_CLASS_MASK        = {sv_hex(common_masks['class'])};",
-        f"    localparam logic [31:0] NPU_ISA_FIELD_MASK        = {sv_hex(field_layout['field_mask'])};",
-        f"    localparam logic [31:0] NPU_ISA_IMM_MASK          = {sv_hex(field_layout['imm_mask'])};",
-        "",
-    ]
-
-    for name, value in class_names:
-        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
-    lines.append("")
-    for name, value in masks:
-        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
-    lines.append("")
-    for name, value in reserved_names:
-        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
-    lines.append("")
-    for name, value in opcode_names:
-        lines.append(sv_opcode_param(name, value, pad=pad))
-    lines.append("")
-    for name, value in encoding_names:
-        lines.append(sv_param("logic [31:0]", name, value, pad=pad))
-
-    lines.extend(["", "endpackage", "/* verilator lint_on UNUSEDPARAM */", ""])
-    return "\n".join(lines)
-
-
 def generated_reference_md(schema: dict[str, Any]) -> str:
-    isa = schema["isa"]
-    common_masks = schema["common_masks"]
-    field_layout = schema["field_layout"]
+    frontend = schema["scalar"]
     lines = [
-        f"<!-- {BANNER} -->",
-        "# HolonNPU ISA Reference",
-        "",
-        "This file is generated from `spec/holon_npu_isa.json`. Edit the schema",
-        "and regenerate outputs instead of editing this file by hand.",
-        "",
-        "## ISA Version",
-        "",
-        f"- ISA version: {isa['major']}.{isa['minor']}.",
-        f"- Instruction width: {isa['instruction_bits']} bits.",
-        f"- Instruction alignment: {isa['alignment_bytes']} bytes.",
-        f"- Ownership: {isa['ownership']}",
-        "",
-        "## Initial Field Layout",
-        "",
-        f"- Opcode shift: {field_layout['opcode_shift']}.",
-        f"- Destination/local-offset field shift: {field_layout['rd_shift']}.",
-        f"- Source/count field shift: {field_layout['rs1_shift']}.",
-        f"- Source/reserved field shift: {field_layout['rs2_shift']}.",
-        f"- Class mask: `{c_hex(common_masks['class'])}`.",
-        f"- 4-bit field mask: `{c_hex(field_layout['field_mask'])}`.",
-        f"- 12-bit immediate mask: `{c_hex(field_layout['imm_mask'])}`.",
-        "",
-        "## Instruction Classes",
-        "",
-        "| Class | Value | Mask | Format | Fault | Coverage | Semantics | Description |",
-        "| ----- | ----- | ---- | ------ | ----- | -------- | --------- | ----------- |",
-    ]
-    for entry in schema["instruction_classes"]:
-        lines.append(
-            f"| `{entry['name']}` | `{c_hex(entry['value'])}` | `{c_hex(entry['mask'])}` | "
-            f"`{entry['format']}` | `{entry['fault']}` | `{entry['coverage']}` | "
-            f"`{entry['semantics']}` | {entry['description']} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Encoding Constants",
-            "",
-            "| Name | Value | Description |",
-            "| ---- | ----- | ----------- |",
-        ]
-    )
-    for entry in schema["encoding_constants"]:
-        lines.append(
-            f"| `{entry['name']}` | `{c_hex(entry['value'])}` | {entry['description']} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Implemented Instructions",
-            "",
-            "| Instruction | Class | Opcode | Format | Fault | Coverage | Semantics | Description |",
-            "| ----------- | ----- | ------ | ------ | ----- | -------- | --------- | ----------- |",
-        ]
-    )
-    for entry in schema["instructions"]:
-        lines.append(
-            f"| `{entry['name']}` | `{entry['class']}` | `{c_hex(entry['opcode'], width=2)}` | "
-            f"`{entry['format']}` | `{entry['fault']}` | `{entry['coverage']}` | "
-            f"{entry['semantics']} | {entry['description']} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Reserved Classes",
-            "",
-            "| Class | Value | Mask | Description |",
-            "| ----- | ----- | ---- | ----------- |",
-        ]
-    )
-    for entry in schema["reserved_classes"]:
-        lines.append(
-            f"| `{entry['name']}` | `{c_hex(entry['value'])}` | `{c_hex(entry['mask'])}` | "
-            f"{entry['description']} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Architectural State",
-            "",
-        ]
-    )
-    for state_group, names in schema["architectural_state"].items():
-        lines.append(f"- `{state_group}`: {', '.join(f'`{name}`' for name in names)}.")
-    frontend = schema["semantic_frontend"]
-    lines.extend([
-        "", "## Semantic Frontend Migration", "",
-        "This scalar-hart contract is not a capability of the current RTL or",
-        "its program encoding. It will replace the custom control encoding",
-        "through simulator-first execution verification, not a compatibility mode.", "",
+        f"<!-- {BANNER} -->", "# HolonNPU Scalar ISA Reference", "",
+        "Current executable research baseline, not a released hardware ABI.",
+        "Behavioral authority: [ISA](ISA.md).", "",
         f"- Scalar profile: `{frontend['scalar_profile']}`, `{frontend['abi']}`.",
         f"- Environment: `{frontend['execution_environment']}`.",
         f"- Alignment: {frontend['alignment_bytes']} bytes; byte order: {frontend['byte_order']}.",
         f"- Low bits `11`: {frontend['scalar_bytes']}-byte scalar word.",
-        f"- Low bits `00/01/10`: {frontend['holon_bytes']}-byte Holon frame (opcode legality separate).",
-        f"- Authority: {frontend['authority']}.", "",
-        f"- ELF scalar base: `{frontend['elf_profile']['base']}`; supported extension requirements: "
-        + ", ".join(f"`{e}`" for e in frontend["elf_profile"]["extensions"]) + ".",
-        f"- ELF stack alignment: {frontend['elf_profile']['stack_alignment']} bytes.", "",
-        "Scalar effects use 32-bit little-endian physical addresses and trap on",
-        "misaligned halfword/word accesses. Memory/CSR/fence/machine-control",
-        "requests are not retired by evaluation; the machine must complete them.", "",
-        "| Scalar exception | Cause |",
-        "| ---------------- | ----- |",
-        *[f"| `{name}` | {value} |" for name, value in frontend["scalar_traps"].items()], "",
-        "| Scalar instruction | Extension | Format | Match | Mask |",
-        "| ------------------ | --------- | ------ | ----- | ---- |",
-    ])
-    for entry in frontend["instructions"]:
-        lines.append(
-            f"| `{entry['name']}` | {entry['extension']} | `{entry['format']}` | "
-            f"`{c_hex(entry['value'])}` | `{c_hex(entry['mask'])}` |"
-        )
+        f"- Low bits `00/01/10`: {frontend['holon_bytes']}-byte Holon frame.",
+        f"- ELF base: `{frontend['elf_profile']['base']}`; stack alignment: {frontend['elf_profile']['stack_alignment']}.",
+        "", "## Scalar Instructions", "",
+        "| Instruction | Extension | Format | Match | Mask |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for e in frontend["instructions"]:
+        lines.append(f"| `{e['name']}` | {e['extension']} | `{e['format']}` | `{c_hex(e['value'])}` | `{c_hex(e['mask'])}` |")
+    lines.extend(["", "## Traps", "", "| Cause | Value |", "| --- | --- |"])
+    lines.extend(f"| `{name}` | {value} |" for name, value in frontend["scalar_traps"].items())
+    lines.extend(["", "## Machine CSRs", "", "| CSR | Address | Reset | Write mask |", "| --- | --- | --- | --- |"])
+    for c in frontend["machine_csrs"]:
+        lines.append(f"| `{c['name']}` | `{c['address']}` | `{c['reset']}` | `{c['write_mask']}` |")
+    lines.extend(["", "HPM counter/selector zero ranges:"])
+    lines.extend(f"- `{r['first']}..{r['last']}`." for r in frontend["machine_zero_csr_ranges"])
     lines.append("")
-    lines.extend(["### Machine CSR Inventory", "",
-                  "Internal semantic migration contract; not accelerator MMIO registers.", "",
-                  "| CSR | Address | Reset | Writable fields |", "| --- | --- | --- | --- |"])
-    for csr in frontend["machine_csrs"]:
-        lines.append(f"| `{csr['name']}` | `{csr['address']}` | `{csr['reset']}` | `{csr['write_mask']}` |")
-    lines.extend(["", "Unimplemented HPM counter/selector fields read zero and ignore writes:"])
-    for region in frontend["machine_zero_csr_ranges"]:
-        lines.append(f"- `{region['first']}..{region['last']}`.")
-    lines.extend(["", "CSR instruction write legality is separate from field writability.",
-                  "See [M-mode semantics](ISA_REDESIGN.md#m-mode-state-contract-adr-0062).", ""])
     return "\n".join(lines)
 
 
 def generated_scalar_metadata(schema: dict[str, Any]) -> str:
-    frontend = schema["semantic_frontend"]
+    frontend = schema["scalar"]
     entries = frontend["instructions"]
     formats = sorted({entry["format"] for entry in entries})
     lines = [
@@ -361,7 +113,7 @@ def generated_scalar_metadata(schema: dict[str, Any]) -> str:
 
 
 def generated_npu_metadata(schema: dict[str, Any]) -> str:
-    npu = schema["semantic_npu"]
+    npu = schema["npu"]
     lines = ["// Generated from spec/holon_npu_isa.json; do not edit.", "#pragma once", "",
              "#include <array>", "#include <cstdint>", "#include <string_view>", "",
              "namespace holon_npu::semantic::instruction {", ""]
@@ -401,10 +153,10 @@ def generated_npu_metadata(schema: dict[str, Any]) -> str:
 
 
 def generated_npu_reference(schema: dict[str, Any]) -> str:
-    npu = schema["semantic_npu"]
+    npu = schema["npu"]
     lines = ["<!-- Generated from spec/holon_npu_isa.json; do not edit. -->",
-             "# Holon NPU Operand Reference", "", "Semantic-stage allocation under ADR-0065, not current RTL capability.",
-             "State, arithmetic and fault authority: [ISA Redesign](ISA_REDESIGN.md).", "",
+             "# Holon NPU Operand Reference", "", "Current executable research operand contract.",
+             "State, arithmetic and fault authority: [ISA](ISA.md).", "",
              "Low bits: vector/predicate=00, matrix=01, DMA/system=10. Opcode is bits 11:2.",
              "Unused fields and unlisted opcodes are illegal. Format fields below are role:lsb:width.", "",
              "| Format | Fields |", "| --- | --- |"]
@@ -426,8 +178,6 @@ def generated_npu_reference(schema: dict[str, Any]) -> str:
 
 def render_all(schema: dict[str, Any]) -> dict[str, str]:
     return {
-        "include/holon_npu_isa.h": generated_header(schema),
-        "rtl/common/npu_isa_pkg.sv": generated_sv_pkg(schema),
         "docs/ISA_REFERENCE.md": generated_reference_md(schema),
         "sim/semantic/holon_npu_scalar_metadata.hpp": generated_scalar_metadata(schema),
         "sim/semantic/holon_npu_operand_metadata.hpp": generated_npu_metadata(schema),

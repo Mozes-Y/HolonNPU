@@ -4,6 +4,14 @@ All notable project-level release changes are recorded here.
 
 ## 3.0 (Unreleased)
 
+- Removed accelerator RTL/harnesses, MMIO/descriptor ABI and driver, old ISA
+  exports, gem5 backend/build tooling and their exclusive tests. Current ISA
+  metadata now has only scalar/NPU contracts; generated C++ encodings and
+  functional arithmetic remain unchanged.
+- Simplified target-centric CMake and current-state documentation. Retained
+  semantic, ELF, trap, DMA, Transformer and upstream C23/C++26 execution tests.
+  Portable memory fixtures report real semantic requests instead of estimated
+  packets. New C++ coverage acceptance follows separately.
 - Begin the research-mainline transition: pause RTL, retire legacy accelerator
   and gem5 paths, retain autonomous semantic/workload assets, and adopt open
   architecture exploration. Project version is independent of ISA/ABI versions.

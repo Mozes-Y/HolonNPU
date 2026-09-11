@@ -79,7 +79,7 @@ void run_case(unsigned page_offset, const std::filesystem::path& destination) {
     require(map.has_value(), "system memory map");
     program_machine machine(*map);
     require(machine.boot(boot.bytes(), physical_address{code_base}, instruction_address{code_base}).has_value(), "local boot");
-    std::uint64_t packets{}, bytes{}, traps{}, external_fetches{};
+    std::uint64_t requests{}, bytes{}, traps{}, external_fetches{};
     bool stopped = false;
     for (unsigned steps = 0; steps < 10000 && !stopped; ++steps) {
         const auto pending = machine.pending();
@@ -88,13 +88,7 @@ void run_case(unsigned page_offset, const std::filesystem::path& destination) {
                 request && request->storage == memory::storage::system) {
                 bytes += request->size;
                 external_fetches += request->access == memory::access::execute;
-                // Count the current adapter's packet contract, not a second timing model.
-                auto address = std::uint64_t{request->address.value()};
-                auto remaining = std::uint64_t{request->size};
-                while (remaining) {
-                    const auto size = std::min({remaining, std::uint64_t{256}, 4096 - address % 4096, 64 - address % 64});
-                    ++packets; remaining -= size; address += size;
-                }
+                ++requests;
             }
         }
         const auto event = pending ? service_operation(machine, {system_address{ram_base},ram}) : machine.advance();
@@ -114,7 +108,7 @@ void run_case(unsigned page_offset, const std::filesystem::path& destination) {
     require(ram == expected, "independent full-memory and trap-register scoreboard");
     require(external_fetches > 2 && machine.hart().pc().value() == ram_base + external_code + remote.offset(), "external mixed-width fetch and final PC");
     std::cout << "System memory offset=0x" << std::hex << page_offset << std::dec
-        << " bytes=" << bytes << " packets=" << packets << " traps=" << traps
+        << " bytes=" << bytes << " requests=" << requests << " traps=" << traps
         << " retired=" << machine.hart().retired() << '\n';
     if (!destination.empty()) {
         std::filesystem::create_directories(destination);
@@ -123,7 +117,7 @@ void run_case(unsigned page_offset, const std::filesystem::path& destination) {
         std::ofstream reference(destination / "reference.json");
         reference << "{\"vector_bytes\":64,\"memory_bytes\":" << memory_bytes
             << ",\"pc\":" << machine.hart().pc().value() << ",\"retired\":" << machine.hart().retired()
-            << ",\"traps\":" << traps << ",\"bytes\":" << bytes << ",\"transactions\":" << packets << "}\n";
+            << ",\"traps\":" << traps << ",\"bytes\":" << bytes << ",\"requests\":" << requests << "}\n";
         reference.close(); require(bool(reference), "reference manifest write");
     }
 }
@@ -137,6 +131,6 @@ int main(int argc, char** argv) {
         } else require(argc == 1, "usage: holon_npu_system_memory_test [--export=directory]");
         for (const auto offset : {0xff0u, 0xff3u, 0xffcu})
             run_case(offset, destination.empty() ? destination : destination / std::to_string(offset));
-        std::cout << "PASS: external fetch, page/packet tails, scalar memory and guest trap/MRET\n";
+        std::cout << "PASS: external fetch, page/DMA tails, scalar memory and guest trap/MRET\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

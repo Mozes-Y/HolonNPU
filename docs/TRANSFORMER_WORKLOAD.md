@@ -1,6 +1,6 @@
 # Minimal Self-Hosted Transformer
 
-This is an execution acceptance workload for ADR-0066, not an ISA extension,
+This is a current functional acceptance workload, not an ISA extension,
 RTL authorization, trained model, or performance claim.
 
 ## Program Contract

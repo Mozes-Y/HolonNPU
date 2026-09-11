@@ -2,9 +2,8 @@
 
 ## Status And Ownership
 
-The 3.0 mainline transition retains the autonomous C++26 semantic implementation
-and retires the old RTL and gem5 integration. Until the transition is complete,
-those sources may still exist; they are not an approved direction for new work.
+The 3.0 mainline retains the autonomous C++26 semantic implementation.
+The old RTL and gem5 integration have been retired to the Git checkpoint.
 The independent performance simulator described below is planned, not built.
 
 - Semantic core: instruction decode, architectural state, numerical results,

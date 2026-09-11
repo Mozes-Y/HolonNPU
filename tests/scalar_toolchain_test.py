@@ -36,7 +36,7 @@ def sample(entry: dict) -> tuple[str, str]:
 
 
 def mixed_link_probe(root: Path, output: Path, compiler: Path, objcopy: str, decoder: Path, flags: list[str]) -> None:
-    npu = json.loads((root / "spec/holon_npu_isa.json").read_text())["semantic_npu"]
+    npu = json.loads((root / "spec/holon_npu_isa.json").read_text())["npu"]
     assembly = [".option norvc", ".option norelax", ".text", ".balign 4", ".global mixed_probe", "mixed_probe:"]
     expected_bytes, expected_text = bytearray(), []
     for entry in npu["instructions"]:
@@ -90,7 +90,7 @@ def main() -> None:
     readelf = run(compiler, "-print-prog-name=readelf").strip()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    entries = json.loads((root / "spec/holon_npu_isa.json").read_text())["semantic_frontend"]["instructions"]
+    entries = json.loads((root / "spec/holon_npu_isa.json").read_text())["scalar"]["instructions"]
     samples = [sample(entry) for entry in entries]
     assembly = output / "scalar.S"
     assembly.write_text(".option norvc\n.option norelax\n.text\n.balign 4\n.global decode_probe\ndecode_probe:\n"

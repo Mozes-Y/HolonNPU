@@ -1,8 +1,8 @@
 <!-- Generated from spec/holon_npu_isa.json; do not edit. -->
 # Holon NPU Operand Reference
 
-Semantic-stage allocation under ADR-0065, not current RTL capability.
-State, arithmetic and fault authority: [ISA Redesign](ISA_REDESIGN.md).
+Current executable research operand contract.
+State, arithmetic and fault authority: [ISA](ISA.md).
 
 Low bits: vector/predicate=00, matrix=01, DMA/system=10. Opcode is bits 11:2.
 Unused fields and unlisted opcodes are illegal. Format fields below are role:lsb:width.

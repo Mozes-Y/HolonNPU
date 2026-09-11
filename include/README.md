@@ -1,11 +1,6 @@
-# include
+# Public Headers
 
-Public host and firmware contracts live here.
-
-- `holon_npu_program.h`: generated ABI 3.0 registers, program descriptor,
-  completion record, capabilities, lifecycle, IRQ, and fault constants.
-- `holon_npu_isa.h`: generated Holon ISA 1.0 encoding metadata and helpers.
-- `holon_npu_runtime.hpp`: C++26 typed program construction API.
-
-Generated headers are owned by the schemas under `spec/` and must not be edited
-directly.
+`holon_npu_runtime.hpp` exposes typed program construction for the current
+RV32/Holon contract. Semantic headers are exported by the CMake semantic target
+from `sim/semantic/`; consumers inherit C++26 and header search paths.
+There is no descriptor/MMIO C API in the 3.0 research mainline.

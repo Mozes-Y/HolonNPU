@@ -15,13 +15,23 @@ Project version 3.0 does not assign a new ISA or program ABI version.
 | Step | State | Evidence |
 | ---- | ----- | -------- |
 | Governance | Complete | `gen_abi.py --check`, `gen_isa.py --check`, `check_macro_policy.py`, `git diff --check` passed |
-| Canonical code/schema/build | Pending | Fresh retained-test matrix required |
+| Canonical code/schema/build | Complete | Fresh configure/build; Debug 14/14, Regression 15/15 including compiled RV32 probes; generation/schema/macro/whitespace checks passed |
 | C++ verification/CI | Pending | New coverage evidence required; old RTL metrics do not count |
 
 The retained implementation includes mixed RV32/Holon execution, precise
 traps/retirement, ELF loading, independent system-memory boundary tests, and a
 small whole-program Transformer checked against a double-precision reference.
-These are pre-transition functional assets; revalidation follows code cleanup.
+These assets were revalidated after cleanup with CMake 4.3.4 and GCC/G++ 16.2.
+Generated scalar/NPU C++ metadata is byte-identical to the checkpoint; only
+schema ownership and generated references changed. No instruction semantics
+were changed. System-memory fixtures now report actual semantic requests, not
+estimated packets from a retired backend.
+
+Commands: `cmake --preset debug --fresh`, `cmake --build --preset debug
+--parallel 2`, `ctest --preset debug`; the same configure/build/test sequence
+for `regression`; `python3 tools/gen_isa.py --check`, `python3
+tools/check_isa.py`, `python3 tests/isa_schema_test.py`,
+`python3 tools/check_macro_policy.py`, and `git diff --check`.
 
 ## Next Work And Limits
 

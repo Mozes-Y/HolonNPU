@@ -1,7 +1,5 @@
-# sw
+# Program Construction
 
-Host driver and program-runtime implementations live here.
-
-- `holon_npu_driver.h`: public C driver API.
-- `holon_npu_driver.c`: MMIO register driver implementation.
-- `holon_npu_runtime.cpp`: C++26 Holon program builder and example kernels.
+`holon_npu_runtime.cpp` implements the typed byte-oriented program builder.
+It uses the shared codec, not a second interpreter. Guest freestanding support
+is under `sim/guest/`. A graph/task compiler and serving runtime are future work.

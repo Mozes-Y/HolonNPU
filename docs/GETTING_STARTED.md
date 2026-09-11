@@ -1,297 +1,75 @@
-# HolonNPU 入门指南
+# Getting Started
 
-HolonNPU 当前主线是一个可编程的整数/量化 NPU tile。Host 提交的不是
-GEMM descriptor，而是 ABI 3.0 program descriptor；reference frontend 执行
-Holon ISA 1.0 程序，并调度 DMA、vector、matrix 和同步操作。
+## Requirements
 
-旧的 descriptor-driven GEMM 实现只保存在 `v1.5` tag 中，不与当前产品
-源码共同维护。
+Use CMake 4.0+, Ninja, Python 3.10+, and a C23/C++26 compiler/library.
+The local validation toolchain is recorded in Progress. Debug does not require
+an external simulator or RISC-V compiler. Regression additionally requires a
+C23/C++26-capable RISC-V GCC/G++, binutils and RV32IM/Zicsr ILP32 support.
 
-## 先理解运行流程
+## Configure, Build, Test
 
-一次程序执行包含以下步骤：
-
-1. 软件构造 Holon program image、argument block 和 program descriptor。
-2. 软件通过 AXI-Lite 写 descriptor 地址并触发 doorbell。
-3. loader 通过 AXI4 读取并验证 descriptor。
-4. loader 将代码复制到 program memory，将参数复制到 data scratchpad。
-5. control plane 从 `LOADING` 进入 `RUNNING`，reference frontend 开始取指。
-6. frontend 执行控制流，并通过 interface issue DMA、vector、matrix 工作。
-7. 程序使用 DMA STORE 将结果写回 system memory。
-8. 若配置 completion record，硬件先完成并确认写回，再暴露 `DONE` 或
-   `FAULT` 以及 IRQ。
-
-`DONE`/`FAULT` 是 sticky 状态，下一次提交前必须执行
-`CLEAR_TERMINAL`。软件 reset 会先进入可见的 `RESETTING`，排空已接受的
-AXI/local-memory 工作后才回到 `IDLE`。
-
-## 代码结构
-
-| 路径 | 内容 |
-| ---- | ---- |
-| `spec/` | ABI、ISA、coverage baseline 的机器可检查来源。 |
-| `rtl/common/` | AXI/AXI-Lite/valid-ready interface 和生成 package。 |
-| `rtl/control/` | control registers、program loader、completion writer。 |
-| `rtl/frontend/` | frontend interface 和 reference frontend。 |
-| `rtl/localmem/` | program/data local memory 及仲裁。 |
-| `rtl/dma/` | frontend-issued DMA fabric。 |
-| `rtl/vector/` | integer/quant vector engine。 |
-| `rtl/matrix/` | PE、systolic array、matrix micro-op engine。 |
-| `rtl/integration/` | control plane、engine integration、canonical `npu_top`。 |
-| `sim/rtl/` | 仅供 Verilator/C++ 使用的 flattened wrapper。 |
-| `sim/semantic/` | C++26 semantic core 与 direct runner。 |
-| `sim/gem5/` | gem5 SimObject、timing model、RISC-V 配置与 simulation-only guest。 |
-| `sim/` | C++ testbench 和 typed coverage runtime。 |
-| `include/` | 生成的 public headers 和 C++ runtime API。 |
-| `sw/` | C23 driver 与 C++26 runtime 实现。 |
-| `tools/` | schema generation、结构检查、coverage gate。 |
-| `docs/SIMULATION.md` | simulator-first model boundary 和 RTL 准入规则。 |
-
-`rtl/` 中的模块必须能从 `npu_top` 产品图到达。`sim/rtl/` wrapper 只是测试
-边界，不允许参与产品内部连接。program-level 测试也不能通过产品 test
-probe 读取 scratchpad，而要执行 DMA STORE 后比较模拟 system memory。
-
-每次只开发一个可审查 feature。验收命令通过后，必须同步更新
-`docs/PROGRESS.md` 与 `CHANGELOG.md` 并立即提交；只有 tracked worktree
-恢复干净后才能开始下一个 feature。实现、测试、生成文件和当前态文档应在
-同一个 feature commit 中，`build/` 等生成产物不得提交。
-
-## 环境要求
-
-- CMake 4.0+
-- Ninja
-- Verilator
-- 支持 C23 的 C compiler
-- 支持 C++26 的 C++ compiler
-- Python 3
-
-确认入口：
-
-```bash
-cmake --list-presets
-cmake --list-presets=build
-cmake --list-presets=test
-```
-
-## 日常构建
-
-Debug 配置与构建：
-
-```bash
+```sh
 cmake --preset debug
 cmake --build --preset debug --parallel 2
+ctest --preset debug
 ```
 
-快速测试和 lint 分开执行：
+These are separate operations: configure declares targets; build compiles;
+CTest runs checks/programs. List tests with `ctest --preset debug -N`.
 
-```bash
-ctest --preset debug --output-on-failure
-ctest --preset lint --output-on-failure
+```sh
+cmake --build --preset debug --target holon_npu_transformer_test --parallel 2
+ctest --preset debug -R '^holon_npu_transformer$' --verbose
+ctest --preset debug -R '^holon_npu_system_memory$' --verbose
 ```
 
-优化后的完整回归：
+Transformer output includes seed, vector capacity, stages, retirement and
+maximum numerical error. Memory tests report addresses, actual requests,
+bytes, traps and retirement; these counts are not a timing prediction.
 
-```bash
+For an optimized complete functional gate:
+
+```sh
 cmake --preset regression
 cmake --build --preset regression --parallel 2
-ctest --preset regression --output-on-failure
+ctest --preset regression
 ```
 
-覆盖率构建：
+Select a cross compiler explicitly when needed:
+`cmake --preset regression -DHOLON_NPU_RISCV_GCC=/path/to/riscv64-linux-gnu-gcc`.
+Its sibling G++ must also support C++26. Toolchain probes check real ELF
+attributes and execute C/C++ programs, not just decode hand-written words.
+Artifacts live under `build/regression/scalar-toolchain/`.
 
-```bash
-cmake --preset coverage
-cmake --build --preset coverage --parallel 2
-ctest --preset coverage --output-on-failure
-python3 tools/check_coverage.py --build-dir build/coverage
+For library-only consumers use `cmake -S . -B build/library -G Ninja
+-DBUILD_TESTING=OFF`, then `cmake --build build/library`. Public C++ headers
+and language requirements propagate through target file sets and links.
+
+## Workload Fixtures
+
+```sh
+build/debug/holon_npu_transformer_test --export=build/fixtures/transformer
+build/debug/holon_npu_system_memory_test --export=build/fixtures/memory
 ```
 
-Simulation foundation 使用独立 build tree，并允许 16 路并行构建完整 gem5：
+These commands execute their scoreboards before exporting program/input/expected
+bytes and reference metadata. They are portable functional fixtures; outputs
+contain no invented cycle or retired-backend packet predictions.
 
-```bash
-cmake --preset gem5
-cmake --build --preset gem5 --parallel 16
-ctest --preset gem5 --output-on-failure
-```
+## Change A Contract
 
-该入口检查 upstream `stable` SHA、完整 C++26 compile database、timing
-calculator 和 RV32 编译工具链，并运行不含 Host CPU 的自主 Transformer
-程序。gem5 与 direct runner 使用同一 semantic core，对比 PC、retirement 和
-完整内存结果，并改变内存延迟、vector 吞吐参数检查性能敏感性。
-旧 Host bare-metal/Linux device 配置已经退出此路径；自主中断、checkpoint 和
-完整性能校准仍需独立验证。当前真实结果见 `docs/PROGRESS.md`，模型边界见
-`docs/SIMULATION.md`。
+Read Roadmap and Progress. Edit `spec/holon_npu_isa.json` for encoding metadata,
+then run `python3 tools/gen_isa.py`. Update ISA semantics and directed/random
+tests for any behavior change. Never manually edit generated headers/references.
+Existing numerical rules and precise faults remain the baseline.
 
-`CMakePresets.json` 只固定 debug/regression/coverage 产品 build tree、独立 gem5
-build tree 和五个测试入口，不为每个子系统增加 preset。单独构建或观察测试时
-直接使用 target/regex：
+## Document Map
 
-```bash
-cmake --build --preset debug --target npu_dma_fabric_tb
-ctest --preset debug -R '^npu_dma_fabric$' --verbose
-```
+Read Architecture for implemented components, ISA for executable semantics,
+Simulation for future-model methodology, and Verification for actual gates.
+Research notes are hypotheses. Progress reports current evidence; Changelog
+and Git preserve history. New features need a passing test result and a commit.
 
-## ABI 与 ISA 单一来源
-
-不要直接修改以下生成文件：
-
-- `rtl/common/npu_pkg.sv`
-- `rtl/common/npu_isa_pkg.sv`
-- `include/holon_npu_program.h`
-- `include/holon_npu_isa.h`
-- `docs/INTERFACE_REFERENCE.md`
-- `docs/ISA_REFERENCE.md`
-
-ABI 修改流程：
-
-1. 先更新 `docs/INTERFACE.md` 和 ADR。
-2. 修改 `spec/holon_npu_abi.json`。
-3. 运行 `python3 tools/gen_abi.py`。
-4. 运行 `python3 tools/gen_abi.py --check`。
-5. 更新 RTL、driver、model、tests 和 coverage evidence。
-
-ISA 修改流程：
-
-1. 先更新 `docs/ISA.md` 和 ADR。
-2. 修改 `spec/holon_npu_isa.json`。
-3. 运行 `python3 tools/gen_isa.py`。
-4. 运行 `python3 tools/gen_isa.py --check` 和
-   `python3 tools/check_isa.py`。
-5. 同步 decoder、encoder、model、RTL、runtime 和测试。
-
-ABI generator 会同时读取 ISA schema，从而自动派生 ISA version 和
-operation-class capability mask；不要在 ABI schema 中复制 operation-class
-数字。
-
-## RTL 阅读顺序
-
-推荐按控制流阅读：
-
-1. `rtl/common/npu_pkg.sv` 和 `npu_isa_pkg.sv`：生成常量和类型。
-2. `rtl/common/npu_axi_lite_if.sv`、`npu_axi4_if.sv`：协议与通用 SVA。
-3. `rtl/control/npu_control_regs.sv`：lifecycle、IRQ、reset、doorbell。
-4. `rtl/control/npu_program_loader.sv`：descriptor 验证和 code/arg 加载。
-5. `rtl/frontend/npu_frontend_if.sv` 与 `npu_reference_frontend.sv`：ISA
-   执行及 engine issue。
-6. `rtl/dma/npu_dma_fabric.sv`、`rtl/vector/npu_vector_engine.sv`、
-   `rtl/matrix/npu_matrix_engine.sv`：执行引擎。
-7. `rtl/integration/npu_frontend_tile.sv` 和 `npu_top.sv`：完整产品流程。
-
-Matrix datapath 可继续深入阅读 `npu_pe_i8.sv` 和
-`npu_systolic_array.sv`。B weight 驻留在 PE 中，A 水平传播，partial sum
-垂直传播，architectural accumulator 为 INT32 wraparound。
-
-## 软件入口
-
-C23 driver 位于 `sw/holon_npu_driver.c` 和 `.h`，提供：
-
-- capability/status/fault/perf 读取；
-- descriptor 初始化、校验和提交；
-- halt/resume/debug-step；
-- IRQ clear；
-- soft reset 与 `holon_npu_wait_idle()`；
-- terminal wait/clear。
-
-C++26 runtime 位于 `include/holon_npu_runtime.hpp` 和
-`sw/holon_npu_runtime.cpp`，提供 typed program builder 和示例 kernel 构造。
-编码常量来自生成的 `holon_npu_isa.h`。
-
-## 验证方法
-
-验证不是只依赖外部 C++ compare：
-
-- product RTL 内直接使用 named native `assert property`；
-- `npu_assert_fail` 证明 assertion 在 Verilator 中真实启用；
-- C++ architectural model 给出 decode/retire/fault/engine semantics；
-- AXI directed tests 覆盖 4 KiB split 和各 channel backpressure；
-- reset tests 在 AR/R/AW/W/B stall 中验证 drain；
-- typed functional coverage 只在 monitor/scoreboard 完成观察和校验时记录；
-- checker 强制所有 named RTL `cover property` 非零；
-- line/branch/toggle/expr 不得低于 checked baseline。
-
-coverage run 开始前会删除旧 artifacts，并生成本轮
-`expected_tests.txt`。因此缺失测试或旧 `.dat` 文件都不能掩盖问题。
-
-## 常见修改检查表
-
-新增架构行为必须先完成 `docs/SIMULATION.md` 定义的流程：在共享 C++26
-semantic core 中实现并测试，通过自主运行的 gem5 timing/memory system
-workload 评估，经 ADR 批准后才能开始 RTL。直接运行 semantic core 的快速测试
-与 gem5 使用同一份语义实现，不能各自维护 expected behavior。
-
-当前演进目标是 self-hosted NPU：先实现自主启动与执行，再跑通完整 Transformer，
-最后替换现有 Host/DmaDevice 为无 Host 的 gem5 执行系统。现有 RISC-V 测试只验证
-已实现的 accelerator 路径，不能作为 self-hosted 已完成的证明。
-
-目标标量 ISA 已确定为 RV32IM + Zicsr、ILP32、禁用 C 扩展，编译选项为
-`-march=rv32im_zicsr -mabi=ilp32`，使用 freestanding C23/C++26。
-标准标量指令保持 32-bit，Holon vector/matrix/DMA 指令固定 64-bit，使用禁用
-RVC 后释放的前缀，不能套用标准 RISC-V 的指令长度解码规则。
-Holon vector/matrix 先通过显式 intrinsic 或汇编接入，保留 VLA 与独立 predicate
-设计，不承诺自动向量化。执行环境为单 hart M-mode 裸机，无 U/S mode、MMU 或 OS。
-当前已实现取指分帧、标量 effects，以及共享的 M-mode CSR/trap/MRET/WFI 状态。
-访存和 fence 必须经过 token 校验后完成，issue 不代表退休。
-物理地址路由和同步访存服务也已实现；完整 ELF 启动和新的 NPU 指令执行仍待接入。迁移边界见
-[ISA Redesign](ISA_REDESIGN.md)。
-
-ADR-0065 的 54 条 NPU 指令已具备 schema 驱动的强类型编解码，覆盖显式长度、
-独立 predicate、标量寄存器地址和 matrix tile view。字段见
-[Operand Reference](NPU_OPERAND_REFERENCE.md)。这些是编码合同，不代表新算术已实现。
-`holon_npu_instruction_test --mixed-words <binary>` 可观察混合指令反汇编；
-工具链测试还会检查 `.word` 发出的完整 64-bit 字节经过链接后保持不变。
-
-```bash
-cmake --build --preset debug --target holon_npu_instruction_test holon_npu_scalar_test holon_npu_hart_test holon_npu_memory_test holon_npu_elf_test --parallel 2
-ctest --preset debug -R '^(holon_npu_instruction|holon_npu_scalar|holon_npu_hart|holon_npu_memory|holon_npu_elf|isa_schema_tests)$' --verbose
-```
-
-`scalar_toolchain_check` 在 gem5 preset 中用上游 RISC-V 汇编器独立校验全部
-56 个标量/机器指令编码，并执行 C23/C++26 编译的标量程序，验证 SPM 栈、系统内存全局变量、
-计算结果及 WFI 等待状态。现在直接加载 ELF32 的 PT_LOAD 和 BSS，不再抽取代码/数据 section。
-`holon_npu_elf` 检查兼容性、地址/权限和加载失败不修改内存，并运行确定性变异测试。
-结果位于 `build/gem5/scalar-toolchain/`；这不是完整 Holon 混合指令启动的验收。
-
-自主功能入口是 `program_machine::boot(boot_image)` 和
-`run_program(machine, system_memory_view, instruction_budget)`。它不需要 descriptor；
-system memory 由调用者提供，指令预算耗尽可继续执行，不会制造 architectural fault。
-
-```bash
-cmake --build --preset debug --target holon_npu_execution_test --parallel 2
-ctest --preset debug -R '^holon_npu_execution$' --verbose
-```
-
-修改 AXI/DMA：
-
-- 检查 VALID/payload stability；
-- 检查 burst length、alignment、4 KiB split；
-- 添加 backpressure/error/reset-drain tests；
-- 添加或更新 native SVA 和 functional event。
-
-修改 vector/matrix：
-
-- 先固定 ISA semantic；
-- 同步 C++ model；
-- 新架构机制先完成 gem5 性能和 workload 评估；
-- 覆盖 tail、predicate、overflow、rounding、bounds 和 illegal mode；
-- program-level 结果通过 DMA STORE 观察。
-
-新增 RTL module：
-
-- 使用 interface/modport 表达协议；
-- 从 `npu_top` 产品图接入；
-- 添加 lint、module test、assertion 和 coverage；
-- 不在 `rtl/` 放 test wrapper。
-
-## 提交前检查
-
-```bash
-python3 tools/gen_abi.py --check
-python3 tools/gen_isa.py --check
-python3 tools/check_isa.py
-python3 tools/check_rtl_interface_usage.py
-python3 tools/check_macro_policy.py
-git diff --check
-```
-
-随后运行 debug、lint、regression 和 coverage 四个 gate。真实结果记录到
-`docs/PROGRESS.md`，长期变更记录写入 `CHANGELOG.md`。
+Presets only fix configurations/build trees and essential test entry points.
+Use native `--target`, `-R`, `--verbose` and `-j` instead of new wrapper commands.

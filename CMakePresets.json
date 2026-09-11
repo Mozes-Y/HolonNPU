@@ -1,10 +1,5 @@
 {
   "version": 10,
-  "cmakeMinimumRequired": {
-    "major": 4,
-    "minor": 0,
-    "patch": 0
-  },
   "configurePresets": [
     {
       "name": "debug",
@@ -21,28 +16,8 @@
       "binaryDir": "${sourceDir}/build/regression",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-      }
-    },
-    {
-      "name": "coverage",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/coverage",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "HOLON_NPU_ENABLE_COVERAGE": "ON"
-      }
-    },
-    {
-      "name": "gem5",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/gem5",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "HOLON_NPU_BUILD_GEM5": "ON",
-        "HOLON_NPU_BUILD_RTL": "OFF"
+        "HOLON_NPU_VERIFY_TOOLCHAIN": "ON"
       }
     }
   ],
@@ -54,15 +29,6 @@
     {
       "name": "regression",
       "configurePreset": "regression"
-    },
-    {
-      "name": "coverage",
-      "configurePreset": "coverage"
-    },
-    {
-      "name": "gem5",
-      "configurePreset": "gem5",
-      "targets": ["gem5"]
     }
   ],
   "testPresets": [
@@ -70,50 +36,22 @@
       "name": "debug",
       "configurePreset": "debug",
       "execution": {
-        "jobs": 2
+        "jobs": 2,
+        "noTestsAction": "error"
       },
-      "filter": {
-        "include": {
-          "label": "fast"
-        }
-      }
-    },
-    {
-      "name": "lint",
-      "configurePreset": "debug",
-      "execution": {
-        "jobs": 2
-      },
-      "filter": {
-        "include": {
-          "label": "lint"
-        }
+      "output": {
+        "outputOnFailure": true
       }
     },
     {
       "name": "regression",
       "configurePreset": "regression",
       "execution": {
-        "jobs": 2
-      }
-    },
-    {
-      "name": "coverage",
-      "configurePreset": "coverage",
-      "execution": {
-        "jobs": 2
-      }
-    },
-    {
-      "name": "gem5",
-      "configurePreset": "gem5",
-      "execution": {
-        "jobs": 2
+        "jobs": 2,
+        "noTestsAction": "error"
       },
-      "filter": {
-        "include": {
-          "label": "^gem5-fast$"
-        }
+      "output": {
+        "outputOnFailure": true
       }
     }
   ]

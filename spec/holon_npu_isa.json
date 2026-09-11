@@ -1,154 +1,161 @@
 {
-  "schema_version": 1,
-  "project": "HolonNPU",
-  "semantic_npu": {
-    "stage": "operand_contract",
-    "families": {"vector": 0, "matrix": 1, "system": 2},
-    "opcode_shift": 2,
-    "opcode_bits": 10,
-    "register_counts": {"scalar": 32, "vector": 32, "predicate": 32, "tile": 8, "view": 16},
-    "types": {"i8": 0, "u8": 1, "i16": 2, "u16": 3, "i32": 4, "u32": 5, "f32": 6},
-    "policies": {"merge": 0, "zero": 1},
-    "roundings": {"rne": 0, "rtz": 1, "rdn": 2, "rup": 3},
-    "capacities": {"vector_bytes": 0, "matrix_rows": 1, "matrix_cols": 2, "tile_bytes": 3},
-    "traps": {"invalid_operand": 24},
-    "roles": {
-      "rd": "scalar", "avl": "scalar", "vl": "scalar", "base": "scalar", "end": "scalar",
-      "stride": "scalar", "index": "scalar", "seed": "scalar", "value": "scalar",
-      "rows": "scalar", "cols": "scalar", "row_stride": "scalar", "col_stride": "scalar",
-      "dst": "scalar", "src": "scalar", "count": "scalar", "status": "scalar",
-      "vd": "vector", "va": "vector", "vb": "vector", "vc": "vector", "indices": "vector",
-      "pd": "predicate", "pa": "predicate", "pb": "predicate", "pg": "predicate", "select": "predicate",
-      "td": "tile", "ta": "tile", "tb": "tile", "ts": "tile", "view": "view",
-      "type": "element", "peer_type": "element", "result_type": "element",
-      "policy": "policy", "rounding": "rounding", "offset": "displacement", "scale": "scale", "selector": "capability"
-    },
-    "formats": {
-      "set_length": [["rd",12,5],["avl",17,5],["type",42,4],["peer_type",47,4]],
-      "binary": [["vd",12,5],["va",17,5],["vb",22,5],["pg",32,5],["vl",37,5],["type",42,4],["policy",46,1]],
-      "ternary": [["vd",12,5],["va",17,5],["vb",22,5],["vc",27,5],["pg",32,5],["vl",37,5],["type",42,4],["policy",46,1]],
-      "unary": [["vd",12,5],["va",17,5],["pg",32,5],["vl",37,5],["type",42,4],["policy",46,1]],
-      "convert": [["vd",12,5],["va",17,5],["pg",32,5],["vl",37,5],["type",42,4],["policy",46,1],["result_type",47,4],["rounding",51,2]],
-      "compare": [["pd",12,5],["va",17,5],["vb",22,5],["pg",32,5],["vl",37,5],["type",42,4]],
-      "select": [["vd",12,5],["va",17,5],["vb",22,5],["select",27,5],["pg",32,5],["vl",37,5],["type",42,4],["policy",46,1]],
-      "broadcast": [["vd",12,5],["value",17,5],["pg",32,5],["vl",37,5],["type",42,4],["policy",46,1]],
-      "extract": [["rd",12,5],["va",17,5],["index",22,5],["vl",37,5],["type",42,4]],
-      "permute": [["vd",12,5],["va",17,5],["indices",22,5],["pg",32,5],["vl",37,5],["type",42,4],["policy",46,1]],
-      "reduce": [["rd",12,5],["va",17,5],["seed",22,5],["pg",32,5],["vl",37,5],["type",42,4]],
-      "load": [["vd",12,5],["base",17,5],["pg",27,5],["vl",32,5],["type",37,4],["policy",41,1],["offset",44,20]],
-      "store": [["va",12,5],["base",17,5],["pg",27,5],["vl",32,5],["type",37,4],["offset",44,20]],
-      "strided_load": [["vd",12,5],["base",17,5],["stride",22,5],["pg",27,5],["vl",32,5],["type",37,4],["policy",41,1],["offset",44,20]],
-      "strided_store": [["va",12,5],["base",17,5],["stride",22,5],["pg",27,5],["vl",32,5],["type",37,4],["offset",44,20]],
-      "gather": [["vd",12,5],["base",17,5],["indices",22,5],["pg",27,5],["vl",32,5],["type",37,4],["policy",41,1],["scale",42,2],["offset",44,20]],
-      "scatter": [["va",12,5],["base",17,5],["indices",22,5],["pg",27,5],["vl",32,5],["type",37,4],["scale",42,2],["offset",44,20]],
-      "ptrue": [["pd",12,5],["vl",37,5]],
-      "pwhile": [["pd",12,5],["base",17,5],["end",22,5],["vl",37,5]],
-      "predicate_binary": [["pd",12,5],["pa",17,5],["pb",22,5],["vl",37,5]],
-      "predicate_unary": [["pd",12,5],["pa",17,5],["vl",37,5]],
-      "predicate_query": [["rd",12,5],["pa",17,5],["vl",37,5]],
-      "predicate_load": [["pd",12,5],["base",17,5],["vl",32,5],["offset",44,20]],
-      "predicate_store": [["pa",12,5],["base",17,5],["vl",32,5],["offset",44,20]],
-      "view": [["view",12,4],["base",16,5],["rows",21,5],["cols",26,5],["row_stride",31,5],["col_stride",36,5],["type",41,4]],
-      "tile_load": [["td",12,3],["view",15,4]],
-      "tile_store": [["ts",12,3],["view",15,4]],
-      "tile_clear": [["td",12,3],["rows",17,5],["cols",22,5],["type",42,4]],
-      "dot": [["td",12,3],["ta",15,3],["tb",18,3],["type",21,4]],
-      "dma": [["dst",12,5],["src",17,5],["count",22,5]],
-      "stop": [["status",12,5]],
-      "caps": [["rd",12,5],["selector",17,2]]
-    },
-    "instructions": [
-      {"name":"VSETL","family":"vector","opcode":31,"format":"set_length","semantics":"bounded_explicit_length"},
-      {"name":"VADD","family":"vector","opcode":1,"format":"binary","semantics":"lane_add"},
-      {"name":"VSUB","family":"vector","opcode":2,"format":"binary","semantics":"lane_subtract"},
-      {"name":"VMUL","family":"vector","opcode":3,"format":"binary","semantics":"lane_multiply"},
-      {"name":"VMULH","family":"vector","opcode":27,"format":"binary","types":["i8","u8","i16","u16","i32","u32"],"semantics":"lane_product_high_half"},
-      {"name":"VMIN","family":"vector","opcode":4,"format":"binary","semantics":"lane_minimum"},
-      {"name":"VMAX","family":"vector","opcode":5,"format":"binary","semantics":"lane_maximum"},
-      {"name":"VDIV","family":"vector","opcode":6,"format":"binary","types":["f32"],"semantics":"binary32_divide"},
-      {"name":"VSQRT","family":"vector","opcode":7,"format":"unary","types":["f32"],"semantics":"binary32_square_root"},
-      {"name":"VFMA","family":"vector","opcode":8,"format":"ternary","types":["f32"],"semantics":"binary32_fused_multiply_add"},
-      {"name":"VAND","family":"vector","opcode":9,"format":"binary","types":["i8","u8","i16","u16","i32","u32"],"semantics":"lane_bitwise_and"},
-      {"name":"VOR","family":"vector","opcode":10,"format":"binary","types":["i8","u8","i16","u16","i32","u32"],"semantics":"lane_bitwise_or"},
-      {"name":"VXOR","family":"vector","opcode":11,"format":"binary","types":["i8","u8","i16","u16","i32","u32"],"semantics":"lane_bitwise_xor"},
-      {"name":"VSHL","family":"vector","opcode":12,"format":"binary","types":["i8","u8","i16","u16","i32","u32"],"semantics":"lane_shift_left"},
-      {"name":"VSHR","family":"vector","opcode":13,"format":"binary","types":["i8","u8","i16","u16","i32","u32"],"semantics":"lane_shift_logical_right"},
-      {"name":"VASHR","family":"vector","opcode":14,"format":"binary","types":["i8","i16","i32"],"semantics":"lane_shift_arithmetic_right"},
-      {"name":"VCONVERT","family":"vector","opcode":15,"format":"convert","semantics":"rounded_saturating_conversion"},
-      {"name":"VCMPEQ","family":"vector","opcode":16,"format":"compare","semantics":"compare_equal"},
-      {"name":"VCMPLT","family":"vector","opcode":17,"format":"compare","semantics":"compare_less"},
-      {"name":"VCMPLE","family":"vector","opcode":18,"format":"compare","semantics":"compare_less_equal"},
-      {"name":"VCMPNE","family":"vector","opcode":19,"format":"compare","semantics":"compare_not_equal"},
-      {"name":"VSELECT","family":"vector","opcode":20,"format":"select","semantics":"predicated_select"},
-      {"name":"VBROADCAST","family":"vector","opcode":21,"format":"broadcast","semantics":"scalar_bit_broadcast"},
-      {"name":"VEXTRACT","family":"vector","opcode":22,"format":"extract","semantics":"lane_to_scalar"},
-      {"name":"VPERMUTE","family":"vector","opcode":23,"format":"permute","semantics":"indexed_lane_permutation"},
-      {"name":"VREDSUM","family":"vector","opcode":24,"format":"reduce","semantics":"ordered_seeded_sum"},
-      {"name":"VREDMIN","family":"vector","opcode":25,"format":"reduce","semantics":"seeded_minimum"},
-      {"name":"VREDMAX","family":"vector","opcode":26,"format":"reduce","semantics":"seeded_maximum"},
-      {"name":"VLD","family":"vector","opcode":32,"format":"load","semantics":"local_contiguous_load"},
-      {"name":"VST","family":"vector","opcode":33,"format":"store","semantics":"local_contiguous_store"},
-      {"name":"VLDS","family":"vector","opcode":34,"format":"strided_load","semantics":"local_strided_load"},
-      {"name":"VSTS","family":"vector","opcode":35,"format":"strided_store","semantics":"local_strided_store"},
-      {"name":"VGATHER","family":"vector","opcode":36,"format":"gather","semantics":"local_indexed_load"},
-      {"name":"VSCATTER","family":"vector","opcode":37,"format":"scatter","semantics":"local_indexed_store"},
-      {"name":"PTRUE","family":"vector","opcode":64,"format":"ptrue","semantics":"predicate_all_active"},
-      {"name":"PWHILELT","family":"vector","opcode":65,"format":"pwhile","semantics":"predicate_unsigned_range"},
-      {"name":"PAND","family":"vector","opcode":66,"format":"predicate_binary","semantics":"predicate_and"},
-      {"name":"POR","family":"vector","opcode":67,"format":"predicate_binary","semantics":"predicate_or"},
-      {"name":"PXOR","family":"vector","opcode":68,"format":"predicate_binary","semantics":"predicate_xor"},
-      {"name":"PNOT","family":"vector","opcode":69,"format":"predicate_unary","semantics":"predicate_not"},
-      {"name":"PCOUNT","family":"vector","opcode":70,"format":"predicate_query","semantics":"predicate_count"},
-      {"name":"PFIRST","family":"vector","opcode":71,"format":"predicate_query","semantics":"predicate_first_or_minus_one"},
-      {"name":"PLD","family":"vector","opcode":72,"format":"predicate_load","semantics":"packed_predicate_load"},
-      {"name":"PST","family":"vector","opcode":73,"format":"predicate_store","semantics":"packed_predicate_store"},
-      {"name":"MVIEW","family":"matrix","opcode":0,"format":"view","semantics":"capture_tile_view"},
-      {"name":"MLOAD","family":"matrix","opcode":1,"format":"tile_load","semantics":"load_matrix_register"},
-      {"name":"MCLEAR","family":"matrix","opcode":2,"format":"tile_clear","semantics":"clear_matrix_register"},
-      {"name":"MDOT","family":"matrix","opcode":3,"format":"dot","types":["i32","u32","f32"],"semantics":"matrix_product"},
-      {"name":"MMACC","family":"matrix","opcode":4,"format":"dot","types":["i32","u32","f32"],"semantics":"matrix_accumulation"},
-      {"name":"MSTORE","family":"matrix","opcode":5,"format":"tile_store","semantics":"store_matrix_register"},
-      {"name":"DLOAD","family":"system","opcode":0,"format":"dma","semantics":"system_to_local"},
-      {"name":"DSTORE","family":"system","opcode":1,"format":"dma","semantics":"local_to_system"},
-      {"name":"STOP","family":"system","opcode":3,"format":"stop","semantics":"retire_program_stop"},
-      {"name":"CAPS","family":"system","opcode":4,"format":"caps","semantics":"query_resource_capacity"}
-    ]
+  "schema_version": 2,
+  "contract": {
+    "name": "Holon RV32/Holon research baseline",
+    "status": "experimental",
+    "reference": "docs/ISA.md"
   },
-  "semantic_frontend": {
-    "stage": "scalar_hart",
+  "scalar": {
     "elf_profile": {
       "base": "rv32i2p1",
-      "extensions": ["m2p0", "zicsr2p0", "zmmul1p0"],
+      "extensions": [
+        "m2p0",
+        "zicsr2p0",
+        "zmmul1p0"
+      ],
       "stack_alignment": 16
     },
     "machine_csrs": [
-      {"name":"mstatus", "address":"0x300", "reset":"0x1800", "write_mask":"0x88"},
-      {"name":"misa", "address":"0x301", "reset":"0x40001100", "write_mask":"0x0"},
-      {"name":"mie", "address":"0x304", "reset":"0x0", "write_mask":"0x888"},
-      {"name":"mtvec", "address":"0x305", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"mstatush", "address":"0x310", "reset":"0x0", "write_mask":"0x0"},
-      {"name":"mcountinhibit", "address":"0x320", "reset":"0x0", "write_mask":"0x5"},
-      {"name":"mscratch", "address":"0x340", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"mepc", "address":"0x341", "reset":"0x0", "write_mask":"0xfffffffc"},
-      {"name":"mcause", "address":"0x342", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"mtval", "address":"0x343", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"mip", "address":"0x344", "reset":"0x0", "write_mask":"0x0"},
-      {"name":"mcycle", "address":"0xb00", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"minstret", "address":"0xb02", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"mcycleh", "address":"0xb80", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"minstreth", "address":"0xb82", "reset":"0x0", "write_mask":"0xffffffff"},
-      {"name":"mvendorid", "address":"0xf11", "reset":"0x0", "write_mask":"0x0"},
-      {"name":"marchid", "address":"0xf12", "reset":"0x0", "write_mask":"0x0"},
-      {"name":"mimpid", "address":"0xf13", "reset":"0x0", "write_mask":"0x0"},
-      {"name":"mhartid", "address":"0xf14", "reset":"0x0", "write_mask":"0x0"},
-      {"name":"mconfigptr", "address":"0xf15", "reset":"0x0", "write_mask":"0x0"}
+      {
+        "name": "mstatus",
+        "address": "0x300",
+        "reset": "0x1800",
+        "write_mask": "0x88"
+      },
+      {
+        "name": "misa",
+        "address": "0x301",
+        "reset": "0x40001100",
+        "write_mask": "0x0"
+      },
+      {
+        "name": "mie",
+        "address": "0x304",
+        "reset": "0x0",
+        "write_mask": "0x888"
+      },
+      {
+        "name": "mtvec",
+        "address": "0x305",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "mstatush",
+        "address": "0x310",
+        "reset": "0x0",
+        "write_mask": "0x0"
+      },
+      {
+        "name": "mcountinhibit",
+        "address": "0x320",
+        "reset": "0x0",
+        "write_mask": "0x5"
+      },
+      {
+        "name": "mscratch",
+        "address": "0x340",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "mepc",
+        "address": "0x341",
+        "reset": "0x0",
+        "write_mask": "0xfffffffc"
+      },
+      {
+        "name": "mcause",
+        "address": "0x342",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "mtval",
+        "address": "0x343",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "mip",
+        "address": "0x344",
+        "reset": "0x0",
+        "write_mask": "0x0"
+      },
+      {
+        "name": "mcycle",
+        "address": "0xb00",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "minstret",
+        "address": "0xb02",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "mcycleh",
+        "address": "0xb80",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "minstreth",
+        "address": "0xb82",
+        "reset": "0x0",
+        "write_mask": "0xffffffff"
+      },
+      {
+        "name": "mvendorid",
+        "address": "0xf11",
+        "reset": "0x0",
+        "write_mask": "0x0"
+      },
+      {
+        "name": "marchid",
+        "address": "0xf12",
+        "reset": "0x0",
+        "write_mask": "0x0"
+      },
+      {
+        "name": "mimpid",
+        "address": "0xf13",
+        "reset": "0x0",
+        "write_mask": "0x0"
+      },
+      {
+        "name": "mhartid",
+        "address": "0xf14",
+        "reset": "0x0",
+        "write_mask": "0x0"
+      },
+      {
+        "name": "mconfigptr",
+        "address": "0xf15",
+        "reset": "0x0",
+        "write_mask": "0x0"
+      }
     ],
     "machine_zero_csr_ranges": [
-      {"first":"0x323", "last":"0x33f"},
-      {"first":"0xb03", "last":"0xb1f"},
-      {"first":"0xb83", "last":"0xb9f"}
+      {
+        "first": "0x323",
+        "last": "0x33f"
+      },
+      {
+        "first": "0xb03",
+        "last": "0xb1f"
+      },
+      {
+        "first": "0xb83",
+        "last": "0xb9f"
+      }
     ],
-    "scalar_memory": {"address_bits": 32, "byte_order": "little", "misaligned": "trap"},
+    "scalar_memory": {
+      "address_bits": 32,
+      "byte_order": "little",
+      "misaligned": "trap"
+    },
     "scalar_traps": {
       "instruction_address_misaligned": 0,
       "instruction_access_fault": 1,
@@ -169,940 +176,1840 @@
     "holon_bytes": 8,
     "prefix_mask": "0x3",
     "scalar_prefix": "0x3",
-    "holon_prefixes": [0, 1, 2],
+    "holon_prefixes": [
+      0,
+      1,
+      2
+    ],
     "register_count": 32,
-    "register_fields": {"rd": 7, "rs1": 15, "rs2": 20},
+    "register_fields": {
+      "rd": 7,
+      "rs1": 15,
+      "rs2": 20
+    },
     "authority": "RISC-V specifications 20260120: RV32I 2.1, M 2.0, Zicsr 2.0, machine-mode instructions",
     "instructions": [
-      {"name": "LUI", "extension": "I", "format": "u", "value": "0x00000037", "mask": "0x0000007F"},
-      {"name": "AUIPC", "extension": "I", "format": "u", "value": "0x00000017", "mask": "0x0000007F"},
-      {"name": "JAL", "extension": "I", "format": "j", "value": "0x0000006F", "mask": "0x0000007F"},
-      {"name": "JALR", "extension": "I", "format": "i", "value": "0x00000067", "mask": "0x0000707F"},
-      {"name": "BEQ", "extension": "I", "format": "b", "value": "0x00000063", "mask": "0x0000707F"},
-      {"name": "BNE", "extension": "I", "format": "b", "value": "0x00001063", "mask": "0x0000707F"},
-      {"name": "BLT", "extension": "I", "format": "b", "value": "0x00004063", "mask": "0x0000707F"},
-      {"name": "BGE", "extension": "I", "format": "b", "value": "0x00005063", "mask": "0x0000707F"},
-      {"name": "BLTU", "extension": "I", "format": "b", "value": "0x00006063", "mask": "0x0000707F"},
-      {"name": "BGEU", "extension": "I", "format": "b", "value": "0x00007063", "mask": "0x0000707F"},
-      {"name": "LB", "extension": "I", "format": "i", "value": "0x00000003", "mask": "0x0000707F"},
-      {"name": "LH", "extension": "I", "format": "i", "value": "0x00001003", "mask": "0x0000707F"},
-      {"name": "LW", "extension": "I", "format": "i", "value": "0x00002003", "mask": "0x0000707F"},
-      {"name": "LBU", "extension": "I", "format": "i", "value": "0x00004003", "mask": "0x0000707F"},
-      {"name": "LHU", "extension": "I", "format": "i", "value": "0x00005003", "mask": "0x0000707F"},
-      {"name": "SB", "extension": "I", "format": "s", "value": "0x00000023", "mask": "0x0000707F"},
-      {"name": "SH", "extension": "I", "format": "s", "value": "0x00001023", "mask": "0x0000707F"},
-      {"name": "SW", "extension": "I", "format": "s", "value": "0x00002023", "mask": "0x0000707F"},
-      {"name": "ADDI", "extension": "I", "format": "i", "value": "0x00000013", "mask": "0x0000707F"},
-      {"name": "SLTI", "extension": "I", "format": "i", "value": "0x00002013", "mask": "0x0000707F"},
-      {"name": "SLTIU", "extension": "I", "format": "i", "value": "0x00003013", "mask": "0x0000707F"},
-      {"name": "XORI", "extension": "I", "format": "i", "value": "0x00004013", "mask": "0x0000707F"},
-      {"name": "ORI", "extension": "I", "format": "i", "value": "0x00006013", "mask": "0x0000707F"},
-      {"name": "ANDI", "extension": "I", "format": "i", "value": "0x00007013", "mask": "0x0000707F"},
-      {"name": "SLLI", "extension": "I", "format": "shift", "value": "0x00001013", "mask": "0xFE00707F"},
-      {"name": "SRLI", "extension": "I", "format": "shift", "value": "0x00005013", "mask": "0xFE00707F"},
-      {"name": "SRAI", "extension": "I", "format": "shift", "value": "0x40005013", "mask": "0xFE00707F"},
-      {"name": "ADD", "extension": "I", "format": "r", "value": "0x00000033", "mask": "0xFE00707F"},
-      {"name": "SUB", "extension": "I", "format": "r", "value": "0x40000033", "mask": "0xFE00707F"},
-      {"name": "SLL", "extension": "I", "format": "r", "value": "0x00001033", "mask": "0xFE00707F"},
-      {"name": "SLT", "extension": "I", "format": "r", "value": "0x00002033", "mask": "0xFE00707F"},
-      {"name": "SLTU", "extension": "I", "format": "r", "value": "0x00003033", "mask": "0xFE00707F"},
-      {"name": "XOR", "extension": "I", "format": "r", "value": "0x00004033", "mask": "0xFE00707F"},
-      {"name": "SRL", "extension": "I", "format": "r", "value": "0x00005033", "mask": "0xFE00707F"},
-      {"name": "SRA", "extension": "I", "format": "r", "value": "0x40005033", "mask": "0xFE00707F"},
-      {"name": "OR", "extension": "I", "format": "r", "value": "0x00006033", "mask": "0xFE00707F"},
-      {"name": "AND", "extension": "I", "format": "r", "value": "0x00007033", "mask": "0xFE00707F"},
-      {"name": "FENCE", "extension": "I", "format": "fence", "value": "0x0000000F", "mask": "0x0000707F"},
-      {"name": "ECALL", "extension": "I", "format": "system", "value": "0x00000073", "mask": "0xFFFFFFFF"},
-      {"name": "EBREAK", "extension": "I", "format": "system", "value": "0x00100073", "mask": "0xFFFFFFFF"},
-      {"name": "MUL", "extension": "M", "format": "r", "value": "0x02000033", "mask": "0xFE00707F"},
-      {"name": "MULH", "extension": "M", "format": "r", "value": "0x02001033", "mask": "0xFE00707F"},
-      {"name": "MULHSU", "extension": "M", "format": "r", "value": "0x02002033", "mask": "0xFE00707F"},
-      {"name": "MULHU", "extension": "M", "format": "r", "value": "0x02003033", "mask": "0xFE00707F"},
-      {"name": "DIV", "extension": "M", "format": "r", "value": "0x02004033", "mask": "0xFE00707F"},
-      {"name": "DIVU", "extension": "M", "format": "r", "value": "0x02005033", "mask": "0xFE00707F"},
-      {"name": "REM", "extension": "M", "format": "r", "value": "0x02006033", "mask": "0xFE00707F"},
-      {"name": "REMU", "extension": "M", "format": "r", "value": "0x02007033", "mask": "0xFE00707F"},
-      {"name": "CSRRW", "extension": "Zicsr", "format": "csr", "value": "0x00001073", "mask": "0x0000707F"},
-      {"name": "CSRRS", "extension": "Zicsr", "format": "csr", "value": "0x00002073", "mask": "0x0000707F"},
-      {"name": "CSRRC", "extension": "Zicsr", "format": "csr", "value": "0x00003073", "mask": "0x0000707F"},
-      {"name": "CSRRWI", "extension": "Zicsr", "format": "csr_immediate", "value": "0x00005073", "mask": "0x0000707F"},
-      {"name": "CSRRSI", "extension": "Zicsr", "format": "csr_immediate", "value": "0x00006073", "mask": "0x0000707F"},
-      {"name": "CSRRCI", "extension": "Zicsr", "format": "csr_immediate", "value": "0x00007073", "mask": "0x0000707F"},
-      {"name": "MRET", "extension": "machine", "format": "system", "value": "0x30200073", "mask": "0xFFFFFFFF"},
-      {"name": "WFI", "extension": "machine", "format": "system", "value": "0x10500073", "mask": "0xFFFFFFFF"}
+      {
+        "name": "LUI",
+        "extension": "I",
+        "format": "u",
+        "value": "0x00000037",
+        "mask": "0x0000007F"
+      },
+      {
+        "name": "AUIPC",
+        "extension": "I",
+        "format": "u",
+        "value": "0x00000017",
+        "mask": "0x0000007F"
+      },
+      {
+        "name": "JAL",
+        "extension": "I",
+        "format": "j",
+        "value": "0x0000006F",
+        "mask": "0x0000007F"
+      },
+      {
+        "name": "JALR",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00000067",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "BEQ",
+        "extension": "I",
+        "format": "b",
+        "value": "0x00000063",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "BNE",
+        "extension": "I",
+        "format": "b",
+        "value": "0x00001063",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "BLT",
+        "extension": "I",
+        "format": "b",
+        "value": "0x00004063",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "BGE",
+        "extension": "I",
+        "format": "b",
+        "value": "0x00005063",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "BLTU",
+        "extension": "I",
+        "format": "b",
+        "value": "0x00006063",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "BGEU",
+        "extension": "I",
+        "format": "b",
+        "value": "0x00007063",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "LB",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00000003",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "LH",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00001003",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "LW",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00002003",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "LBU",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00004003",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "LHU",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00005003",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "SB",
+        "extension": "I",
+        "format": "s",
+        "value": "0x00000023",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "SH",
+        "extension": "I",
+        "format": "s",
+        "value": "0x00001023",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "SW",
+        "extension": "I",
+        "format": "s",
+        "value": "0x00002023",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "ADDI",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00000013",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "SLTI",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00002013",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "SLTIU",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00003013",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "XORI",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00004013",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "ORI",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00006013",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "ANDI",
+        "extension": "I",
+        "format": "i",
+        "value": "0x00007013",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "SLLI",
+        "extension": "I",
+        "format": "shift",
+        "value": "0x00001013",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SRLI",
+        "extension": "I",
+        "format": "shift",
+        "value": "0x00005013",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SRAI",
+        "extension": "I",
+        "format": "shift",
+        "value": "0x40005013",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "ADD",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00000033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SUB",
+        "extension": "I",
+        "format": "r",
+        "value": "0x40000033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SLL",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00001033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SLT",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00002033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SLTU",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00003033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "XOR",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00004033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SRL",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00005033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "SRA",
+        "extension": "I",
+        "format": "r",
+        "value": "0x40005033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "OR",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00006033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "AND",
+        "extension": "I",
+        "format": "r",
+        "value": "0x00007033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "FENCE",
+        "extension": "I",
+        "format": "fence",
+        "value": "0x0000000F",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "ECALL",
+        "extension": "I",
+        "format": "system",
+        "value": "0x00000073",
+        "mask": "0xFFFFFFFF"
+      },
+      {
+        "name": "EBREAK",
+        "extension": "I",
+        "format": "system",
+        "value": "0x00100073",
+        "mask": "0xFFFFFFFF"
+      },
+      {
+        "name": "MUL",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02000033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "MULH",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02001033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "MULHSU",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02002033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "MULHU",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02003033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "DIV",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02004033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "DIVU",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02005033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "REM",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02006033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "REMU",
+        "extension": "M",
+        "format": "r",
+        "value": "0x02007033",
+        "mask": "0xFE00707F"
+      },
+      {
+        "name": "CSRRW",
+        "extension": "Zicsr",
+        "format": "csr",
+        "value": "0x00001073",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "CSRRS",
+        "extension": "Zicsr",
+        "format": "csr",
+        "value": "0x00002073",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "CSRRC",
+        "extension": "Zicsr",
+        "format": "csr",
+        "value": "0x00003073",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "CSRRWI",
+        "extension": "Zicsr",
+        "format": "csr_immediate",
+        "value": "0x00005073",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "CSRRSI",
+        "extension": "Zicsr",
+        "format": "csr_immediate",
+        "value": "0x00006073",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "CSRRCI",
+        "extension": "Zicsr",
+        "format": "csr_immediate",
+        "value": "0x00007073",
+        "mask": "0x0000707F"
+      },
+      {
+        "name": "MRET",
+        "extension": "machine",
+        "format": "system",
+        "value": "0x30200073",
+        "mask": "0xFFFFFFFF"
+      },
+      {
+        "name": "WFI",
+        "extension": "machine",
+        "format": "system",
+        "value": "0x10500073",
+        "mask": "0xFFFFFFFF"
+      }
     ]
   },
-  "isa": {
-    "name": "HolonNPU Program ISA",
-    "major": 1,
-    "minor": 0,
-    "instruction_bits": 32,
-    "alignment_bytes": 4,
-    "ownership": "Holon owns the complete program ISA; frontend implementations are replaceable microarchitectures, not ABI owners.",
-    "non_goals": [
-      "No RVV binary compatibility.",
-      "No RVC compressed instruction compatibility.",
-      "No BF16, FP8, or floating-point operation classes in the current release."
-    ]
-  },
-  "operation_classes": [
-    {"name": "FRONTEND_CONTROL", "value": "0x0000000000000001", "description": "Frontend-control instruction class required."},
-    {"name": "PREDICATE", "value": "0x0000000000000002", "description": "Predicate instruction class required."},
-    {"name": "VECTOR", "value": "0x0000000000000004", "description": "Vector instruction classes required."},
-    {"name": "QUANTIZATION", "value": "0x0000000000000008", "description": "Quantization helper class required."},
-    {"name": "MATRIX", "value": "0x0000000000000010", "description": "Matrix micro-op class required."},
-    {"name": "DMA", "value": "0x0000000000000020", "description": "DMA command class required."},
-    {"name": "CSR_DEBUG", "value": "0x0000000000000040", "description": "CSR/debug class required."},
-    {"name": "SYNC", "value": "0x0000000000000080", "description": "Sync, wait, and fence class required."},
-    {"name": "SYSTEM", "value": "0x0000000000000100", "description": "System class required."}
-  ],
-  "common_masks": {
-    "class": "0xF0000000"
-  },
-  "field_layout": {
-    "opcode_shift": 24,
-    "rd_shift": 20,
-    "rs1_shift": 16,
-    "rs2_shift": 12,
-    "field_mask": "0x0000000F",
-    "imm_mask": "0x00000FFF"
-  },
-  "encoding_constants": [
-    {
-      "name": "SCALAR_REGISTER_COUNT",
-      "value": "0x00000010",
-      "description": "Number of 32-bit scalar registers in the architectural frontend state; s0 is hardwired to zero."
-    },
-    {
-      "name": "SCALAR_BRANCH_SCALE",
-      "value": "0x00000004",
-      "description": "Byte scale applied to signed imm12 branch displacements relative to the current PC."
-    },
-    {
-      "name": "CSR_PC",
-      "value": "0x00000000",
-      "description": "Read-only CSR containing the PC of the executing csr.read instruction."
-    },
-    {
-      "name": "CSR_INSTRET_LO",
-      "value": "0x00000001",
-      "description": "Read-only CSR containing retired-instruction counter bits [31:0] before csr.read retires."
-    },
-    {
-      "name": "CSR_INSTRET_HI",
-      "value": "0x00000002",
-      "description": "Read-only CSR containing retired-instruction counter bits [63:32] before csr.read retires."
-    },
-    {
-      "name": "CSR_PROGRAM_SIZE_BYTES",
-      "value": "0x00000003",
-      "description": "Read-only CSR containing the loaded program image size in bytes."
-    },
-    {
-      "name": "CSR_LOCAL_MEM_BYTES",
-      "value": "0x00000004",
-      "description": "Read-only CSR containing the active program's local scratchpad allocation in bytes."
-    },
-    {
-      "name": "VTYPE_VL_MINUS_ONE_MASK",
-      "value": "0x0000003F",
-      "description": "Vector length minus one in vector_config.set immediate bits [5:0]."
-    },
-    {
-      "name": "VTYPE_SEW_SHIFT",
-      "value": "0x00000006",
-      "description": "Selected element-width encoding shift in vector_config.set immediate."
-    },
-    {
-      "name": "VTYPE_SEW_MASK",
-      "value": "0x000000C0",
-      "description": "Selected element-width encoding mask in vector_config.set immediate."
-    },
-    {
-      "name": "VTYPE_SIGNED",
-      "value": "0x00000100",
-      "description": "Signed integer interpretation bit in vector_config.set immediate."
-    },
-    {
-      "name": "VTYPE_ROUND_SHIFT",
-      "value": "0x00000009",
-      "description": "Rounding-mode encoding shift in vector_config.set immediate."
-    },
-    {
-      "name": "VTYPE_ROUND_MASK",
-      "value": "0x00000600",
-      "description": "Rounding-mode encoding mask in vector_config.set immediate."
-    },
-    {
-      "name": "VTYPE_SATURATE",
-      "value": "0x00000800",
-      "description": "Saturating arithmetic enable bit in vector_config.set immediate."
-    },
-    {
-      "name": "VTYPE_SEW_8",
-      "value": "0x00000000",
-      "description": "Eight-bit vector element-width encoding."
-    },
-    {
-      "name": "VTYPE_SEW_16",
-      "value": "0x00000001",
-      "description": "Sixteen-bit vector element-width encoding."
-    },
-    {
-      "name": "VTYPE_SEW_32",
-      "value": "0x00000002",
-      "description": "Thirty-two-bit vector element-width encoding."
-    },
-    {
-      "name": "VTYPE_ROUND_RNE",
-      "value": "0x00000000",
-      "description": "Round-to-nearest, ties-to-even mode encoding."
-    },
-    {
-      "name": "VECTOR_PREDICATE_MASK",
-      "value": "0x0000000F",
-      "description": "Predicate-register selector in vector ALU immediate bits [3:0]."
-    },
-    {
-      "name": "VECTOR_PREDICATE_RESERVED_MASK",
-      "value": "0x00000FF0",
-      "description": "Reserved vector ALU immediate bits that must be zero."
-    },
-    {
-      "name": "PREDICATE_WORD_BYTES",
-      "value": "0x00000004",
-      "description": "Bytes loaded by the initial bit-packed predicate load instruction."
-    },
-    {
-      "name": "DMA_WORD_BYTES",
-      "value": "0x00000004",
-      "description": "Granularity of frontend-issued DMA transfers."
-    },
-    {
-      "name": "DMA_MAX_WORDS",
-      "value": "0x00001000",
-      "description": "Maximum words transferred by one DMA instruction using the 12-bit count-minus-one field."
-    },
-    {
-      "name": "QUANT_COMMAND_BYTES",
-      "value": "0x00000018",
-      "description": "Size of the local per-tensor requantization command block."
-    },
-    {
-      "name": "QUANT_COMMAND_ALIGN",
-      "value": "0x00000004",
-      "description": "Required local alignment of a requantization command block."
-    },
-    {
-      "name": "QUANT_COMMAND_MULTIPLIER_OFFSET",
-      "value": "0x00000000",
-      "description": "Byte offset of the signed fixed-point multiplier."
-    },
-    {
-      "name": "QUANT_COMMAND_SHIFT_OFFSET",
-      "value": "0x00000004",
-      "description": "Byte offset of the unsigned right shift in the range 0 through 31."
-    },
-    {
-      "name": "QUANT_COMMAND_ZERO_POINT_OFFSET",
-      "value": "0x00000008",
-      "description": "Byte offset of the signed output zero point."
-    },
-    {
-      "name": "QUANT_COMMAND_CLAMP_MIN_OFFSET",
-      "value": "0x0000000C",
-      "description": "Byte offset of the signed inclusive clamp minimum."
-    },
-    {
-      "name": "QUANT_COMMAND_CLAMP_MAX_OFFSET",
-      "value": "0x00000010",
-      "description": "Byte offset of the signed inclusive clamp maximum."
-    },
-    {
-      "name": "QUANT_COMMAND_RESERVED_OFFSET",
-      "value": "0x00000014",
-      "description": "Byte offset of the required-zero reserved command word."
-    },
-    {
-      "name": "MATRIX_COMMAND_BYTES",
-      "value": "0x00000020",
-      "description": "Size and required alignment of a local matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_A_OFFSET",
-      "value": "0x00000000",
-      "description": "Byte offset of local A base in a matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_B_OFFSET",
-      "value": "0x00000004",
-      "description": "Byte offset of local B base in a matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_C_OFFSET",
-      "value": "0x00000008",
-      "description": "Byte offset of local C store base in a matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_A_STRIDE_OFFSET",
-      "value": "0x0000000C",
-      "description": "Byte offset of A row stride in a matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_B_STRIDE_OFFSET",
-      "value": "0x00000010",
-      "description": "Byte offset of B row stride in a matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_C_STRIDE_OFFSET",
-      "value": "0x00000014",
-      "description": "Byte offset of C row stride in a matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_SHAPE_OFFSET",
-      "value": "0x00000018",
-      "description": "Byte offset of packed M/N/K/flags in a matrix command block."
-    },
-    {
-      "name": "MATRIX_COMMAND_RESERVED_OFFSET",
-      "value": "0x0000001C",
-      "description": "Byte offset of the required-zero reserved command word."
-    },
-    {
-      "name": "MATRIX_SHAPE_M_SHIFT",
-      "value": "0x00000000",
-      "description": "Active M shift in the packed matrix shape word."
-    },
-    {
-      "name": "MATRIX_SHAPE_N_SHIFT",
-      "value": "0x00000008",
-      "description": "Active N shift in the packed matrix shape word."
-    },
-    {
-      "name": "MATRIX_SHAPE_K_SHIFT",
-      "value": "0x00000010",
-      "description": "Active K shift in the packed matrix shape word."
-    },
-    {
-      "name": "MATRIX_SHAPE_FLAGS_SHIFT",
-      "value": "0x00000018",
-      "description": "Command flags shift in the packed matrix shape word."
-    },
-    {
-      "name": "MATRIX_DIMENSION_MASK",
-      "value": "0x000000FF",
-      "description": "Mask for each active matrix tile dimension."
-    },
-    {
-      "name": "MATRIX_MAX_DIMENSION",
-      "value": "0x00000010",
-      "description": "Maximum active M, N, or K in the first matrix implementation."
-    },
-    {
-      "name": "MATRIX_FLAG_CLEAR",
-      "value": "0x00000001",
-      "description": "Clear the selected accumulator before this matrix product."
-    },
-    {
-      "name": "MATRIX_FLAG_ACCUMULATE",
-      "value": "0x00000002",
-      "description": "Accumulate this product into an already-valid selected accumulator."
-    },
-    {
-      "name": "MATRIX_FLAG_STORE",
-      "value": "0x00000004",
-      "description": "Store the selected accumulator to local C after this product."
-    },
-    {
-      "name": "MATRIX_FLAGS_VALID_MASK",
-      "value": "0x00000007",
-      "description": "Valid first-generation matrix command flag bits."
-    }
-  ],
-  "instruction_classes": [
-    {
-      "name": "FRONTEND_CONTROL",
-      "value": "0x00000000",
-      "mask": "0xF0000000",
-      "format": "rd_rs1_rs2_imm",
-      "coverage": "isa_class_frontend_control",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "frontend_control",
-      "description": "Integer ALU, branch, loop, address generation, and lightweight control instructions."
-    },
-    {
-      "name": "PREDICATE",
-      "value": "0x10000000",
-      "mask": "0xF0000000",
-      "format": "pd_ps1_ps2_imm",
-      "coverage": "isa_class_predicate",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "predicate",
-      "description": "Predicate register initialization and aligned bit-packed mask load."
-    },
-    {
-      "name": "VECTOR_CONFIG",
-      "value": "0x20000000",
-      "mask": "0xF0000000",
-      "format": "vd_vl_vtype",
-      "coverage": "isa_class_vector_config",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "vector_config",
-      "description": "Vector length, element width, signedness, rounding, and saturation configuration."
-    },
-    {
-      "name": "VECTOR_ALU",
-      "value": "0x30000000",
-      "mask": "0xF0000000",
-      "format": "vd_vs1_vs2_pred",
-      "coverage": "isa_class_vector_alu",
-      "fault": "UNSUPPORTED_OPERATION_CLASS",
-      "semantics": "vector_alu_integer",
-      "description": "Integer elementwise add, subtract, min, max, compare, select, shift, and fixed-point helpers."
-    },
-    {
-      "name": "VECTOR_MEMORY",
-      "value": "0x40000000",
-      "mask": "0xF0000000",
-      "format": "vd_addr_stride_pred",
-      "coverage": "isa_class_vector_memory",
-      "fault": "LOCAL_MEMORY_BOUNDS",
-      "semantics": "vector_memory",
-      "description": "Contiguous scratchpad vector load and store under explicit predication."
-    },
-    {
-      "name": "VECTOR_PERMUTE",
-      "value": "0x50000000",
-      "mask": "0xF0000000",
-      "format": "vd_vs1_vs2_pred",
-      "coverage": "isa_class_vector_permute",
-      "fault": "UNSUPPORTED_OPERATION_CLASS",
-      "semantics": "vector_permute",
-      "description": "Lane shuffle, pack, unpack, and transpose helper instructions."
-    },
-    {
-      "name": "VECTOR_REDUCTION",
-      "value": "0x60000000",
-      "mask": "0xF0000000",
-      "format": "vd_vs1_pred_mode",
-      "coverage": "isa_class_vector_reduction",
-      "fault": "UNSUPPORTED_OPERATION_CLASS",
-      "semantics": "vector_reduction",
-      "description": "Predicated integer sum, minimum, and maximum reductions."
-    },
-    {
-      "name": "QUANTIZATION",
-      "value": "0x70000000",
-      "mask": "0xF0000000",
-      "format": "vd_vs1_scale_pred",
-      "coverage": "isa_class_quantization",
-      "fault": "UNSUPPORTED_OPERATION_CLASS",
-      "semantics": "quantization",
-      "description": "Requantization, clip, saturate, scale, and zero-point helpers for integer tensors."
-    },
-    {
-      "name": "MATRIX",
-      "value": "0x80000000",
-      "mask": "0xF0000000",
-      "format": "tile_operands_event",
-      "coverage": "isa_class_matrix",
-      "fault": "MATRIX_ISSUE_FAULT",
-      "semantics": "matrix_micro_op",
-      "description": "Local-command-block issue for synchronous INT8 matrix tile operations."
-    },
-    {
-      "name": "DMA",
-      "value": "0x90000000",
-      "mask": "0xF0000000",
-      "format": "sysaddr64_regs_spmaddr_reg_words12",
-      "coverage": "isa_class_dma",
-      "fault": "DMA_REQUEST_FAULT",
-      "semantics": "dma_command",
-      "description": "System-memory to scratchpad and scratchpad to system-memory transfer commands."
-    },
-    {
-      "name": "CSR_DEBUG",
-      "value": "0xA0000000",
-      "mask": "0xF0000000",
-      "format": "scalar_rd_csr_imm12",
-      "coverage": "isa_class_csr_debug",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "csr_debug",
-      "description": "Read-only frontend architectural state and performance-counter snapshots."
-    },
-    {
-      "name": "SYNC",
-      "value": "0xB0000000",
-      "mask": "0xF0000000",
-      "format": "event_fence_scope",
-      "coverage": "isa_class_sync",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "sync",
-      "description": "DMA wait plus local-memory and DMA ordering instructions."
-    },
-    {
-      "name": "SYSTEM",
-      "value": "0xC0000000",
-      "mask": "0xF0000000",
-      "format": "system_imm",
-      "coverage": "isa_class_system",
-      "fault": "EXPLICIT_PROGRAM_FAULT",
-      "semantics": "system",
-      "description": "Program exit and explicit-fault operations; host MMIO owns halt and debug lifecycle control."
-    }
-  ],
-  "reserved_classes": [
-    {
-      "name": "RESERVED_D",
-      "value": "0xD0000000",
-      "mask": "0xF0000000",
-      "description": "Reserved for future floating-point or transformer extensions."
-    },
-    {
-      "name": "RESERVED_E",
-      "value": "0xE0000000",
-      "mask": "0xF0000000",
-      "description": "Reserved for future multi-engine and system-level extensions."
-    },
-    {
-      "name": "RESERVED_F",
-      "value": "0xF0000000",
-      "mask": "0xF0000000",
-      "description": "Reserved for implementation-independent expansion."
-    }
-  ],
-  "instructions": [
-    {
-      "name": "FRONTEND_CONTROL_MOVI",
-      "class": "FRONTEND_CONTROL",
-      "opcode": "0x0",
-      "format": "scalar_rd_simm12",
-      "coverage": "frontend_control_movi",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Write the sign-extended imm12 value to scalar register rd; writes to hardwired-zero s0 are discarded and rs1/rs2 must be zero.",
-      "description": "Materialize a small signed scalar constant without consuming program-local data memory."
-    },
-    {
-      "name": "FRONTEND_CONTROL_ADD",
-      "class": "FRONTEND_CONTROL",
-      "opcode": "0x1",
-      "format": "scalar_rd_rs1_rs2",
-      "coverage": "frontend_control_add",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Write scalar rs1 plus scalar rs2 modulo 2^32 to rd; imm12 must be zero and writes to s0 are discarded.",
-      "description": "Type-independent scalar address and loop arithmetic."
-    },
-    {
-      "name": "FRONTEND_CONTROL_ADDI",
-      "class": "FRONTEND_CONTROL",
-      "opcode": "0x2",
-      "format": "scalar_rd_rs1_simm12",
-      "coverage": "frontend_control_addi",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Write scalar rs1 plus sign-extended imm12 modulo 2^32 to rd; rs2 must be zero and writes to s0 are discarded.",
-      "description": "Scalar pointer increment and loop-counter update."
-    },
-    {
-      "name": "FRONTEND_CONTROL_LOAD",
-      "class": "FRONTEND_CONTROL",
-      "opcode": "0x3",
-      "format": "scalar_rd_base_simm12",
-      "coverage": "frontend_control_load",
-      "fault": "LOCAL_MEMORY_BOUNDS",
-      "semantics": "Load one aligned little-endian 32-bit word from data scratchpad address scalar rs1 plus sign-extended imm12 into rd; rs2 must be zero and writes to s0 are discarded.",
-      "description": "Frontend scalar access to program arguments, loop metadata, and command construction state."
-    },
-    {
-      "name": "FRONTEND_CONTROL_STORE",
-      "class": "FRONTEND_CONTROL",
-      "opcode": "0x4",
-      "format": "scalar_rs2_base_simm12",
-      "coverage": "frontend_control_store",
-      "fault": "LOCAL_MEMORY_BOUNDS",
-      "semantics": "Store scalar rs2 as one aligned little-endian 32-bit word to data scratchpad address scalar rs1 plus sign-extended imm12; rd must be zero.",
-      "description": "Frontend scalar write path for kernel metadata and scalar results."
-    },
-    {
-      "name": "FRONTEND_CONTROL_BEQ",
-      "class": "FRONTEND_CONTROL",
-      "opcode": "0x5",
-      "format": "scalar_branch_rs1_rs2_simm12",
-      "coverage": "frontend_control_beq",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "If scalar rs1 equals scalar rs2, set PC to current PC plus sign-extended imm12 multiplied by four; otherwise advance by one instruction. rd must be zero and the taken target must identify a complete instruction in the current program image.",
-      "description": "General scalar equality branch with instruction-scaled PC-relative displacement."
-    },
-    {
-      "name": "FRONTEND_CONTROL_BNE",
-      "class": "FRONTEND_CONTROL",
-      "opcode": "0x6",
-      "format": "scalar_branch_rs1_rs2_simm12",
-      "coverage": "frontend_control_bne",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "If scalar rs1 differs from scalar rs2, set PC to current PC plus sign-extended imm12 multiplied by four; otherwise advance by one instruction. rd must be zero and the taken target must identify a complete instruction in the current program image.",
-      "description": "General scalar inequality branch used for deterministic frontend loops."
-    },
-    {
-      "name": "PREDICATE_PTRUE",
-      "class": "PREDICATE",
-      "opcode": "0x0",
-      "format": "predicate_rd",
-      "coverage": "predicate_ptrue",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "Set predicate register rd active for lanes [0, VL) and inactive for all other implementation lanes.",
-      "description": "VLA all-active predicate generation using current vector length."
-    },
-    {
-      "name": "PREDICATE_LOAD",
-      "class": "PREDICATE",
-      "opcode": "0x1",
-      "format": "predicate_mem_imm12",
-      "coverage": "predicate_load",
-      "fault": "LOCAL_MEMORY_BOUNDS",
-      "semantics": "Load one little-endian 32-bit bit-packed predicate word from aligned local scratchpad address imm into predicate register rd.",
-      "description": "Initial scalable predicate materialization path; implementations with VL max above 32 will extend the memory format in a later ISA minor revision."
-    },
-    {
-      "name": "VECTOR_CONFIG_SET",
-      "class": "VECTOR_CONFIG",
-      "opcode": "0x0",
-      "format": "vector_config_imm12",
-      "coverage": "vector_config_set",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "Set VL, element width, signedness, rounding, and saturation state from one explicit immediate configuration word.",
-      "description": "Vector configuration is orthogonal to operation opcodes so data-width expansion does not consume opcode space."
-    },
-    {
-      "name": "VECTOR_MEMORY_LOAD",
-      "class": "VECTOR_MEMORY",
-      "opcode": "0x0",
-      "format": "vector_mem_vd_pred_imm12",
-      "coverage": "vector_load",
-      "fault": "LOCAL_MEMORY_BOUNDS",
-      "semantics": "Load active lanes selected by predicate register rs1 from VL contiguous little-endian elements using configured SEW and signedness; inactive destination lanes are preserved.",
-      "description": "Width-generic vector scratchpad load instruction."
-    },
-    {
-      "name": "VECTOR_MEMORY_STORE",
-      "class": "VECTOR_MEMORY",
-      "opcode": "0x1",
-      "format": "vector_mem_vs_pred_imm12",
-      "coverage": "vector_store",
-      "fault": "LOCAL_MEMORY_BOUNDS",
-      "semantics": "Store active lanes selected by predicate register rs1 using configured SEW and byte strobes; inactive lanes perform no memory write.",
-      "description": "Width-generic vector scratchpad store instruction."
-    },
-    {
-      "name": "VECTOR_ALU_ADD",
-      "class": "VECTOR_ALU",
-      "opcode": "0x0",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_add",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane integer add selected by immediate predicate register bits [3:0], using configured SEW and signedness with wraparound unless saturation is enabled.",
-      "description": "Width-generic integer vector add instruction."
-    },
-    {
-      "name": "VECTOR_ALU_SUB",
-      "class": "VECTOR_ALU",
-      "opcode": "0x1",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_sub",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane integer subtract using configured SEW and signedness with wraparound unless saturation is enabled.",
-      "description": "Width-generic integer vector subtract instruction."
-    },
-    {
-      "name": "VECTOR_ALU_MIN",
-      "class": "VECTOR_ALU",
-      "opcode": "0x2",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_min",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane minimum using configured SEW and signedness.",
-      "description": "Width-generic integer vector minimum instruction."
-    },
-    {
-      "name": "VECTOR_ALU_MAX",
-      "class": "VECTOR_ALU",
-      "opcode": "0x3",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_max",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane maximum using configured SEW and signedness.",
-      "description": "Width-generic integer vector maximum instruction."
-    },
-    {
-      "name": "VECTOR_ALU_EQ",
-      "class": "VECTOR_ALU",
-      "opcode": "0x4",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_eq",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane equality compare using configured SEW, writing canonical element value one or zero.",
-      "description": "Width-generic integer vector equality compare instruction."
-    },
-    {
-      "name": "VECTOR_ALU_LT",
-      "class": "VECTOR_ALU",
-      "opcode": "0x5",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_lt",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane less-than compare using configured SEW and signedness, writing canonical one or zero.",
-      "description": "Width-generic integer vector less-than compare instruction."
-    },
-    {
-      "name": "VECTOR_ALU_SHL",
-      "class": "VECTOR_ALU",
-      "opcode": "0x6",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_shl",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane logical left shift; shift-count width follows configured SEW.",
-      "description": "Width-generic integer vector shift-left instruction."
-    },
-    {
-      "name": "VECTOR_ALU_SRL",
-      "class": "VECTOR_ALU",
-      "opcode": "0x7",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_srl",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane logical right shift; shift-count width follows configured SEW.",
-      "description": "Width-generic integer vector logical shift-right instruction."
-    },
-    {
-      "name": "VECTOR_ALU_SRA",
-      "class": "VECTOR_ALU",
-      "opcode": "0x8",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_sra",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Per-active-lane arithmetic right shift of the configured signed element width.",
-      "description": "Width-generic signed vector arithmetic shift-right instruction."
-    },
-    {
-      "name": "VECTOR_ALU_SELECT",
-      "class": "VECTOR_ALU",
-      "opcode": "0x9",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_alu_select",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "For every lane below VL, select vs1 when the immediate predicate bit is active and vs2 otherwise; unlike governing-predicate ALU operations, every lane below VL is written.",
-      "description": "SVE-style predicate select with no implicit merge dependency on the old destination."
-    },
-    {
-      "name": "VECTOR_PERMUTE_GATHER",
-      "class": "VECTOR_PERMUTE",
-      "opcode": "0x0",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_permute_gather",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "For each active lane selected by the immediate predicate, read vs1 at the unsigned lane index held in vs2; every active index must be less than VL and inactive destination lanes are preserved.",
-      "description": "General register-lane gather used to express shuffle, transpose, and tile-movement permutations."
-    },
-    {
-      "name": "VECTOR_PERMUTE_ZIP_LO",
-      "class": "VECTOR_PERMUTE",
-      "opcode": "0x1",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_permute_zip_lo",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "For even VL, interleave the lower VL/2 lanes of vs1 and vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
-      "description": "Lower-half lane packing primitive analogous to the first half of a scalable zip operation."
-    },
-    {
-      "name": "VECTOR_PERMUTE_ZIP_HI",
-      "class": "VECTOR_PERMUTE",
-      "opcode": "0x2",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_permute_zip_hi",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "For even VL, interleave the upper VL/2 lanes of vs1 and vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
-      "description": "Upper-half lane packing primitive paired with zip.lo."
-    },
-    {
-      "name": "VECTOR_PERMUTE_UNZIP_EVEN",
-      "class": "VECTOR_PERMUTE",
-      "opcode": "0x3",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_permute_unzip_even",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "For even VL, concatenate the even lanes of vs1 followed by the even lanes of vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
-      "description": "Lane unpacking primitive that reconstructs the first source from zip.lo and zip.hi results."
-    },
-    {
-      "name": "VECTOR_PERMUTE_UNZIP_ODD",
-      "class": "VECTOR_PERMUTE",
-      "opcode": "0x4",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_permute_unzip_odd",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "For even VL, concatenate the odd lanes of vs1 followed by the odd lanes of vs2 into vd under the immediate predicate; inactive destination lanes are preserved.",
-      "description": "Lane unpacking primitive that reconstructs the second source from zip.lo and zip.hi results."
-    },
-    {
-      "name": "VECTOR_PERMUTE_TRANSPOSE4",
-      "class": "VECTOR_PERMUTE",
-      "opcode": "0x5",
-      "format": "vector_alu_vd_vs1_vs2",
-      "coverage": "vector_permute_transpose4",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "With VL exactly 16 and rs2 equal to zero, treat vs1 as one row-major 4x4 tile and write its transpose to vd under the immediate predicate; inactive destination lanes are preserved.",
-      "description": "Explicit in-register 4x4 transpose helper for tensor tile movement."
-    },
-    {
-      "name": "VECTOR_REDUCTION_SUM",
-      "class": "VECTOR_REDUCTION",
-      "opcode": "0x0",
-      "format": "vector_reduce_vd_vs_pred",
-      "coverage": "vector_reduce_sum",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "Reduce active source lanes selected by the immediate predicate with configured-width wraparound addition into destination lane zero; an empty active set produces zero.",
-      "description": "Predicate-aware integer sum reduction."
-    },
-    {
-      "name": "VECTOR_REDUCTION_MIN",
-      "class": "VECTOR_REDUCTION",
-      "opcode": "0x1",
-      "format": "vector_reduce_vd_vs_pred",
-      "coverage": "vector_reduce_min",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "Reduce active source lanes using configured signedness into destination lane zero; an empty active set produces the greatest representable configured element.",
-      "description": "Predicate-aware integer minimum reduction."
-    },
-    {
-      "name": "VECTOR_REDUCTION_MAX",
-      "class": "VECTOR_REDUCTION",
-      "opcode": "0x2",
-      "format": "vector_reduce_vd_vs_pred",
-      "coverage": "vector_reduce_max",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "Reduce active source lanes using configured signedness into destination lane zero; an empty active set produces the least representable configured element.",
-      "description": "Predicate-aware integer maximum reduction."
-    },
-    {
-      "name": "QUANTIZATION_REQUANTIZE",
-      "class": "QUANTIZATION",
-      "opcode": "0x0",
-      "format": "quant_vd_vs_pred_imm12",
-      "coverage": "quantization_requantize",
-      "fault": "VECTOR_CONFIG_FAULT",
-      "semantics": "For active lanes selected by predicate rs2, multiply signed or unsigned source rs1 by the command multiplier, right shift with round-to-nearest ties-to-even, add zero point, clamp inclusively, canonicalize to configured SEW/signedness, and preserve inactive destination lanes. The aligned local command block at imm contains multiplier, shift, zero point, clamp minimum, clamp maximum, and a required-zero word.",
-      "description": "Per-tensor fixed-point requantization, clipping, saturation, and narrowing helper."
-    },
-    {
-      "name": "MATRIX_GEMM",
-      "class": "MATRIX",
-      "opcode": "0x0",
-      "format": "matrix_accumulator_imm12",
-      "coverage": "matrix_gemm_program",
-      "fault": "MATRIX_ISSUE_FAULT",
-      "semantics": "Issue one active INT8 MxK by KxN tile product described by the aligned local command block at imm to accumulator rd; rs1 and rs2 must be zero.",
-      "description": "Frontend-issued B-weight-stationary INT8 matrix tile micro-op."
-    },
-    {
-      "name": "CSR_DEBUG_READ",
-      "class": "CSR_DEBUG",
-      "opcode": "0x0",
-      "format": "scalar_rd_csr_imm12",
-      "coverage": "csr_debug_read",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Read the read-only frontend CSR selected by imm12 into scalar register rd; rs1 and rs2 must be zero, writes to s0 are discarded, and an unknown CSR selector faults precisely without retiring.",
-      "description": "Architectural frontend state and retired-instruction snapshot read."
-    },
-    {
-      "name": "SYSTEM_EXIT",
-      "class": "SYSTEM",
-      "opcode": "0x0",
-      "format": "system_imm",
-      "coverage": "frontend_system_exit",
-      "fault": "NONE",
-      "semantics": "Terminate the active Holon program with DONE.",
-      "description": "Program terminal success instruction."
-    },
-    {
-      "name": "SYSTEM_FAULT",
-      "class": "SYSTEM",
-      "opcode": "0x1",
-      "format": "system_imm",
-      "coverage": "frontend_system_fault",
-      "fault": "EXPLICIT_PROGRAM_FAULT",
-      "semantics": "Terminate with EXPLICIT_PROGRAM_FAULT when imm12 is zero; any nonzero reserved immediate produces ILLEGAL_INSTRUCTION without retiring.",
-      "description": "Program terminal explicit fault instruction."
-    },
-    {
-      "name": "DMA_LOAD",
-      "class": "DMA",
-      "opcode": "0x0",
-      "format": "dma_regs_words12",
-      "coverage": "frontend_dma_load_program",
-      "fault": "DMA_REQUEST_FAULT",
-      "semantics": "Copy imm12+1 aligned 32-bit words from the 64-bit system address in {scalar[rs1], scalar[rd]} into local scratchpad at the 32-bit byte address in scalar[rs2].",
-      "description": "Register-addressed frontend-issued DMA system-to-scratchpad load instruction."
-    },
-    {
-      "name": "DMA_STORE",
-      "class": "DMA",
-      "opcode": "0x1",
-      "format": "dma_regs_words12",
-      "coverage": "frontend_dma_store_program",
-      "fault": "DMA_REQUEST_FAULT",
-      "semantics": "Copy imm12+1 aligned 32-bit words from local scratchpad at the 32-bit byte address in scalar[rs2] into the 64-bit system address in {scalar[rs1], scalar[rd]}.",
-      "description": "Register-addressed frontend-issued DMA scratchpad-to-system store instruction."
-    },
-    {
-      "name": "SYNC_WAIT_DMA",
-      "class": "SYNC",
-      "opcode": "0x0",
-      "format": "sync_order_point",
-      "coverage": "frontend_sync_wait_dma",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Wait until all prior frontend-issued DMA commands have completed and their effects are architecturally visible.",
-      "description": "DMA completion ordering point. In the first in-order DMA implementation, DMA instructions already retire after completion, so this instruction retires as an explicit no-op order point."
-    },
-    {
-      "name": "SYNC_FENCE_LOCAL",
-      "class": "SYNC",
-      "opcode": "0x1",
-      "format": "sync_order_point",
-      "coverage": "frontend_sync_fence_local",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Order prior local memory writes before later local memory reads or engine issue.",
-      "description": "Local scratchpad ordering point for future multi-client local-memory arbitration."
-    },
-    {
-      "name": "SYNC_FENCE_DMA",
-      "class": "SYNC",
-      "opcode": "0x2",
-      "format": "sync_order_point",
-      "coverage": "frontend_sync_fence_dma",
-      "fault": "ILLEGAL_INSTRUCTION",
-      "semantics": "Order prior local memory writes before later DMA stores and order prior DMA loads before later consumers.",
-      "description": "DMA/local-memory ordering point for frontend-visible transfer ordering."
-    }
-  ],
-  "architectural_state": {
-    "vector": [
-      "vl",
-      "max_vl",
-      "element_width",
-      "predicate",
-      "rounding_mode",
-      "saturation_mode"
-    ],
-    "frontend": [
-      "pc",
-      "fault_code",
-      "halted",
-      "debug_snapshot"
-    ],
-    "memory": [
-      "program_memory",
-      "data_scratchpad",
-      "vector_register_file",
-      "matrix_buffers"
+  "npu": {
+    "families": {
+      "vector": 0,
+      "matrix": 1,
+      "system": 2
+    },
+    "opcode_shift": 2,
+    "opcode_bits": 10,
+    "register_counts": {
+      "scalar": 32,
+      "vector": 32,
+      "predicate": 32,
+      "tile": 8,
+      "view": 16
+    },
+    "types": {
+      "i8": 0,
+      "u8": 1,
+      "i16": 2,
+      "u16": 3,
+      "i32": 4,
+      "u32": 5,
+      "f32": 6
+    },
+    "policies": {
+      "merge": 0,
+      "zero": 1
+    },
+    "roundings": {
+      "rne": 0,
+      "rtz": 1,
+      "rdn": 2,
+      "rup": 3
+    },
+    "capacities": {
+      "vector_bytes": 0,
+      "matrix_rows": 1,
+      "matrix_cols": 2,
+      "tile_bytes": 3
+    },
+    "traps": {
+      "invalid_operand": 24
+    },
+    "roles": {
+      "rd": "scalar",
+      "avl": "scalar",
+      "vl": "scalar",
+      "base": "scalar",
+      "end": "scalar",
+      "stride": "scalar",
+      "index": "scalar",
+      "seed": "scalar",
+      "value": "scalar",
+      "rows": "scalar",
+      "cols": "scalar",
+      "row_stride": "scalar",
+      "col_stride": "scalar",
+      "dst": "scalar",
+      "src": "scalar",
+      "count": "scalar",
+      "status": "scalar",
+      "vd": "vector",
+      "va": "vector",
+      "vb": "vector",
+      "vc": "vector",
+      "indices": "vector",
+      "pd": "predicate",
+      "pa": "predicate",
+      "pb": "predicate",
+      "pg": "predicate",
+      "select": "predicate",
+      "td": "tile",
+      "ta": "tile",
+      "tb": "tile",
+      "ts": "tile",
+      "view": "view",
+      "type": "element",
+      "peer_type": "element",
+      "result_type": "element",
+      "policy": "policy",
+      "rounding": "rounding",
+      "offset": "displacement",
+      "scale": "scale",
+      "selector": "capability"
+    },
+    "formats": {
+      "set_length": [
+        [
+          "rd",
+          12,
+          5
+        ],
+        [
+          "avl",
+          17,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "peer_type",
+          47,
+          4
+        ]
+      ],
+      "binary": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "vb",
+          22,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "policy",
+          46,
+          1
+        ]
+      ],
+      "ternary": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "vb",
+          22,
+          5
+        ],
+        [
+          "vc",
+          27,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "policy",
+          46,
+          1
+        ]
+      ],
+      "unary": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "policy",
+          46,
+          1
+        ]
+      ],
+      "convert": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "policy",
+          46,
+          1
+        ],
+        [
+          "result_type",
+          47,
+          4
+        ],
+        [
+          "rounding",
+          51,
+          2
+        ]
+      ],
+      "compare": [
+        [
+          "pd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "vb",
+          22,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ]
+      ],
+      "select": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "vb",
+          22,
+          5
+        ],
+        [
+          "select",
+          27,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "policy",
+          46,
+          1
+        ]
+      ],
+      "broadcast": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "value",
+          17,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "policy",
+          46,
+          1
+        ]
+      ],
+      "extract": [
+        [
+          "rd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "index",
+          22,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ]
+      ],
+      "permute": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "indices",
+          22,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ],
+        [
+          "policy",
+          46,
+          1
+        ]
+      ],
+      "reduce": [
+        [
+          "rd",
+          12,
+          5
+        ],
+        [
+          "va",
+          17,
+          5
+        ],
+        [
+          "seed",
+          22,
+          5
+        ],
+        [
+          "pg",
+          32,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ]
+      ],
+      "load": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "pg",
+          27,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "type",
+          37,
+          4
+        ],
+        [
+          "policy",
+          41,
+          1
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "store": [
+        [
+          "va",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "pg",
+          27,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "type",
+          37,
+          4
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "strided_load": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "stride",
+          22,
+          5
+        ],
+        [
+          "pg",
+          27,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "type",
+          37,
+          4
+        ],
+        [
+          "policy",
+          41,
+          1
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "strided_store": [
+        [
+          "va",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "stride",
+          22,
+          5
+        ],
+        [
+          "pg",
+          27,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "type",
+          37,
+          4
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "gather": [
+        [
+          "vd",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "indices",
+          22,
+          5
+        ],
+        [
+          "pg",
+          27,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "type",
+          37,
+          4
+        ],
+        [
+          "policy",
+          41,
+          1
+        ],
+        [
+          "scale",
+          42,
+          2
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "scatter": [
+        [
+          "va",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "indices",
+          22,
+          5
+        ],
+        [
+          "pg",
+          27,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "type",
+          37,
+          4
+        ],
+        [
+          "scale",
+          42,
+          2
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "ptrue": [
+        [
+          "pd",
+          12,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ]
+      ],
+      "pwhile": [
+        [
+          "pd",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "end",
+          22,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ]
+      ],
+      "predicate_binary": [
+        [
+          "pd",
+          12,
+          5
+        ],
+        [
+          "pa",
+          17,
+          5
+        ],
+        [
+          "pb",
+          22,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ]
+      ],
+      "predicate_unary": [
+        [
+          "pd",
+          12,
+          5
+        ],
+        [
+          "pa",
+          17,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ]
+      ],
+      "predicate_query": [
+        [
+          "rd",
+          12,
+          5
+        ],
+        [
+          "pa",
+          17,
+          5
+        ],
+        [
+          "vl",
+          37,
+          5
+        ]
+      ],
+      "predicate_load": [
+        [
+          "pd",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "predicate_store": [
+        [
+          "pa",
+          12,
+          5
+        ],
+        [
+          "base",
+          17,
+          5
+        ],
+        [
+          "vl",
+          32,
+          5
+        ],
+        [
+          "offset",
+          44,
+          20
+        ]
+      ],
+      "view": [
+        [
+          "view",
+          12,
+          4
+        ],
+        [
+          "base",
+          16,
+          5
+        ],
+        [
+          "rows",
+          21,
+          5
+        ],
+        [
+          "cols",
+          26,
+          5
+        ],
+        [
+          "row_stride",
+          31,
+          5
+        ],
+        [
+          "col_stride",
+          36,
+          5
+        ],
+        [
+          "type",
+          41,
+          4
+        ]
+      ],
+      "tile_load": [
+        [
+          "td",
+          12,
+          3
+        ],
+        [
+          "view",
+          15,
+          4
+        ]
+      ],
+      "tile_store": [
+        [
+          "ts",
+          12,
+          3
+        ],
+        [
+          "view",
+          15,
+          4
+        ]
+      ],
+      "tile_clear": [
+        [
+          "td",
+          12,
+          3
+        ],
+        [
+          "rows",
+          17,
+          5
+        ],
+        [
+          "cols",
+          22,
+          5
+        ],
+        [
+          "type",
+          42,
+          4
+        ]
+      ],
+      "dot": [
+        [
+          "td",
+          12,
+          3
+        ],
+        [
+          "ta",
+          15,
+          3
+        ],
+        [
+          "tb",
+          18,
+          3
+        ],
+        [
+          "type",
+          21,
+          4
+        ]
+      ],
+      "dma": [
+        [
+          "dst",
+          12,
+          5
+        ],
+        [
+          "src",
+          17,
+          5
+        ],
+        [
+          "count",
+          22,
+          5
+        ]
+      ],
+      "stop": [
+        [
+          "status",
+          12,
+          5
+        ]
+      ],
+      "caps": [
+        [
+          "rd",
+          12,
+          5
+        ],
+        [
+          "selector",
+          17,
+          2
+        ]
+      ]
+    },
+    "instructions": [
+      {
+        "name": "VSETL",
+        "family": "vector",
+        "opcode": 31,
+        "format": "set_length",
+        "semantics": "bounded_explicit_length"
+      },
+      {
+        "name": "VADD",
+        "family": "vector",
+        "opcode": 1,
+        "format": "binary",
+        "semantics": "lane_add"
+      },
+      {
+        "name": "VSUB",
+        "family": "vector",
+        "opcode": 2,
+        "format": "binary",
+        "semantics": "lane_subtract"
+      },
+      {
+        "name": "VMUL",
+        "family": "vector",
+        "opcode": 3,
+        "format": "binary",
+        "semantics": "lane_multiply"
+      },
+      {
+        "name": "VMULH",
+        "family": "vector",
+        "opcode": 27,
+        "format": "binary",
+        "types": [
+          "i8",
+          "u8",
+          "i16",
+          "u16",
+          "i32",
+          "u32"
+        ],
+        "semantics": "lane_product_high_half"
+      },
+      {
+        "name": "VMIN",
+        "family": "vector",
+        "opcode": 4,
+        "format": "binary",
+        "semantics": "lane_minimum"
+      },
+      {
+        "name": "VMAX",
+        "family": "vector",
+        "opcode": 5,
+        "format": "binary",
+        "semantics": "lane_maximum"
+      },
+      {
+        "name": "VDIV",
+        "family": "vector",
+        "opcode": 6,
+        "format": "binary",
+        "types": [
+          "f32"
+        ],
+        "semantics": "binary32_divide"
+      },
+      {
+        "name": "VSQRT",
+        "family": "vector",
+        "opcode": 7,
+        "format": "unary",
+        "types": [
+          "f32"
+        ],
+        "semantics": "binary32_square_root"
+      },
+      {
+        "name": "VFMA",
+        "family": "vector",
+        "opcode": 8,
+        "format": "ternary",
+        "types": [
+          "f32"
+        ],
+        "semantics": "binary32_fused_multiply_add"
+      },
+      {
+        "name": "VAND",
+        "family": "vector",
+        "opcode": 9,
+        "format": "binary",
+        "types": [
+          "i8",
+          "u8",
+          "i16",
+          "u16",
+          "i32",
+          "u32"
+        ],
+        "semantics": "lane_bitwise_and"
+      },
+      {
+        "name": "VOR",
+        "family": "vector",
+        "opcode": 10,
+        "format": "binary",
+        "types": [
+          "i8",
+          "u8",
+          "i16",
+          "u16",
+          "i32",
+          "u32"
+        ],
+        "semantics": "lane_bitwise_or"
+      },
+      {
+        "name": "VXOR",
+        "family": "vector",
+        "opcode": 11,
+        "format": "binary",
+        "types": [
+          "i8",
+          "u8",
+          "i16",
+          "u16",
+          "i32",
+          "u32"
+        ],
+        "semantics": "lane_bitwise_xor"
+      },
+      {
+        "name": "VSHL",
+        "family": "vector",
+        "opcode": 12,
+        "format": "binary",
+        "types": [
+          "i8",
+          "u8",
+          "i16",
+          "u16",
+          "i32",
+          "u32"
+        ],
+        "semantics": "lane_shift_left"
+      },
+      {
+        "name": "VSHR",
+        "family": "vector",
+        "opcode": 13,
+        "format": "binary",
+        "types": [
+          "i8",
+          "u8",
+          "i16",
+          "u16",
+          "i32",
+          "u32"
+        ],
+        "semantics": "lane_shift_logical_right"
+      },
+      {
+        "name": "VASHR",
+        "family": "vector",
+        "opcode": 14,
+        "format": "binary",
+        "types": [
+          "i8",
+          "i16",
+          "i32"
+        ],
+        "semantics": "lane_shift_arithmetic_right"
+      },
+      {
+        "name": "VCONVERT",
+        "family": "vector",
+        "opcode": 15,
+        "format": "convert",
+        "semantics": "rounded_saturating_conversion"
+      },
+      {
+        "name": "VCMPEQ",
+        "family": "vector",
+        "opcode": 16,
+        "format": "compare",
+        "semantics": "compare_equal"
+      },
+      {
+        "name": "VCMPLT",
+        "family": "vector",
+        "opcode": 17,
+        "format": "compare",
+        "semantics": "compare_less"
+      },
+      {
+        "name": "VCMPLE",
+        "family": "vector",
+        "opcode": 18,
+        "format": "compare",
+        "semantics": "compare_less_equal"
+      },
+      {
+        "name": "VCMPNE",
+        "family": "vector",
+        "opcode": 19,
+        "format": "compare",
+        "semantics": "compare_not_equal"
+      },
+      {
+        "name": "VSELECT",
+        "family": "vector",
+        "opcode": 20,
+        "format": "select",
+        "semantics": "predicated_select"
+      },
+      {
+        "name": "VBROADCAST",
+        "family": "vector",
+        "opcode": 21,
+        "format": "broadcast",
+        "semantics": "scalar_bit_broadcast"
+      },
+      {
+        "name": "VEXTRACT",
+        "family": "vector",
+        "opcode": 22,
+        "format": "extract",
+        "semantics": "lane_to_scalar"
+      },
+      {
+        "name": "VPERMUTE",
+        "family": "vector",
+        "opcode": 23,
+        "format": "permute",
+        "semantics": "indexed_lane_permutation"
+      },
+      {
+        "name": "VREDSUM",
+        "family": "vector",
+        "opcode": 24,
+        "format": "reduce",
+        "semantics": "ordered_seeded_sum"
+      },
+      {
+        "name": "VREDMIN",
+        "family": "vector",
+        "opcode": 25,
+        "format": "reduce",
+        "semantics": "seeded_minimum"
+      },
+      {
+        "name": "VREDMAX",
+        "family": "vector",
+        "opcode": 26,
+        "format": "reduce",
+        "semantics": "seeded_maximum"
+      },
+      {
+        "name": "VLD",
+        "family": "vector",
+        "opcode": 32,
+        "format": "load",
+        "semantics": "local_contiguous_load"
+      },
+      {
+        "name": "VST",
+        "family": "vector",
+        "opcode": 33,
+        "format": "store",
+        "semantics": "local_contiguous_store"
+      },
+      {
+        "name": "VLDS",
+        "family": "vector",
+        "opcode": 34,
+        "format": "strided_load",
+        "semantics": "local_strided_load"
+      },
+      {
+        "name": "VSTS",
+        "family": "vector",
+        "opcode": 35,
+        "format": "strided_store",
+        "semantics": "local_strided_store"
+      },
+      {
+        "name": "VGATHER",
+        "family": "vector",
+        "opcode": 36,
+        "format": "gather",
+        "semantics": "local_indexed_load"
+      },
+      {
+        "name": "VSCATTER",
+        "family": "vector",
+        "opcode": 37,
+        "format": "scatter",
+        "semantics": "local_indexed_store"
+      },
+      {
+        "name": "PTRUE",
+        "family": "vector",
+        "opcode": 64,
+        "format": "ptrue",
+        "semantics": "predicate_all_active"
+      },
+      {
+        "name": "PWHILELT",
+        "family": "vector",
+        "opcode": 65,
+        "format": "pwhile",
+        "semantics": "predicate_unsigned_range"
+      },
+      {
+        "name": "PAND",
+        "family": "vector",
+        "opcode": 66,
+        "format": "predicate_binary",
+        "semantics": "predicate_and"
+      },
+      {
+        "name": "POR",
+        "family": "vector",
+        "opcode": 67,
+        "format": "predicate_binary",
+        "semantics": "predicate_or"
+      },
+      {
+        "name": "PXOR",
+        "family": "vector",
+        "opcode": 68,
+        "format": "predicate_binary",
+        "semantics": "predicate_xor"
+      },
+      {
+        "name": "PNOT",
+        "family": "vector",
+        "opcode": 69,
+        "format": "predicate_unary",
+        "semantics": "predicate_not"
+      },
+      {
+        "name": "PCOUNT",
+        "family": "vector",
+        "opcode": 70,
+        "format": "predicate_query",
+        "semantics": "predicate_count"
+      },
+      {
+        "name": "PFIRST",
+        "family": "vector",
+        "opcode": 71,
+        "format": "predicate_query",
+        "semantics": "predicate_first_or_minus_one"
+      },
+      {
+        "name": "PLD",
+        "family": "vector",
+        "opcode": 72,
+        "format": "predicate_load",
+        "semantics": "packed_predicate_load"
+      },
+      {
+        "name": "PST",
+        "family": "vector",
+        "opcode": 73,
+        "format": "predicate_store",
+        "semantics": "packed_predicate_store"
+      },
+      {
+        "name": "MVIEW",
+        "family": "matrix",
+        "opcode": 0,
+        "format": "view",
+        "semantics": "capture_tile_view"
+      },
+      {
+        "name": "MLOAD",
+        "family": "matrix",
+        "opcode": 1,
+        "format": "tile_load",
+        "semantics": "load_matrix_register"
+      },
+      {
+        "name": "MCLEAR",
+        "family": "matrix",
+        "opcode": 2,
+        "format": "tile_clear",
+        "semantics": "clear_matrix_register"
+      },
+      {
+        "name": "MDOT",
+        "family": "matrix",
+        "opcode": 3,
+        "format": "dot",
+        "types": [
+          "i32",
+          "u32",
+          "f32"
+        ],
+        "semantics": "matrix_product"
+      },
+      {
+        "name": "MMACC",
+        "family": "matrix",
+        "opcode": 4,
+        "format": "dot",
+        "types": [
+          "i32",
+          "u32",
+          "f32"
+        ],
+        "semantics": "matrix_accumulation"
+      },
+      {
+        "name": "MSTORE",
+        "family": "matrix",
+        "opcode": 5,
+        "format": "tile_store",
+        "semantics": "store_matrix_register"
+      },
+      {
+        "name": "DLOAD",
+        "family": "system",
+        "opcode": 0,
+        "format": "dma",
+        "semantics": "system_to_local"
+      },
+      {
+        "name": "DSTORE",
+        "family": "system",
+        "opcode": 1,
+        "format": "dma",
+        "semantics": "local_to_system"
+      },
+      {
+        "name": "STOP",
+        "family": "system",
+        "opcode": 3,
+        "format": "stop",
+        "semantics": "retire_program_stop"
+      },
+      {
+        "name": "CAPS",
+        "family": "system",
+        "opcode": 4,
+        "format": "caps",
+        "semantics": "query_resource_capacity"
+      }
     ]
   }
 }

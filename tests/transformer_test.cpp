@@ -273,7 +273,7 @@ void run_case(const transformer_program& program,unsigned seed,unsigned capacity
         const auto write=[&](std::string_view name,std::span<const std::byte> bytes) {
             std::ofstream file(export_dir/name,std::ios::binary);
             file.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
-            require(bool(file),"write shared gem5 workload image");
+            require(bool(file),"write portable workload image");
         };
         write("program.bin",program.code.bytes());write("input.bin",initial);write("expected.bin",ram);
         std::ofstream manifest(export_dir/"reference.json");
