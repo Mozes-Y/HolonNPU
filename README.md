@@ -31,6 +31,11 @@ cmake --build --preset regression --parallel 2
 ctest --preset regression
 ```
 
+For measured C++ source coverage, repeat configure/build/test with `coverage`.
+It requires matching GCC/gcov and the same RISC-V toolchain as regression.
+The gate cleans counters, checks current-run evidence and enforces the measured
+line/function baseline. Reports are in `build/coverage/coverage/`.
+
 Use `--target holon_npu_transformer_test` for one executable and
 `ctest --preset debug -R '^holon_npu_transformer$' --verbose` to see seeds,
 capacities and numerical comparisons. Build commands do not run tests.
@@ -79,5 +84,4 @@ Use C23/C++26 and typed APIs, not project behavior macros. Change schemas before
 generated files, verify each feature, update current documentation and commit
 it before starting the next feature. Publish only on explicit instruction.
 
-No license has been selected; this repository does not grant an open-source
-license by implication.
+All rights reserved; see [LICENSE](LICENSE) for the repository's terms.

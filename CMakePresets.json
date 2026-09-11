@@ -19,6 +19,17 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "HOLON_NPU_VERIFY_TOOLCHAIN": "ON"
       }
+    },
+    {
+      "name": "coverage",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "HOLON_NPU_ENABLE_COVERAGE": "ON",
+        "HOLON_NPU_VERIFY_TOOLCHAIN": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -29,6 +40,10 @@
     {
       "name": "regression",
       "configurePreset": "regression"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
     }
   ],
   "testPresets": [
@@ -46,6 +61,17 @@
     {
       "name": "regression",
       "configurePreset": "regression",
+      "execution": {
+        "jobs": 2,
+        "noTestsAction": "error"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
       "execution": {
         "jobs": 2,
         "noTestsAction": "error"

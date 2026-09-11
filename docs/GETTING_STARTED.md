@@ -42,6 +42,20 @@ Its sibling G++ must also support C++26. Toolchain probes check real ELF
 attributes and execute C/C++ programs, not just decode hand-written words.
 Artifacts live under `build/regression/scalar-toolchain/`.
 
+For clean-run C++ coverage, use GCC and matching gcov:
+
+```sh
+cmake --preset coverage
+cmake --build --preset coverage --parallel 2
+ctest --preset coverage
+```
+
+The full preset prepares fresh counters, runs the tests, then checks coverage.
+Read `build/coverage/coverage/summary.txt` or `summary.json`; `annotated/` shows
+per-line hits and `raw/` retains gcov reports. A partial coverage run is not a
+gate: use Debug with `-R` for individual tests. See
+[Verification](VERIFICATION.md#c-coverage) for scope and baseline policy.
+
 For library-only consumers use `cmake -S . -B build/library -G Ninja
 -DBUILD_TESTING=OFF`, then `cmake --build build/library`. Public C++ headers
 and language requirements propagate through target file sets and links.

@@ -55,3 +55,25 @@ changes, not silently interchangeable scheduler policies.
   ADR for routine implementation progress; only decisions with lasting tradeoffs.
 - Numerical tests use independent mathematical references. Coverage reports
   describe the implementation they actually instrument, not historical counts.
+
+## ADR-0069: Native C++ Verification Evidence
+
+**Status:** Accepted and implemented for the 3.0 mainline.
+
+**Decision:** Coverage instruments the current C++ targets with GCC/gcov, not
+testbench feature macros or a second logging runtime. Keep one coverage preset,
+using an unoptimized instrumented tree for source attribution. Debug and
+optimized regression remain uninstrumented. Record compiler identity.
+
+**Gate:** Start from clean counters, require exact current translation-unit
+data from the compilation database, check source/configuration provenance,
+report owned source line/branch/function coverage, and enforce a measured
+line/function baseline. Branches are reported, not equated to ISA functional
+coverage. Functional correctness remains the actual test scoreboards; no old
+RTL coverage point is credited. Baselines cannot be lowered by the update tool.
+
+**Alternatives:** Keeping Verilator data would measure retired code. Per-test
+logging/backend wrappers add machinery unrelated to source coverage. Native
+compiler instrumentation preserves all C++ behavior without own feature macros.
+The first coverage backend supports GCC; other compilers may build ordinary
+configurations, but coverage cannot silently omit unsupported instrumentation.

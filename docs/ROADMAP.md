@@ -18,7 +18,7 @@ belongs in research notes, not capability claims.
 - Research candidates may coexist as explicit experiments, not historical
   product forks or independently maintained instruction interpreters.
 
-## 3.0 Mainline Transition (Active)
+## 3.0 Mainline Transition (Complete)
 
 Recovery checkpoint: `9e70a99ef0f694cbd503f259aadf99317c76344b`.
 The `v2.0` tag retains the accelerator RTL; the checkpoint also retains later

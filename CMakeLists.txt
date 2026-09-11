@@ -10,6 +10,25 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(CTest)
 option(HOLON_NPU_VERIFY_TOOLCHAIN "Require upstream RV32 C23/C++26 execution probes" OFF)
+option(HOLON_NPU_ENABLE_COVERAGE "Instrument current C++ tests with GCC coverage" OFF)
+
+if(HOLON_NPU_ENABLE_COVERAGE)
+  if(NOT BUILD_TESTING OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "Coverage requires BUILD_TESTING=ON and GCC/gcov; ordinary builds do not")
+  endif()
+  string(REGEX MATCH "^[0-9]+" compiler_major "${CMAKE_CXX_COMPILER_VERSION}")
+  find_program(HOLON_NPU_GCOV NAMES gcov-${compiler_major} gcov REQUIRED)
+  execute_process(COMMAND ${HOLON_NPU_GCOV} --version
+    OUTPUT_VARIABLE gcov_version COMMAND_ERROR_IS_FATAL ANY)
+  if(NOT gcov_version MATCHES "gcov[^\n]* ${compiler_major}\\.")
+    message(FATAL_ERROR "gcov must match GCC ${compiler_major}: ${HOLON_NPU_GCOV}")
+  endif()
+  add_library(holon_npu_coverage INTERFACE)
+  target_compile_options(holon_npu_coverage INTERFACE --coverage -O0 -fprofile-update=atomic)
+  target_link_options(holon_npu_coverage INTERFACE --coverage)
+  file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/coverage-config.json CONTENT
+    "{\"source\":\"${CMAKE_SOURCE_DIR}\",\"compiler\":\"${CMAKE_CXX_COMPILER}\",\"version\":\"${CMAKE_CXX_COMPILER_VERSION}\",\"gcov\":\"${HOLON_NPU_GCOV}\",\"toolchain\":\"${HOLON_NPU_VERIFY_TOOLCHAIN}\"}\n")
+endif()
 
 add_library(holon_npu_semantic)
 target_sources(holon_npu_semantic
@@ -35,6 +54,9 @@ target_sources(holon_npu_semantic
     sim/semantic/holon_npu_operand_metadata.hpp
 )
 target_compile_features(holon_npu_semantic PUBLIC cxx_std_26)
+if(HOLON_NPU_ENABLE_COVERAGE)
+  target_link_libraries(holon_npu_semantic PUBLIC holon_npu_coverage)
+endif()
 target_compile_options(holon_npu_semantic PRIVATE
   $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:-frounding-math;-ffp-contract=off>
 )
@@ -62,6 +84,9 @@ function(holon_npu_add_ctest name)
     ENVIRONMENT PYTHONDONTWRITEBYTECODE=1
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   )
+  if(HOLON_NPU_ENABLE_COVERAGE)
+    set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED coverage_run)
+  endif()
 endfunction()
 
 holon_npu_add_ctest(isa_generate_check LABEL static
@@ -72,6 +97,10 @@ holon_npu_add_ctest(isa_schema_tests LABEL static
   COMMAND ${Python3_EXECUTABLE} tests/isa_schema_test.py)
 holon_npu_add_ctest(macro_policy LABEL static
   COMMAND ${Python3_EXECUTABLE} tools/check_macro_policy.py)
+holon_npu_add_ctest(repository_check LABEL static
+  COMMAND ${Python3_EXECUTABLE} tools/check_repository.py --build-dir ${CMAKE_BINARY_DIR})
+holon_npu_add_ctest(verification_tools LABEL static
+  COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -p "*_tools_test.py")
 
 add_executable(holon_npu_semantic_test)
 target_sources(holon_npu_semantic_test PRIVATE tests/semantic_test.cpp)
@@ -142,4 +171,17 @@ if(HOLON_NPU_VERIFY_TOOLCHAIN)
       --runner $<TARGET_FILE:holon_npu_memory_test>
       --output ${CMAKE_BINARY_DIR}/scalar-toolchain
   )
+endif()
+
+if(HOLON_NPU_ENABLE_COVERAGE)
+  add_test(NAME coverage_prepare
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_coverage.py
+      --build-dir ${CMAKE_BINARY_DIR} --prepare)
+  set_tests_properties(coverage_prepare PROPERTIES
+    FIXTURES_SETUP coverage_run RUN_SERIAL TRUE LABELS coverage)
+  add_test(NAME coverage_check
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_coverage.py
+      --build-dir ${CMAKE_BINARY_DIR})
+  set_tests_properties(coverage_check PROPERTIES
+    FIXTURES_CLEANUP coverage_run RUN_SERIAL TRUE LABELS coverage TIMEOUT 120)
 endif()

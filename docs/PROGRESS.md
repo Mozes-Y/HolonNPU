@@ -2,44 +2,50 @@
 
 ## Current Status
 
-HolonNPU 3.0 mainline convergence is in progress. The accepted destination is an
-open architecture-research platform with a C++26 semantic baseline. RTL work is
-paused; old RTL/gem5 paths are being retired. No 3.0 release tag is published.
+HolonNPU 3.0 mainline convergence is complete. The repository is an open
+architecture-research platform with one C++26 functional baseline. RTL work is
+paused; old RTL, accelerator ABI/driver and gem5 paths are retired. Project
+version is 3.0.0, independent of ISA/ABI numbering. No 3.0 tag has been published.
 
 Recovery: `9e70a99ef0f694cbd503f259aadf99317c76344b` preserves the complete
 pre-transition implementation. Existing release tags remain unchanged.
-Project version 3.0 does not assign a new ISA or program ABI version.
+Governance, code/schema convergence and verification are separate commits.
 
-## Transition Evidence
+## Latest Evidence (2026-09-11)
 
-| Step | State | Evidence |
-| ---- | ----- | -------- |
-| Governance | Complete | `gen_abi.py --check`, `gen_isa.py --check`, `check_macro_policy.py`, `git diff --check` passed |
-| Canonical code/schema/build | Complete | Fresh configure/build; Debug 14/14, Regression 15/15 including compiled RV32 probes; generation/schema/macro/whitespace checks passed |
-| C++ verification/CI | Pending | New coverage evidence required; old RTL metrics do not count |
+| Gate | Result |
+| ---- | ------ |
+| Fresh Debug configure/build/test | 16/16 passed |
+| Fresh Regression configure/build/test | 17/17 passed, including real RV32 C23/C++26 programs |
+| Fresh Coverage configure/build/test | 19/19 passed; 20 current data files |
+| GCC 15 coverage cross-check | 19/19 passed, same baseline |
+| Native C++ coverage | Lines 98.82%, functions 98.82%, branches 72.31%; line/function gates 98% |
+| Generation/schema/repository/macro gates | Passed, including local links and six checker negative tests |
+| Library-only build | Passed with `BUILD_TESTING=OFF`, no Python/gcov dependency |
+| Portable fixtures | Transformer and system-memory exports passed their scoreboards |
 
-The retained implementation includes mixed RV32/Holon execution, precise
-traps/retirement, ELF loading, independent system-memory boundary tests, and a
-small whole-program Transformer checked against a double-precision reference.
-These assets were revalidated after cleanup with CMake 4.3.4 and GCC/G++ 16.2.
-Generated scalar/NPU C++ metadata is byte-identical to the checkpoint; only
-schema ownership and generated references changed. No instruction semantics
-were changed. System-memory fixtures now report actual semantic requests, not
-estimated packets from a retired backend.
+Host tools: CMake 4.3.4, GCC/G++/gcov 16.2 and 15.3. Run configure with
+`cmake --preset <name> --fresh`, build with `cmake --build --preset <name>
+--parallel 2`, then `ctest --preset <name>` for debug/regression/coverage.
+`python3 tools/gen_isa.py --check`, `python3 tools/check_isa.py`,
+`python3 tools/check_macro_policy.py`, `python3 tools/check_repository.py
+--build-dir build/debug`, and `git diff --check` also pass.
 
-Commands: `cmake --preset debug --fresh`, `cmake --build --preset debug
---parallel 2`, `ctest --preset debug`; the same configure/build/test sequence
-for `regression`; `python3 tools/gen_isa.py --check`, `python3
-tools/check_isa.py`, `python3 tests/isa_schema_test.py`,
-`python3 tools/check_macro_policy.py`, and `git diff --check`.
+A deliberately partial coverage run was rejected for missing current data;
+the full preset was then rerun successfully. Coverage artifacts record source
+provenance/compiler and are not ISA functional completeness claims. CI now runs
+these gates; the remote workflow has not been executed as part of this local work.
+
+The semantic core, generated C++ instruction metadata and runtime implementation
+are unchanged from the recovery checkpoint. Existing precise traps, ELF,
+vector/matrix arithmetic, DMA and independent Transformer tests remain active.
+Memory fixtures report actual semantic requests, not retired-backend packets.
 
 ## Next Work And Limits
 
-Complete the three transition steps in Roadmap, with one verified commit per
-step. Then design the dependency/effect contract and independent performance
-simulator before adding architectural mechanisms.
-
-No deterministic parallel timing model, task compiler, calibrated DSE,
-representative prefill/decode corpus or new RTL is implemented by this cleanup.
-The user's block/tile-dataflow document is a core research candidate, not a
-selected product architecture. Historic details belong in Git and Changelog.
+Define the dependency/effect contract, then build the independent performance
+simulator according to Roadmap and Simulation. No deterministic parallel timing
+model, task compiler, calibrated DSE, representative prefill/decode corpus or
+new RTL was implemented by this cleanup. The user's block/tile-dataflow design
+is a core research candidate, not a selected product architecture. Historical
+details belong in Git and Changelog.

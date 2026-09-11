@@ -11,8 +11,12 @@ All notable project-level release changes are recorded here.
 - Simplified target-centric CMake and current-state documentation. Retained
   semantic, ELF, trap, DMA, Transformer and upstream C23/C++26 execution tests.
   Portable memory fixtures report real semantic requests instead of estimated
-  packets. New C++ coverage acceptance follows separately.
-- Begin the research-mainline transition: pause RTL, retire legacy accelerator
+  packets.
+- Added native GCC/gcov C++ coverage with clean-run provenance, exact current
+  data sets and measured 98% line/function gates. CI runs Debug, Regression and
+  Coverage; repository/link/macro checks and their negative tests guard the
+  new ownership boundaries. Retired RTL metrics are not reused.
+- Completed the research-mainline transition: pause RTL, retire legacy accelerator
   and gem5 paths, retain autonomous semantic/workload assets, and adopt open
   architecture exploration. Project version is independent of ISA/ABI versions.
 

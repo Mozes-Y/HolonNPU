@@ -49,6 +49,13 @@ jobs:
       - name: Test regression and RV32 toolchain
         run: ctest --preset regression
 
+      - name: Configure coverage
+        run: cmake --preset coverage -DHOLON_NPU_RISCV_GCC=riscv64-linux-gnu-gcc-15
+      - name: Build coverage
+        run: cmake --build --preset coverage --parallel 2
+      - name: Test coverage
+        run: ctest --preset coverage
+
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,3 +66,7 @@ jobs:
             build/debug/Testing/
             build/regression/Testing/
             build/regression/scalar-toolchain/
+            build/coverage/Testing/
+            build/coverage/coverage/
+            build/coverage/coverage-config.json
+            build/coverage/scalar-toolchain/
